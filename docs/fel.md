@@ -7,18 +7,18 @@
 
 ```sh
 # 1. E907 初始化 PSRAM，完成后返回 FEL
-xfel write 0x00100000 build/riscv/images/init_psram_efex.bin
+xfel write 0x00100000 software/build/riscv/images/init_psram_efex.bin
 xfel exec  0x00100000
 
 # 2. C907 镜像（链接地址 0x12000000）
-xfel write 0x12000000 build/riscv/images/cardsight.bin
+xfel write 0x12000000 software/build/riscv/images/cardsight.bin
 
 # 3. E907 启动 C907，入口 0x12000000
-xfel write 0x00100000 build/riscv/images/c907_boot_efex.bin
+xfel write 0x00100000 software/build/riscv/images/c907_boot_efex.bin
 xfel exec  0x00100000
 ```
 
-两个 eFEX 由 `third_party/SyterKit` 里的 `yuzuki-cardsight` 板配置构建（`cmake/syterkit.cmake`）：
+两个 eFEX 由 `software/third_party/SyterKit` 里的 `yuzuki-cardsight` 板配置构建（`software/cmake/syterkit.cmake`）：
 
 - `init_psram_efex.bin`：E907 上初始化 8 MiB PSRAM（SQPI 100 MHz），UART 打印
   `PSRAM ready; returning to FEL for image download at 12000000` 后回到 FEL；

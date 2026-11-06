@@ -1,18 +1,18 @@
 [submodule "third_party/SyterKit"]
-	path = third_party/SyterKit
+	path = software/third_party/SyterKit
 	url = https://github.com/YuzukiHD/SyterKit.git
 [submodule "third_party/FreeRTOS-Kernel"]
-	path = third_party/FreeRTOS-Kernel
+	path = software/third_party/FreeRTOS-Kernel
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
 [submodule "third_party/LVGL"]
-	path = third_party/LVGL
+	path = software/third_party/LVGL
 	url = https://github.com/lvgl/lvgl.git
 [submodule "third_party/lwext4"]
-	path = third_party/lwext4
+	path = software/third_party/lwext4
 	url = https://github.com/gkostka/lwext4.git
 [submodule "third_party/fatfs"]
-	path = third_party/fatfs
+	path = software/third_party/fatfs
 	url = https://github.com/abbrev/fatfs.git
 [submodule "third_party/CherryUSB"]
-	path = third_party/CherryUSB
+	path = software/third_party/CherryUSB
 	url = https://github.com/cherry-embedded/CherryUSB.git

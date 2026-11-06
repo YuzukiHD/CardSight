@@ -9,7 +9,9 @@ if(NOT DEFINED XUANTIE_TOOLCHAIN)
     if(DEFINED ENV{XUANTIE_TOOLCHAIN})
         set(XUANTIE_TOOLCHAIN $ENV{XUANTIE_TOOLCHAIN})
     else()
-        set(XUANTIE_TOOLCHAIN ${CMAKE_CURRENT_LIST_DIR}/../../toolchains/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0)
+        message(FATAL_ERROR
+            "XUANTIE_TOOLCHAIN is not set; point it at the XuanTie toolchain directory "
+            "(environment variable, or pass -DXUANTIE_TOOLCHAIN=<path>).")
     endif()
 endif()
 

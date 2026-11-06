@@ -4,10 +4,12 @@ CardSight 是 Yuzuki CardSight（V861/V881，C907）板上的相机/存储应用
 格式化与 USB 存储代理界面。本仓库把应用从 SyterOS 中抽出，配一套为这块板子新写的极简底层，
 以 **GPL-2.0-or-later** 开源。
 
-- 应用：`apps/cardsight/`（LVGL 界面、分区/格式化、exFAT 视图代理）
-- 底层：`src/`（启动、FreeRTOS 胶水、CCU/引脚、MMC/SD、块层、VFS、FatFs/lwext4、SPI 屏、触摸、USB MSC）
-- 板级描述：`board/`（全部是 C 数组/结构体，不使用设备树）
-- 第三方：`third_party/`（全部是 git submodule：FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit）
+- 应用：`software/apps/cardsight/`（LVGL 界面、分区/格式化、exFAT 视图代理）
+- 底层：`software/src/`（启动、FreeRTOS 胶水、CCU/引脚、MMC/SD、块层、VFS、FatFs/lwext4、SPI 屏、触摸、USB MSC）
+- 板级描述：`software/board/`（板级 C 数组/结构体与链接脚本，不使用设备树）
+- 第三方：`software/third_party/`（全部是 git submodule：FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit）
+- 硬件设计：`hardware/`（原理图、PCB、BOM）
+- 文档：`docs/`
 
 ## 板上验证状态
 
@@ -38,11 +40,13 @@ DMA 的目标。拔卡后若卡上还有未刷写的数据，代理会报 `flush
 
 ## 构建
 
-需要 RISC-V 工具链（默认 `../toolchains/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0`，
-可用 `-DXUANTIE_TOOLCHAIN=...` 或环境变量覆盖）。
+需要 RISC-V 工具链，路径由环境变量 `XUANTIE_TOOLCHAIN` 指定（也可用
+`-DXUANTIE_TOOLCHAIN=...` 覆盖）；仓库不写死本机路径。
 
 ```sh
+export XUANTIE_TOOLCHAIN=/path/to/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0
 git submodule update --init --recursive   # 全部第三方组件都是 submodule
+cd software
 cmake --preset riscv
 cmake --build build/riscv
 # 产物：build/riscv/images/cardsight.bin
@@ -53,6 +57,7 @@ cmake --build build/riscv
 主机测试（无需硬件）：
 
 ```sh
+cd software
 cmake --preset host
 cmake --build build/host
 ctest --test-dir build/host --output-on-failure
@@ -61,16 +66,16 @@ ctest --test-dir build/host --output-on-failure
 发布源码包（不含构建产物与厂家预编译库，包含许可证）：
 
 ```sh
-./scripts/release.sh 0.1.0     # 产物：dist/cardsight-0.1.0.tar.gz
+./software/scripts/release.sh 0.1.0     # 产物：dist/cardsight-0.1.0.tar.gz
 ```
 
 ## 烧写与启动（FEL）
 
 ```sh
-xfel write 0x00100000 build/riscv/images/init_psram_efex.bin
+xfel write 0x00100000 software/build/riscv/images/init_psram_efex.bin
 xfel exec  0x00100000          # E907 初始化 PSRAM，返回 FEL
-xfel write 0x12000000 build/riscv/images/cardsight.bin
-xfel write 0x00100000 build/riscv/images/c907_boot_efex.bin
+xfel write 0x12000000 software/build/riscv/images/cardsight.bin
+xfel write 0x00100000 software/build/riscv/images/c907_boot_efex.bin
 xfel exec  0x00100000          # E907 启动 C907（entry = 0x12000000）
 ```
 
@@ -105,19 +110,24 @@ USB：`cardsight usb on` 之后把板子的 OTG 口接到主机；Windows 会识
 
 | 路径 | 说明 |
 |---|---|
-| `apps/cardsight/` | 应用（UI、存储代理、字体） |
-| `board/` | 板级常量数组与链接脚本 |
-| `include/` | 平台 API（`vfs.h`、`hal/*`、`usb/mass_storage.h`、`gui/lvgl_port.h`） |
-| `src/` | 平台实现；驱动按子系统拆分（SPI、显示、触摸、I2C，MMC 分 host/core/card） |
-| `tests/host/` | 主机测试（存储代理矩阵、VFS、分区布局、UI） |
+| `software/` | 软件工程根：CMake、源码、应用、测试、补丁 |
+| `software/apps/cardsight/` | 应用（UI、存储代理、字体） |
+| `software/src/` | 平台实现；驱动按子系统拆分（SPI、显示、触摸、I2C，MMC 分 host/core/card） |
+| `software/include/` | 平台 API（`vfs.h`、`hal/*`、`usb/mass_storage.h`、`gui/lvgl_port.h`） |
+| `software/tests/host/` | 主机测试（存储代理矩阵、VFS、分区布局、UI） |
+| `software/patches/` | 上游组件的板级补丁（CherryUSB） |
+| `software/third_party/` | 第三方 submodule（FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit） |
+| `software/board/` | 板级常量数组（`cardsight_board.c/.h`）与链接脚本（`cardsight.ld`） |
+| `hardware/` | 硬件设计资料（原理图、PCB、BOM） |
 | `docs/` | 启动、硬件、移植、许可说明 |
+| `dist/` | 发布产物（不入库） |
 
 ## 许可
 
 本项目以 GPL-2.0-or-later 发布；第三方组件的许可见 [THIRD_PARTY.md](THIRD_PARTY.md)
 与各自目录下的许可证文件。字体来自 Source Sans，按 SIL OFL 1.1 随附
-（`apps/cardsight/FONT_LICENSE.txt`）。
+（`software/apps/cardsight/FONT_LICENSE.txt`）。
 
-> 注意：`third_party/SyterKit` 固定在一个包含本板支持（`boards/yuzuki-cardsight`）的提交上。
+> 注意：`software/third_party/SyterKit` 固定在一个包含本板支持（`boards/yuzuki-cardsight`）的提交上。
 > 首次公开发布前要先把这个提交推到 `.gitmodules` 里的公开仓库，否则外部无法初始化子模块。
 > 详见 [docs/licensing.md](docs/licensing.md)。

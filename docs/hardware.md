@@ -2,7 +2,7 @@
 
 一块 Yuzuki CardSight：Allwinner V861/V881（`sun252iw1`），C907 RISC-V 核（RV32，
 `rv32imafdc_zicsr_zifencei`，ilp32d），另有 E907 小核负责上电初期的内存初始化。所有硬件
-信息都在 `board/cardsight_board.c` 的常量数组里，不存在设备树。
+信息都在 `software/board/cardsight_board.c` 的常量数组里，不存在设备树。
 
 ## 内存
 
@@ -22,7 +22,7 @@
   复位 16），USB PHY `0x0a70`（门 31、复位 30），USB OTG `0x0a8c`（门 8、复位 24）。
 - 定时器：CLINT `0x34000000`，mtime `+0xbff8` 24 MHz；FreeRTOS 的机器定时器比较寄存器
   `+0x4000`。`ktime_get_us()` 直接读 mtime。
-- 中断：PLIC `0x30000000`，hart0 机器模式上下文（见 `src/arch/plic.c`）。板级表里的编号是
+- 中断：PLIC `0x30000000`，hart0 机器模式上下文（见 `software/src/arch/plic.c`）。板级表里的编号是
   PLIC 源号；SoC 手册/HANDOFF 里的 CLIC 编号比它大 16（UART0 CLIC 18 → PLIC 2）。
 
 ## 外设
@@ -61,7 +61,7 @@
 ### 显示与触摸
 
 - ST7789 兼容屏，240×284，RGB565，SPI 模式 0，像素高字节在前（`pixels_swapped`）。
-  MADCTL `0x48`（mirror-x + BGR）。初始化表在 `src/drivers/display/panel-st7789.c`。
+  MADCTL `0x48`（mirror-x + BGR）。初始化表在 `software/src/drivers/display/panel-st7789.c`。
   DC/RST 是普通 GPIO 输出（mux 1），SPI 控制器要置 DHB/DDB/SDM 位；漏掉任何一项都会
   出现全黑或颜色错乱（曾出现整屏黑与“发绿显红”）。
 - CST816D 电容触摸，I2C 轮询（无中断/工作线程），6 字节报文从寄存器 `0x01` 读取，X 方向按
