@@ -108,6 +108,27 @@ static int command_cache(int argc, char **argv)
 		}
 		return 0;
 	}
+	if (argc == 3 && strcmp(argv[1], "psram") == 0) {
+		/* SQPI module clock: CCU + 0x850, divider-1 in bits 3:0, source in bits 25:24,
+		 * gate in bit 31. The parent is the 400 MHz peripheral PLL. */
+		uintptr_t clock_reg = 0x02001000UL + 0x850U;
+		uint32_t divider = (uint32_t)strtoul(argv[2], NULL, 10);
+		uint32_t value = readl(clock_reg);
+		uint64_t started;
+		uint64_t elapsed;
+
+		writel(value & ~(1U << 31), clock_reg);
+		writel((value & ~0xfU) | ((divider - 1U) & 0xfU), clock_reg);
+		started = ktime_get_us();
+		probe_sink = probe_read(probe_large, CACHE_LARGE);
+		elapsed = ktime_get_us() - started;
+		printf("cache: psram clock /%u (reg %08lx): 256 KiB in %llu us (%llu KiB/s)\n",
+			(uint32_t)divider, (unsigned long)readl(clock_reg),
+			(unsigned long long)elapsed,
+			(unsigned long long)((uint64_t)CACHE_LARGE * 1000000U / 1024U /
+				(elapsed == 0U ? 1U : elapsed)));
+		return 0;
+	}
 	if (argc == 3 && strcmp(argv[1], "mhint") == 0) {
 		uint32_t saved;
 		uint32_t setting = (uint32_t)strtoul(argv[2], NULL, 16);
