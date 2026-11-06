@@ -88,7 +88,7 @@ int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t
 	return 0;
 }
 
-/* Fill the whole panel with one RGB565 colour, written as RGB666. */
+/* Fill the whole panel with one RGB565 colour, written in the same B, G, R order as LVGL. */
 static int display_fill(uint16_t color)
 {
 	size_t bytes = (size_t)display_info.width * display_info.bytes_per_pixel;
@@ -103,9 +103,9 @@ static int display_fill(uint16_t color)
 		uint32_t green = ((color >> 5) & 0x3fU) * 255U / 63U;
 		uint32_t blue = (color & 0x1fU) * 255U / 31U;
 
-		line[index * 3U] = (uint8_t)(red & 0xfcu);
+		line[index * 3U] = (uint8_t)(blue & 0xfcu);
 		line[index * 3U + 1U] = (uint8_t)(green & 0xfcu);
-		line[index * 3U + 2U] = (uint8_t)(blue & 0xfcu);
+		line[index * 3U + 2U] = (uint8_t)(red & 0xfcu);
 	}
 	result = st7789_set_window(0U, 0U, display_info.width, display_info.height);
 	for (uint32_t row = 0U; result == 0 && row < display_info.height; row++) {

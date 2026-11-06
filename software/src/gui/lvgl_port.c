@@ -60,21 +60,6 @@ static void lvgl_flush(lv_display_t *display, const lv_area_t *area, uint8_t *pi
 	uint32_t elapsed_us;
 	int result;
 
-	/* LVGL renders RGB888 (B, G, R); the panel takes 18 bits per pixel, R, G, B. */
-	{
-		uint8_t *pixel = pixels;
-
-		for (size_t index = 0U; index < (size_t)width * height; index++) {
-			uint8_t blue = pixel[0];
-			uint8_t green = pixel[1];
-			uint8_t red = pixel[2];
-
-			pixel[0] = (uint8_t)(red & 0xfcU);
-			pixel[1] = (uint8_t)(green & 0xfcU);
-			pixel[2] = (uint8_t)(blue & 0xfcU);
-			pixel += 3U;
-		}
-	}
 	result = sunxi_display_write((uint16_t)area->x1, (uint16_t)area->y1, width, height, width, pixels);
 	elapsed_us = (uint32_t)(ktime_get_us() - started_us);
 	port.flush_count++;
@@ -168,7 +153,7 @@ static void lvgl_task(void *argument)
 		return;
 	}
 	port.ready = true;
-	pr_info("LVGL 9.6: %ldx%ld RGB565%s\n", (long)lv_display_get_horizontal_resolution(port.display),
+	pr_info("LVGL 9.6: %ldx%ld RGB888%s\n", (long)lv_display_get_horizontal_resolution(port.display),
 		(long)lv_display_get_vertical_resolution(port.display),
 		port.input != NULL ? ", touchscreen" : "");
 	for (;;) {

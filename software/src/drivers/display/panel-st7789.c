@@ -42,7 +42,7 @@ struct panel_command {
 
 static const struct panel_command panel_init[] = {
 	{ ST7789_SLPOUT, 0U, 120U, { 0 } },
-	{ ST7789_MADCTL, 1U, 0U, { MADCTL_MIRROR_X | MADCTL_BGR } },
+	{ ST7789_MADCTL, 1U, 0U, { MADCTL_MIRROR_X } },
 	{ ST7789_COLMOD, 1U, 0U, { 0x06U } }, /* 18 bits per pixel, RGB666 */
 	{ 0xb2U, 5U, 0U, { 0x0cU, 0x0cU, 0x00U, 0x33U, 0x33U } },
 	{ 0xb7U, 1U, 0U, { 0x05U } },
