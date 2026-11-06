@@ -30,9 +30,12 @@ RANGE_OP(dcache_clean_range, "th.dcache.cpa")
 RANGE_OP(dcache_invalidate_range, "th.dcache.ipa")
 
 #ifdef CONFIG_SHELL
+#include <hal/io.h>
 #include <hal/kernel.h>
 #include <shell.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define CACHE_SMALL (8U * 1024U)
 #define CACHE_LARGE (256U * 1024U)
@@ -68,6 +71,26 @@ static void probe_write(uint8_t *buffer, size_t bytes, uint32_t value)
 
 /* The state of the two caches, then the same amount of traffic over a buffer that fits the
  * data cache and one that does not: a working cache makes the first far faster. */
+/* The PSRAM controller fills a line of its own per request (SQPI cache register, bits 1:0).
+ * Match it to the 64-byte L1 line and time the streaming read for every setting. */
+#define SQPI_CACHE_REG (0x03043000UL + 0x008U)
+
+static void cache_read_line(uint32_t setting)
+{
+	uint32_t value = readl(SQPI_CACHE_REG);
+	uint64_t started;
+	uint64_t elapsed;
+
+	writel((value & ~3U) | (setting & 3U), SQPI_CACHE_REG);
+	started = ktime_get_us();
+	probe_sink = probe_read(probe_large, CACHE_LARGE);
+	elapsed = ktime_get_us() - started;
+	printf("cache: read line %u (reg %08lx): 256 KiB in %llu us (%llu KiB/s)\n", (uint32_t)setting,
+		(unsigned long)readl(SQPI_CACHE_REG), (unsigned long long)elapsed,
+		(unsigned long long)((uint64_t)CACHE_LARGE * 1000000U / 1024U / (elapsed == 0U ? 1U : elapsed)));
+	writel(value, SQPI_CACHE_REG);
+}
+
 static int command_cache(int argc, char **argv)
 {
 	uint32_t mxstatus;
@@ -78,8 +101,31 @@ static int command_cache(int argc, char **argv)
 	uint64_t elapsed;
 	uint32_t passes;
 
-	(void)argc;
 	(void)argv;
+	if (argc == 2 && strcmp(argv[1], "readline") == 0) {
+		for (uint32_t setting = 0U; setting < 4U; setting++) {
+			cache_read_line(setting);
+		}
+		return 0;
+	}
+	if (argc == 3 && strcmp(argv[1], "mhint") == 0) {
+		uint32_t saved;
+		uint32_t setting = (uint32_t)strtoul(argv[2], NULL, 16);
+		uint64_t started;
+		uint64_t elapsed;
+
+		__asm__ volatile("csrr %0, 0x7c5" : "=r"(saved));
+		__asm__ volatile("csrw 0x7c5, %0" ::"r"(setting));
+		started = ktime_get_us();
+		probe_sink = probe_read(probe_large, CACHE_LARGE);
+		elapsed = ktime_get_us() - started;
+		__asm__ volatile("csrw 0x7c5, %0" ::"r"(saved));
+		printf("cache: mhint %08lx: 256 KiB in %llu us (%llu KiB/s)\n",
+			(unsigned long)setting, (unsigned long long)elapsed,
+			(unsigned long long)((uint64_t)CACHE_LARGE * 1000000U / 1024U /
+				(elapsed == 0U ? 1U : elapsed)));
+		return 0;
+	}
 	__asm__ volatile("csrr %0, 0x7c0" : "=r"(mxstatus));
 	__asm__ volatile("csrr %0, 0x7c1" : "=r"(mhcr));
 	__asm__ volatile("csrr %0, 0x7c2" : "=r"(mcor));
