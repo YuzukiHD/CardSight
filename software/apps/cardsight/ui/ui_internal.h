@@ -3,6 +3,7 @@
 #define CARDSIGHT_UI_INTERNAL_H
 #include "app/app.h"
 #include "ui/ui.h"
+#include "ui/icons.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
 #include <gui/lvgl_port.h>
@@ -27,9 +28,9 @@
 #define APP_ROW_HEIGHT 44
 #define APP_PART_ROW_HEIGHT 52
 #define APP_TOUCH_MIN 44
-#define APP_TAB_COUNT 4U
+#define APP_TAB_COUNT 5U
 
-enum cardsight_mode { CARDSIGHT_DIRECT, CARDSIGHT_PROXY, CARDSIGHT_MANAGE, CARDSIGHT_INFO };
+enum cardsight_mode { CARDSIGHT_DIRECT, CARDSIGHT_PROXY, CARDSIGHT_MANAGE, CARDSIGHT_FILES, CARDSIGHT_INFO };
 struct cardsight_ui {
 	lv_obj_t *screen;
 	lv_obj_t *shell;
@@ -42,6 +43,7 @@ struct cardsight_ui {
 	lv_obj_t *tabbar;
 	lv_obj_t *tab_indicator;
 	lv_obj_t *tab_buttons[APP_TAB_COUNT];
+	lv_obj_t *tab_icons[APP_TAB_COUNT];
 	lv_obj_t *bar;
 	lv_obj_t *content;
 	lv_obj_t *direct_status;
@@ -58,6 +60,7 @@ struct cardsight_ui {
 	bool rebuild_pending;
 	bool selection_initialized;
 	bool manage_detail;
+	bool files_detail;
 	bool error_acknowledged;
 	bool format_dialog_open;
 	enum blk_partition_content format_content;
@@ -66,6 +69,8 @@ struct cardsight_ui {
 	uint32_t selected;
 	enum cardsight_mode mode;
 	unsigned int manage_partition;
+	unsigned int files_partition;
+	char files_path[VFS_PATH_MAX];
 	bool layout_editor;
 	unsigned int layout_count;
 	uint64_t layout_sectors;
@@ -92,4 +97,6 @@ void layout_open_event(lv_event_t *event);
 void build_layout_editor(void);
 void build_layout_bar(lv_obj_t *bar);
 void build_info(void);
+void build_files(void);
+void files_go_back(void);
 #endif

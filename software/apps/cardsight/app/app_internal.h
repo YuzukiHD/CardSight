@@ -28,6 +28,9 @@ void app_post_refresh_runtime(void);
 bool card_disk_present(void);
 int card_scan(void);
 
+/* Files.c: one directory of a partition, mounted temporarily unless the proxy already has it. */
+int card_list_files(unsigned int partition, const char *path);
+
 /* Format.c: one partition, quick (metadata only) or full (erase first). */
 int format_partition(unsigned int partition, enum blk_partition_content content, bool full);
 

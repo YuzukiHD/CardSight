@@ -10,6 +10,7 @@ static void ui_clear_page_refs(void)
 	ui.layout_apply = NULL;
 	ui.calibration = NULL;
 	memset(ui.tab_buttons, 0, sizeof(ui.tab_buttons));
+	memset(ui.tab_icons, 0, sizeof(ui.tab_icons));
 	ui.banner = NULL;
 	ui.banner_fill = NULL;
 	ui.banner_label = NULL;
@@ -77,8 +78,13 @@ void ui_update_tabs(void)
 	}
 	target = TAB_PAD + (int32_t)ui.mode * tab_width();
 	for (unsigned int index = 0U; index < ARRAY_SIZE(ui.tab_buttons); index++) {
-		lv_obj_set_style_text_color(ui.tab_buttons[index],
-			lv_color_hex(ui.mode == (enum cardsight_mode)index ? UI_BACKGROUND : UI_TEXT), 0);
+		uint32_t color = ui.mode == (enum cardsight_mode)index ? UI_BACKGROUND : UI_TEXT;
+
+		lv_obj_set_style_text_color(ui.tab_buttons[index], lv_color_hex(color), 0);
+		if (ui.tab_icons[index] != NULL) {
+			lv_obj_set_style_image_recolor(ui.tab_icons[index], lv_color_hex(color), 0);
+			lv_obj_set_style_image_recolor_opa(ui.tab_icons[index], LV_OPA_COVER, 0);
+		}
 	}
 	if (tab_shown == ui.mode) {
 		lv_anim_delete(ui.tab_indicator, tab_anim_x);
@@ -106,10 +112,13 @@ static void tab_event(lv_event_t *event)
 	show_page((enum cardsight_mode)(uintptr_t)lv_event_get_user_data(event));
 }
 
-/* Four large tabs along the bottom; the outer pill follows the glass corners. */
+/* Five icon tabs along the bottom; the outer pill follows the glass corners. */
 static void build_tab_bar(void)
 {
-	static const char *const names[APP_TAB_COUNT] = { "直连", "代理", "磁盘", "信息" };
+	static const lv_image_dsc_t *const icons[APP_TAB_COUNT] = {
+		&cardsight_icon_usb, &cardsight_icon_proxy, &cardsight_icon_drive,
+		&cardsight_icon_folder, &cardsight_icon_info,
+	};
 	int32_t width = tab_width();
 	/* Children are placed inside the 1 px border, so the highlight margin is measured from there. */
 	int32_t inner_height = APP_BAR_HEIGHT - 2 - 2 * TAB_PAD;
@@ -123,8 +132,9 @@ static void build_tab_bar(void)
 	lv_obj_set_style_radius(ui.tab_indicator, inner_radius, 0);
 	lv_obj_set_pos(ui.tab_indicator, TAB_PAD + (int32_t)ui.mode * width, TAB_PAD);
 	tab_shown = ui.mode;
-	for (unsigned int index = 0U; index < ARRAY_SIZE(names); index++) {
-		lv_obj_t *tab = make_button(ui.tabbar, names[index], tab_event, (void *)(uintptr_t)index);
+	for (unsigned int index = 0U; index < ARRAY_SIZE(icons); index++) {
+		lv_obj_t *tab = lv_button_create(ui.tabbar);
+		lv_obj_t *icon;
 
 		lv_obj_set_size(tab, width, inner_height);
 		lv_obj_set_pos(tab, TAB_PAD + (int32_t)index * width, TAB_PAD);
@@ -133,6 +143,13 @@ static void build_tab_bar(void)
 		lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, LV_STATE_PRESSED);
 		lv_obj_set_style_border_width(tab, 0, 0);
 		lv_obj_set_style_radius(tab, inner_radius, 0);
+		lv_obj_add_event_cb(tab, tab_event, LV_EVENT_CLICKED, (void *)(uintptr_t)index);
+		icon = lv_image_create(tab);
+		lv_image_set_src(icon, icons[index]);
+		lv_obj_center(icon);
+		lv_obj_set_style_image_recolor(icon, lv_color_hex(UI_TEXT), 0);
+		lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+		ui.tab_icons[index] = icon;
 		ui.tab_buttons[index] = tab;
 		set_disabled(tab, ui.model.busy);
 	}
@@ -142,6 +159,10 @@ void ui_back_event(lv_event_t *event)
 {
 	(void)event;
 	if (ui.model.busy) {
+		return;
+	}
+	if (ui.mode == CARDSIGHT_FILES && ui.files_detail) {
+		files_go_back();
 		return;
 	}
 	ui.layout_editor = false;
@@ -156,7 +177,7 @@ static void build_bar(void)
 	lv_obj_set_pos(ui.bar, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
 	if (ui.layout_editor) {
 		build_layout_bar(ui.bar);
-	} else if (ui.manage_detail) {
+	} else if (ui.manage_detail || (ui.mode == CARDSIGHT_FILES && ui.files_detail)) {
 		make_bar_button(ui.bar, "返回", ui_back_event, bar_width());
 	} else {
 		build_tab_bar();
@@ -327,6 +348,9 @@ void cardsight_ui_refresh(void *argument)
 
 	(void)argument;
 	cardsight_snapshot(&ui.model);
+	if (!ui.model.card_present) {
+		ui.files_detail = false;
+	}
 	if (!ui.selection_initialized && ui.model.partition_count != 0U) {
 		for (size_t index = 0; index < ui.model.partition_count; index++)
 			ui.selected |= 1U << (ui.model.partitions[index].partno - 1U);
@@ -341,6 +365,7 @@ void cardsight_ui_refresh(void *argument)
 			ui.selection_initialized = false;
 			ui.layout_editor = false;
 			ui.manage_detail = false;
+			ui.files_detail = false;
 		}
 		ui.layout_sectors = ui.model.sectors;
 	}
@@ -401,6 +426,8 @@ void cardsight_ui_refresh(void *argument)
 	build_proxy();
 	ui.content = ui.tiles[CARDSIGHT_MANAGE];
 	build_manage();
+	ui.content = ui.tiles[CARDSIGHT_FILES];
+	build_files();
 	ui.content = ui.tiles[CARDSIGHT_INFO];
 	build_info();
 	build_bar();

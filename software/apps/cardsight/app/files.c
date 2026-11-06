@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+/*
+ * Directory listing for the file browser. The proxy may already have the partition mounted;
+ * otherwise it is mounted read-only for the length of the request, so browsing never changes the
+ * card and never keeps a volume busy that a format or the proxy would need.
+ */
+
+#include "app/app_internal.h"
+
+#include <bits.h>
+#include "FreeRTOS.h"
+#include <strings.h>
+#include <vfs.h>
+
+/* One level of the view; the path is relative to the partition root. */
+static int mounted_target(const char *block, char *target, size_t size)
+{
+	for (unsigned int index = 0U;; index++) {
+		struct vfs_mount_info info;
+		int result = vfs_mount_get(index, &info);
+
+		if (result != 0) {
+			return -ENOENT;
+		}
+		if (strcmp(info.blk, block) == 0) {
+			snprintf(target, size, "%s", info.target);
+			return 0;
+		}
+	}
+}
+
+static bool path_safe(const char *path)
+{
+	return path[0] == '/' && strstr(path, "..") == NULL;
+}
+
+/* Directories first, then names in case-insensitive order, like a file manager. */
+static void entry_insert(struct cardsight_file_list *list, const struct vfs_dirent *item)
+{
+	struct cardsight_file_entry entry;
+	size_t position = list->count;
+
+	snprintf(entry.name, sizeof(entry.name), "%s", item->name);
+	entry.size = item->st.size;
+	entry.dir = item->st.dir;
+	while (position > 0U) {
+		const struct cardsight_file_entry *previous = &list->entries[position - 1U];
+		bool ordered = previous->dir != entry.dir ? previous->dir :
+			strcasecmp(previous->name, entry.name) <= 0;
+
+		if (ordered) {
+			break;
+		}
+		list->entries[position] = list->entries[position - 1U];
+		position--;
+	}
+	list->entries[position] = entry;
+	list->count++;
+}
+
+static int list_directory(const char *target, const char *path, struct cardsight_file_list *list)
+{
+	char full[VFS_PATH_MAX];
+	struct vfs_dir *dir;
+	int error = 0;
+	int result;
+
+	if (strcmp(path, "/") == 0) {
+		result = snprintf(full, sizeof(full), "%s", target);
+	} else {
+		result = snprintf(full, sizeof(full), "%s%s", target, path);
+	}
+	if (result <= 0 || (size_t)result >= sizeof(full)) {
+		return -ENAMETOOLONG;
+	}
+	dir = vfs_opendir(full, &error);
+	if (dir == NULL) {
+		return error != 0 ? error : -EIO;
+	}
+	for (;;) {
+		struct vfs_dirent item;
+
+		result = vfs_readdir(dir, &item);
+		if (result == -ENOENT) {
+			break;
+		}
+		if (result != 0) {
+			error = result;
+			break;
+		}
+		if (strcmp(item.name, ".") == 0 || strcmp(item.name, "..") == 0) {
+			continue;
+		}
+		list->total++;
+		if (list->count < ARRAY_SIZE(list->entries)) {
+			entry_insert(list, &item);
+		}
+	}
+	vfs_closedir(dir);
+	list->truncated = list->total > list->count;
+	return error != 0 ? error : 0;
+}
+
+int card_list_files(unsigned int partition, const char *path)
+{
+	char block[VFS_BLK_NAME];
+	char target[VFS_NAME_MAX + 1];
+	struct cardsight_file_list *list;
+	bool temporary = false;
+	int result;
+
+	if (partition == 0U || path == NULL || !path_safe(path)) {
+		result = -EINVAL;
+		goto store;
+	}
+	list = pvPortMalloc(sizeof(*list));
+	if (list == NULL) {
+		result = -ENOMEM;
+		goto store;
+	}
+	memset(list, 0, sizeof(*list));
+	snprintf(block, sizeof(block), "%sp%u", CONFIG_STORAGE_PROXY_SOURCE_DISK, partition);
+	if (mounted_target(block, target, sizeof(target)) != 0) {
+		result = vfs_mount_ex(block, "/files", NULL, VFS_MOUNT_READ_ONLY);
+		if (result != 0) {
+			vPortFree(list);
+			goto store;
+		}
+		snprintf(target, sizeof(target), "/files");
+		temporary = true;
+	}
+	result = list_directory(target, path, list);
+	if (temporary) {
+		(void)vfs_umount(target);
+	}
+	list->partition = partition;
+	snprintf(list->path, sizeof(list->path), "%s", path);
+	list->error = result;
+	list->valid = true;
+	mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+	app.files = *list;
+	mutex_unlock(&app_lock);
+	vPortFree(list);
+	return 0;
+store:
+	/* The page shows the reason instead of a banner; the directory is simply unavailable. */
+	mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+	memset(&app.files, 0, sizeof(app.files));
+	app.files.partition = partition;
+	if (path != NULL) {
+		snprintf(app.files.path, sizeof(app.files.path), "%s", path);
+	}
+	app.files.error = result;
+	app.files.valid = true;
+	mutex_unlock(&app_lock);
+	return 0;
+}

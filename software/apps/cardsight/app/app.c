@@ -114,6 +114,7 @@ static void worker(void *argument)
 			strcpy(app.operation, request.type == CARDSIGHT_REQUEST_SCAN ? "正在刷新" :
 				request.type == CARDSIGHT_REQUEST_STOP ? "正在安全停止" :
 				request.type == CARDSIGHT_REQUEST_FORMAT ? "正在格式化" :
+				request.type == CARDSIGHT_REQUEST_LIST ? "正在读取目录" :
 				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在重建分区" : "正在连接USB");
 			mutex_unlock(&app_lock);
 			app_post_refresh();
@@ -134,6 +135,8 @@ static void worker(void *argument)
 				mutex_unlock(&app_lock);
 			} else if (request.type == CARDSIGHT_REQUEST_FORMAT) {
 				result = usb_mass_storage_running() ? -EBUSY : format_partition(request.partition, request.content, request.full);
+			} else if (request.type == CARDSIGHT_REQUEST_LIST) {
+				result = card_list_files(request.partition, request.path);
 			} else if (request.type == CARDSIGHT_REQUEST_LAYOUT) {
 				result = usb_mass_storage_running() ? -EBUSY : layout_apply(&request);
 			}
@@ -161,6 +164,7 @@ static void worker(void *argument)
 				pr_info("card removed: proxy stopped\n");
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.proxy_active = false;
+				app.files.valid = false;
 				mutex_unlock(&app_lock);
 			}
 			pr_info("card %s\n", last_present ? "inserted" : "removed");
