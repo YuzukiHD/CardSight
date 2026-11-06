@@ -21,4 +21,8 @@ int mmc_card_info(const struct mmc_card *card, struct mmc_card_info *info);
 /** Register the disk driver: the card becomes the block device "mmcblk0". */
 int mmc_blk_init(void);
 
+/** The last command-level card failure, e.g. "CMD5 Read Timeout"; empty before one. */
+const char *mmc_last_error(void);
+void mmc_last_error_clear(void);
+
 #endif /* CARDSIGHT_MMC_CORE_H */

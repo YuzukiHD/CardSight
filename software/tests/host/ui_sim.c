@@ -194,6 +194,7 @@ int main(void)
 		model.error = -EIO;
 		model.request = CARDSIGHT_REQUEST_SCAN;
 		snprintf(model.operation, sizeof(model.operation), "%s", "存储卡读写错误");
+		snprintf(model.card_error, sizeof(model.card_error), "%s", "CMD5 Read Timeout");
 		ui.error_acknowledged = false;
 		cardsight_ui_refresh(NULL);
 		for (uint32_t step = 0U; step < 5U; step++) {
@@ -204,6 +205,7 @@ int main(void)
 		lv_refr_now(display);
 		save_ppm("/tmp/ui-error.ppm");
 		model.error = 0;
+		model.card_error[0] = '\0';
 		model.request = CARDSIGHT_REQUEST_SCAN;
 	}
 	/* files: enter a directory, then come straight back */

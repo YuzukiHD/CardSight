@@ -464,23 +464,38 @@ static void error_open_async(void *argument)
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
 	card = make_glass_card(dialog, ui_margin(), APP_HEADER_HEIGHT + ui_margin(),
-		ui_wide_width(), 124, APP_CARD_RADIUS);
+		ui_wide_width(), 148, APP_CARD_RADIUS);
 	label = make_label(card, ui.model.operation[0] != '\0' ? ui.model.operation : "操作失败",
 		UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
-	lv_obj_set_pos(label, 14, 12);
-	snprintf(text, sizeof(text), "错误码: %d", ui.model.error);
-	label = make_label(card, text, UI_MUTED);
-	lv_obj_set_pos(label, 14, 44);
-	if (ui.model.request == CARDSIGHT_REQUEST_LIST && ui.model.files.path[0] != '\0') {
-		label = make_label(card, ui.model.files.path, UI_MUTED);
-		lv_obj_set_width(label, ui_wide_width() - 28);
-		lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
-		ui_label_set_ellipsis(label, ui.model.files.path, ui_wide_width() - 28);
-		lv_obj_set_pos(label, 14, 68);
+	lv_obj_set_pos(label, 14, 10);
+	{
+		int32_t y = 38;
+
+		if (ui.model.card_error[0] != '\0') {
+			/* the controller's verbatim failure, e.g. "CMD5 Read Timeout" */
+			label = make_label(card, ui.model.card_error, UI_WARNING);
+			lv_obj_set_width(label, ui_wide_width() - 28);
+			lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+			ui_label_set_ellipsis(label, ui.model.card_error, ui_wide_width() - 28);
+			lv_obj_set_pos(label, 14, y);
+			y += 24;
+		}
+		snprintf(text, sizeof(text), "错误码: %d", ui.model.error);
+		label = make_label(card, text, UI_MUTED);
+		lv_obj_set_pos(label, 14, y);
+		y += 24;
+		if (ui.model.request == CARDSIGHT_REQUEST_LIST && ui.model.files.path[0] != '\0') {
+			label = make_label(card, ui.model.files.path, UI_MUTED);
+			lv_obj_set_width(label, ui_wide_width() - 28);
+			lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+			ui_label_set_ellipsis(label, ui.model.files.path, ui_wide_width() - 28);
+			lv_obj_set_pos(label, 14, y);
+			y += 24;
+		}
+		label = make_label(card, "请检查存储卡后重试", UI_MUTED);
+		lv_obj_set_pos(label, 14, y);
 	}
-	label = make_label(card, "请检查存储卡后重试", UI_MUTED);
-	lv_obj_set_pos(label, 14, 92);
 	button = make_bar_button(dialog, "返回", error_close_event,
 		(int32_t)ui.width - 2 * APP_BAR_MARGIN);
 	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);

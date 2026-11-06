@@ -69,6 +69,7 @@ struct cardsight_state {
 	uint32_t read_rate;
 	uint32_t write_rate;
 	char operation[48];
+	char card_error[48];
 	int progress;
 	bool running;
 };

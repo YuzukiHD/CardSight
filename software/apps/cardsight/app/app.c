@@ -106,13 +106,16 @@ static void worker(void *argument)
 
 	(void)argument;
 	{
-		int result = card_scan();
+		int result;
 
+		mmc_last_error_clear();
+		result = card_scan();
 		if (result != 0 && card_disk_present()) {
 			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 			app.error = result;
 			app.request = CARDSIGHT_REQUEST_SCAN;
 			strcpy(app.operation, failure_text(result));
+			snprintf(app.card_error, sizeof(app.card_error), "%s", mmc_last_error());
 			mutex_unlock(&app_lock);
 		}
 	}
@@ -135,6 +138,7 @@ static void worker(void *argument)
 				request.type == CARDSIGHT_REQUEST_LIST ? "正在读取目录" :
 				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在格式化" : "正在连接USB");
 			mutex_unlock(&app_lock);
+			mmc_last_error_clear();
 			app_post_refresh();
 			if (request.type == CARDSIGHT_REQUEST_SCAN) {
 				result = card_scan();
@@ -167,6 +171,8 @@ static void worker(void *argument)
 			app.progress = -1;
 			app.error = result;
 			strcpy(app.operation, failure_text(result));
+			snprintf(app.card_error, sizeof(app.card_error), "%s",
+				result != 0 ? mmc_last_error() : "");
 			mutex_unlock(&app_lock);
 			app_post_refresh_final();
 		}
@@ -184,16 +190,21 @@ static void worker(void *argument)
 				app.proxy_active = false;
 				app.files.valid = false;
 				app.error = 0;
+				app.card_error[0] = '\0';
 				mutex_unlock(&app_lock);
 			}
 			pr_info("card %s\n", last_present ? "inserted" : "removed");
 			{
-				int result = card_scan();
+				int result;
 
+				mmc_last_error_clear();
+				result = card_scan();
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.error = result;
 				app.request = CARDSIGHT_REQUEST_SCAN;
 				strcpy(app.operation, failure_text(result));
+				snprintf(app.card_error, sizeof(app.card_error), "%s",
+					result != 0 ? mmc_last_error() : "");
 				mutex_unlock(&app_lock);
 			}
 			app_post_refresh();

@@ -491,6 +491,16 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 	return 0;
 }
 
+const char *mmc_last_error(void)
+{
+	return sunxi_mmc_last_error();
+}
+
+void mmc_last_error_clear(void)
+{
+	sunxi_mmc_last_error_clear();
+}
+
 int sd_identify(struct mmc_card *card)
 {
 	int result;
