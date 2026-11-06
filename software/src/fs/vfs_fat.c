@@ -77,7 +77,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
 	if (bdev == NULL) {
 		return RES_NOTRDY;
 	}
-	vfs_format_report(bdev, (uint64_t)sector + count, bdev_nr_sectors(bdev));
+	vfs_format_report_write(bdev, count);
 	if (((uintptr_t)buffer & 63U) == 0U) {
 		return bdev_write(bdev, sector, buffer, count) != 0 ? RES_ERROR : RES_OK;
 	}
@@ -529,6 +529,54 @@ static int fat_volume_info(void *private_data, struct vfs_volume_info *info)
  * The device is a partition, so the volume gets no partition table of its own (FM_SFD). The label
  * is written with a short mount; the drive is taken and released around the whole call.
  */
+/*
+ * How many sectors f_mkfs is going to write, from the same geometry rules it uses: the reserved
+ * area, both FATs and the root directory. The estimate only drives the progress bar; a slightly
+ * low value is clamped so the bar never passes 100% before the format really finishes.
+ */
+static uint64_t fat_format_expected(struct block_device *bdev, uint32_t au_bytes, BYTE format)
+{
+	static const uint16_t cst32[] = { 1, 2, 4, 8, 16, 32, 0 }; /* 128K sector units */
+	uint64_t sectors = bdev_nr_sectors(bdev);
+	uint64_t cluster;
+	uint64_t fat_sectors;
+
+	if (sectors == 0U) {
+		return 0U;
+	}
+	cluster = au_bytes != 0U ? au_bytes / 512U : 0U;
+	if ((format & FM_EXFAT) != 0) {
+		if (cluster == 0U) {
+			cluster = sectors >= 0x4000000ULL ? 256U : sectors >= 0x80000ULL ? 64U : 8U;
+		}
+		if (cluster == 0U) {
+			return 0U;
+		}
+		fat_sectors = ((sectors / cluster + 2U) * 4U + 511U) / 512U;
+		/* FAT + allocation bitmap + up-case table + a small root directory */
+		{
+			uint64_t clusters = sectors / cluster;
+			uint64_t bitmap = (clusters + 7U) / 8U;
+			uint64_t per_cluster = cluster * 512U;
+
+			return 32U + fat_sectors + (bitmap + per_cluster - 1U) / per_cluster * cluster +
+				(5836U + per_cluster - 1U) / per_cluster * cluster + 8U * cluster;
+		}
+	}
+	if (cluster == 0U) {
+		uint64_t unit = sectors / 0x20000ULL;
+		uint32_t index = 0U;
+
+		cluster = 1U;
+		while (cst32[index] != 0U && cst32[index] <= unit) {
+			cluster <<= 1;
+			index++;
+		}
+	}
+	fat_sectors = (sectors / cluster * 4ULL + 8ULL + 511ULL) / 512ULL;
+	return 32U + 2U * fat_sectors + cluster;
+}
+
 static int fat_format_flags(struct block_device *bdev, const char *label, uint32_t arg, BYTE format)
 {
 	MKFS_PARM options = {
@@ -553,6 +601,7 @@ static int fat_format_flags(struct block_device *bdev, const char *label, uint32
 		return slot;
 	}
 	root[0] = (char)('0' + slot);
+	vfs_format_expect(bdev, fat_format_expected(bdev, arg, format));
 	result = err_of(f_mkfs(root, &options, work, work_size));
 	free(work);
 	if (result == 0 && label != NULL && label[0] != '\0') {

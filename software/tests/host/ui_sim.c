@@ -68,6 +68,7 @@ static void fixture(void)
 		uint64_t size;
 		bool dir;
 	} files[] = {
+		{ "文件文件文件文件文件文件文件文件文件文件文件文件.txt", 88123U, false },
 		{ "DCIM", 0U, true },
 		{ "Music", 0U, true },
 		{ "System Volume Information", 0U, true },
@@ -180,6 +181,21 @@ int main(void)
 		snprintf(path, sizeof(path), "/tmp/ui-%s.ppm", scenes[index].name);
 		save_ppm(path);
 
+	}
+	/* files: enter a directory, then come straight back */
+	{
+		ui.files_detail = true;
+		ui.files_partition = 2U;
+		snprintf(ui.files_path, sizeof(ui.files_path), "/");
+		cardsight_ui_refresh(NULL);
+		show_page(CARDSIGHT_FILES);
+		lv_refr_now(display);
+		files_go_back();
+		cardsight_ui_refresh(NULL);
+		show_page(CARDSIGHT_FILES);
+		lv_obj_invalidate(lv_screen_active());
+		lv_refr_now(display);
+		save_ppm("/tmp/ui-files-back.ppm");
 	}
 	/* pressed / checked states, to prove the theme cannot draw a box */
 	{

@@ -15,15 +15,43 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define SHOT_MAX_WIDTH	240U
+#define SHOT_MAX_HEIGHT 284U
+
+/* Static buffers: the capture runs after the UI has churned the C library heap for a while, and
+ * a 136 KiB contiguous allocation is not guaranteed to be available any more. */
+static uint8_t shot_pixels[SHOT_MAX_WIDTH * SHOT_MAX_HEIGHT * 2U] __attribute__((aligned(64)));
+static uint8_t shot_encoded[SHOT_MAX_WIDTH * SHOT_MAX_HEIGHT * 3U];
 static struct {
-	lv_draw_buf_t *buffer;
+	uint32_t width;
+	uint32_t height;
+	volatile int stage; /* 0: ok, 1: screen too large, 2: render failed */
 	volatile bool done;
 } capture;
 
 static void capture_screen(void *argument)
 {
+	lv_obj_t *screen = lv_screen_active();
+	lv_draw_buf_t draw_buf;
+	uint32_t width;
+	uint32_t height;
+
 	(void)argument;
-	capture.buffer = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+	lvgl_port_wait_idle();
+	width = (uint32_t)lv_obj_get_width(screen);
+	height = (uint32_t)lv_obj_get_height(screen);
+	if (width == 0U || height == 0U || width > SHOT_MAX_WIDTH || height > SHOT_MAX_HEIGHT) {
+		capture.stage = 1;
+		capture.done = true;
+		return;
+	}
+	capture.width = width;
+	capture.height = height;
+	if (lv_draw_buf_init(&draw_buf, width, height, LV_COLOR_FORMAT_RGB565, LV_STRIDE_AUTO,
+		    shot_pixels, sizeof(shot_pixels)) != LV_RESULT_OK ||
+		lv_snapshot_take_to_draw_buf(screen, LV_COLOR_FORMAT_RGB565, &draw_buf) != LV_RESULT_OK) {
+		capture.stage = 2;
+	}
 	capture.done = true;
 }
 
@@ -103,16 +131,13 @@ static void print_base64(const uint8_t *data, size_t length)
 
 static int command_screenshot(int argc, char **argv)
 {
-	lv_draw_buf_t *buffer;
-	uint8_t *encoded;
 	uint32_t width;
 	uint32_t height;
-	size_t capacity;
 	size_t size;
 
 	(void)argc;
 	(void)argv;
-	capture.buffer = NULL;
+	capture.stage = 0;
 	capture.done = false;
 	if (lvgl_port_post(capture_screen, NULL) != 0) {
 		printf("lvgl not ready\n");
@@ -125,31 +150,20 @@ static int command_screenshot(int argc, char **argv)
 		printf("snapshot timeout\n");
 		return -ETIMEDOUT;
 	}
-	buffer = capture.buffer;
-	if (buffer == NULL) {
-		printf("snapshot failed\n");
+	if (capture.stage != 0) {
+		printf("snapshot failed (stage %d)\n", capture.stage);
 		return -ENOMEM;
 	}
-	width = buffer->header.w;
-	height = buffer->header.h;
-	capacity = (size_t)width * height * 3U;
-	encoded = malloc(capacity);
-	if (encoded == NULL) {
-		lv_draw_buf_destroy(buffer);
-		printf("no memory\n");
-		return -ENOMEM;
-	}
-	size = rle_encode(buffer->data, width, height, buffer->header.stride, encoded, capacity);
-	lv_draw_buf_destroy(buffer);
+	width = capture.width;
+	height = capture.height;
+	size = rle_encode(shot_pixels, width, height, width * 2U, shot_encoded, sizeof(shot_encoded));
 	if (size == 0U) {
-		free(encoded);
 		printf("encode failed\n");
 		return -EIO;
 	}
-	printf("SHOT %u %u %u\n", (uint32_t)width, (uint32_t)height, (uint32_t)size);
-	print_base64(encoded, size);
+	printf("SHOT %u %u %u\n", width, height, (uint32_t)size);
+	print_base64(shot_encoded, size);
 	printf("END\n");
-	free(encoded);
 	return 0;
 }
 SHELL_CMD(screenshot, "dump the screen as RLE/base64", command_screenshot);

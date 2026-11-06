@@ -171,6 +171,7 @@ static void build_directory_row(lv_obj_t *list, uint32_t index, const struct car
 	label = make_label(button, entry->name, UI_TEXT);
 	lv_obj_set_width(label, row_width() - FILES_ROW_INSET - 32 - FILES_ROW_INSET);
 	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+	ui_label_set_ellipsis(label, entry->name, row_width() - FILES_ROW_INSET - 32 - FILES_ROW_INSET);
 	lv_obj_align(label, LV_ALIGN_LEFT_MID, FILES_ROW_INSET + 32, 0);
 	lv_obj_add_event_cb(button, directory_event, LV_EVENT_CLICKED, (void *)(uintptr_t)index);
 	set_disabled(button, ui.model.busy);
@@ -185,6 +186,8 @@ static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *en
 
 	lv_obj_set_width(name, row_width() - 2 * FILES_ROW_INSET - APP_GAP - FILES_SIZE_WIDTH);
 	lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_CLIP);
+	ui_label_set_ellipsis(name, entry->name,
+		row_width() - 2 * FILES_ROW_INSET - APP_GAP - FILES_SIZE_WIDTH);
 	lv_obj_align(name, LV_ALIGN_LEFT_MID, FILES_ROW_INSET, 0);
 	format_capacity(entry->size, text, sizeof(text));
 	lv_label_set_text(size, text);
@@ -195,20 +198,6 @@ static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *en
 
 static void build_directory_rows(lv_obj_t *list)
 {
-	char text[64];
-	lv_obj_t *count;
-
-	if (ui.model.files.truncated) {
-		snprintf(text, sizeof(text), "文件共 %u 项，显示前 %u 项", (uint32_t)ui.model.files.total,
-			(uint32_t)ui.model.files.count);
-	} else {
-		snprintf(text, sizeof(text), "文件共 %u 项", (uint32_t)ui.model.files.total);
-	}
-	/* the count sits at the top of the view, centred over the rows */
-	count = make_label(list, text, UI_MUTED);
-	lv_obj_set_width(count, lv_pct(100));
-	lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_CENTER, 0);
-
 	if (strcmp(ui.files_path, "/") != 0) {
 		build_parent_row(list);
 	}
@@ -233,6 +222,7 @@ static void build_directory(void)
 	label = make_label(ui.content, head, UI_MUTED);
 	lv_obj_set_width(label, ui_page_width() - 8);
 	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+	ui_label_set_ellipsis(label, head, ui_page_width() - 8);
 	list = make_list(FILES_HEADER_HEIGHT, 0);
 	if (!list_matches()) {
 		make_label(list, ui.model.busy ? "正在读取…" : "读取失败", UI_MUTED);

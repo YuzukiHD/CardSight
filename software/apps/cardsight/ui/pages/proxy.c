@@ -37,12 +37,32 @@ void ui_update_proxy_controls(void)
 
 /* A partition row, built from a plain object with every style written explicitly: the theme
  * styles of buttons and their state cascade kept hiding the selection outline. */
+/* The selection mark is drawn, not a glyph: the hollow circle character is not in the font
+ * subset and used to show up as a box when a row was deselected. */
+static void make_selection_dot(lv_obj_t *row)
+{
+	lv_obj_t *dot = lv_obj_create(row);
+
+	lv_obj_set_size(dot, 14, 14);
+	lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+	lv_obj_set_style_bg_opa(dot, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(dot, 2, 0);
+	lv_obj_set_style_border_color(dot, lv_color_hex(UI_MUTED), 0);
+	lv_obj_set_style_pad_all(dot, 0, 0);
+	lv_obj_set_style_outline_width(dot, 0, 0);
+	lv_obj_set_style_shadow_width(dot, 0, 0);
+	disable_scroll(dot);
+	lv_obj_set_clickable(dot, false);
+	lv_obj_align(dot, LV_ALIGN_LEFT_MID, 14, 0);
+}
+
 static void style_row(lv_obj_t *row, bool selected)
 {
-	lv_obj_t *mark = lv_obj_get_child(row, -1);
+	lv_obj_t *dot = lv_obj_get_child(row, -1);
 
-	lv_label_set_text(mark, selected ? "\u25cf" : "\u25cb");
-	lv_obj_set_style_text_color(mark, lv_color_hex(selected ? UI_ACCENT : UI_MUTED), 0);
+	lv_obj_set_style_bg_color(dot, lv_color_hex(UI_ACCENT), 0);
+	lv_obj_set_style_bg_opa(dot, selected ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_color(dot, lv_color_hex(selected ? UI_ACCENT : UI_MUTED), 0);
 	lv_obj_set_style_bg_color(row, lv_color_hex(UI_GLASS_TINT), 0);
 	lv_obj_set_style_bg_opa(row, selected ? 40 : LV_OPA_TRANSP, 0);
 	/* no outline at all: the filled dot and the soft tint carry the selection */
@@ -96,9 +116,7 @@ static void build_partition_row(lv_obj_t *list, const struct storage_proxy_parti
 	label = make_label(row, detail, part->writable ? UI_MUTED : UI_WARNING);
 	lv_obj_set_style_text_font(label, &cardsight_font_16, 0);
 	lv_obj_align(label, LV_ALIGN_TOP_LEFT, 44, 28);
-	label = make_label(row, "\u25cb", UI_MUTED);
-	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
-	lv_obj_align(label, LV_ALIGN_LEFT_MID, 14, 0);
+	make_selection_dot(row);
 	style_row(row, selected);
 	lv_obj_add_event_cb(row, partition_event, LV_EVENT_CLICKED, (void *)(uintptr_t)part->partno);
 }

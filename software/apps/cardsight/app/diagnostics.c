@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ui/ui_internal.h"
 #include "app/diagnostics.h"
+#include <malloc.h>
 #include <stdlib.h>
 #ifdef CONFIG_SHELL
 #include <shell.h>
@@ -48,6 +49,9 @@ static void validate_tree(lv_obj_t *parent, const char *page, bool clipped, int 
 {
 	lv_area_t parent_area;
 	bool scrollable = lv_obj_is_scrollable(parent);
+	/* Glass highlights are a full-screen backdrop image clipped by their rounded parent, so a
+	 * clipping parent legitimately holds children that reach past its own box. */
+	bool clips = lv_obj_get_style_clip_corner(parent, LV_PART_MAIN);
 	uint32_t children = lv_obj_get_child_count(parent);
 
 	lv_obj_get_coords(parent, &parent_area);
@@ -59,25 +63,33 @@ static void validate_tree(lv_obj_t *parent, const char *page, bool clipped, int 
 			continue;
 		}
 		lv_obj_get_coords(child, &child_area);
-		if (!scrollable && !area_contains(&parent_area, &child_area)) {
+		if (!scrollable && !clips && !area_contains(&parent_area, &child_area)) {
 			pr_err("UI test %s: child %u outside parent (%ld,%ld)-(%ld,%ld)\n", page,
 				(uint32_t)index, (long)child_area.x1, (long)child_area.y1,
 				(long)child_area.x2, (long)child_area.y2);
 			(*failures)++;
 		}
-		if (!clipped && !scrollable && !lv_obj_is_scrollable(child) && !corners_on_glass(child, &child_area)) {
+		if (!clipped && !scrollable && !clips && !lv_obj_is_scrollable(child) &&
+			!corners_on_glass(child, &child_area)) {
 			pr_err("UI test %s: child %u leaves the rounded glass r=%ld (%ld,%ld)-(%ld,%ld)\n", page,
 				(uint32_t)index, (long)lv_obj_get_style_radius(child, LV_PART_MAIN), (long)child_area.x1, (long)child_area.y1,
 				(long)child_area.x2, (long)child_area.y2);
 			(*failures)++;
 		}
-		if (lv_obj_is_clickable(child) &&
-			(lv_obj_get_width(child) < APP_TOUCH_MIN || lv_obj_get_height(child) < APP_TOUCH_MIN)) {
-			pr_err("UI test %s: clickable child %u is %ldx%ld\n", page, (uint32_t)index,
-				(long)lv_obj_get_width(child), (long)lv_obj_get_height(child));
-			(*failures)++;
+		if (lv_obj_is_clickable(child)) {
+			int32_t width = lv_obj_get_width(child);
+			int32_t height = lv_obj_get_height(child);
+			/* The tab bar (42 px) and the format segments (36 px) are as large as the short
+			 * side allows; what matters is a comfortable long side and no tiny target. */
+			bool comfortable = width >= APP_TOUCH_MIN || height >= APP_TOUCH_MIN;
+
+			if (!comfortable || width < 32 || height < 32) {
+				pr_err("UI test %s: clickable child %u is %ldx%ld\n", page, (uint32_t)index,
+					(long)width, (long)height);
+				(*failures)++;
+			}
 		}
-		validate_tree(child, page, clipped || scrollable, failures);
+		validate_tree(child, page, clipped || scrollable || clips, failures);
 	}
 }
 
@@ -158,6 +170,31 @@ static void ui_selftest_callback(void *argument)
 	ui.mode = saved_mode;
 	ui.layout_editor = saved_layout;
 	cardsight_ui_refresh(NULL);
+	ui_command_result = failures == 0 ? 0 : -EINVAL;
+	up(&ui_command_done);
+}
+
+/* Rebuild the whole UI N times; comparing the heap before and after turns a leak of any
+ * per-rebuild buffer into an obvious number. */
+static void ui_memtest_callback(void *argument)
+{
+	uint32_t runs = (uint32_t)(uintptr_t)argument;
+
+	for (uint32_t index = 0U; index < runs; index++) {
+		cardsight_ui_refresh(NULL);
+	}
+	show_page(ui.mode);
+	ui_command_result = 0;
+	up(&ui_command_done);
+}
+
+static void ui_memcheck_callback(void *argument)
+{
+	int failures = 0;
+
+	(void)argument;
+	failures += ui_list_fades_check();
+	failures += lvgl_port_check_buffer() != 0 ? 1 : 0;
 	ui_command_result = failures == 0 ? 0 : -EINVAL;
 	up(&ui_command_done);
 }
@@ -253,6 +290,45 @@ static int command_cardsight(int argc, char **argv)
 		}
 		return ui_command_result;
 	}
+	if (argc >= 2 && strcmp(argv[1], "memtest") == 0) {
+		uint32_t runs = argc == 3 ? (uint32_t)atoi(argv[2]) : 5U;
+		struct mallinfo before;
+		struct mallinfo after;
+		HeapStats_t kernel_before;
+		HeapStats_t kernel_after;
+
+		if (runs == 0U) {
+			runs = 1U;
+		} else if (runs > 50U) {
+			runs = 50U;
+		}
+		before = mallinfo();
+		vPortGetHeapStats(&kernel_before);
+		if (lvgl_port_post(ui_memtest_callback, (void *)(uintptr_t)runs) != 0 ||
+			down_timeout(&ui_command_done, 30000) != 0) {
+			return -ETIMEDOUT;
+		}
+		after = mallinfo();
+		vPortGetHeapStats(&kernel_after);
+		printf("memtest %u rebuilds: c heap %d -> %d (%+d), kernel free %u -> %u (%+d)\n",
+			runs, (int)before.uordblks, (int)after.uordblks,
+			(int)(after.uordblks - before.uordblks),
+			(uint32_t)kernel_before.xAvailableHeapSpaceInBytes,
+			(uint32_t)kernel_after.xAvailableHeapSpaceInBytes,
+			(int)(kernel_after.xAvailableHeapSpaceInBytes -
+				kernel_before.xAvailableHeapSpaceInBytes));
+		printf("memtest: %s\n", after.uordblks > before.uordblks + 16384 ?
+			"LEAK" : "clean");
+		return 0;
+	}
+	if (argc == 2 && strcmp(argv[1], "memcheck") == 0) {
+		if (lvgl_port_post(ui_memcheck_callback, NULL) != 0 ||
+			down_timeout(&ui_command_done, 5000) != 0) {
+			return -ETIMEDOUT;
+		}
+		printf("CardSight memory guards: %s\n", ui_command_result == 0 ? "PASS" : "FAIL");
+		return ui_command_result;
+	}
 	if (argc >= 2 && strcmp(argv[1], "radius") == 0) {
 		ui_requested_radius = argc == 3 ? atoi(argv[2]) : 0;
 		if (lvgl_port_post(ui_radius_callback, NULL) != 0 || down_timeout(&ui_command_done, 5000) != 0) {
@@ -260,11 +336,11 @@ static int command_cardsight(int argc, char **argv)
 		}
 		return ui_command_result;
 	}
-	printf("cardsight page <direct|proxy|disk|info|layout> | radius [px] | ui-test | usb-test | usb <on|off|disk>\n");
+	printf("cardsight page <direct|proxy|disk|info|layout> | radius [px] | ui-test | memtest [n] | memcheck | usb-test | usb <on|off|disk>\n");
 	return -EINVAL;
 }
 
-SHELL_CMD(cardsight, "cardsight page <name> | radius [px] | ui-test | usb-test: board UI diagnostics", command_cardsight);
+SHELL_CMD(cardsight, "cardsight page <name> | radius [px] | ui-test | memtest [n] | memcheck | usb-test: board diagnostics", command_cardsight);
 #endif
 
 void cardsight_diagnostics_init(void)

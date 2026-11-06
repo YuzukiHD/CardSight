@@ -41,6 +41,14 @@ void *_sbrk(ptrdiff_t increment)
 	return previous;
 }
 
+size_t platform_heap_used(void)
+{
+	if (sbrk_position == NULL) {
+		return 0U;
+	}
+	return (size_t)(sbrk_position - __heap_start);
+}
+
 /* aligned_alloc() of this C library asks for this one */
 int posix_memalign(void **out, size_t alignment, size_t size)
 {

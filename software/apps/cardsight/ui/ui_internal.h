@@ -52,6 +52,7 @@ struct cardsight_ui {
 	lv_obj_t *bar;
 	lv_obj_t *background;
 	lv_obj_t *header_title;
+	lv_obj_t *header_count;
 	lv_obj_t *header_status;
 	lv_obj_t *content;
 	lv_obj_t *direct_status;

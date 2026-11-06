@@ -27,6 +27,7 @@
 #define TASK_PRIORITY	 2U
 #define TASK_CREATE_TRIES 100U
 #define FLUSH_TIMEOUT_US 100000U
+#define DRAW_GUARD	 0x4c564744U /* "LVGD" */
 
 struct lvgl_request {
 	lvgl_port_callback_t callback;
@@ -38,6 +39,7 @@ static struct {
 	lv_display_t *display;
 	lv_indev_t *input;
 	void *draw_buffer;
+	uint32_t *draw_guard;
 	uint16_t width;
 	uint16_t height;
 	uint64_t flush_pixels;
@@ -89,6 +91,25 @@ static bool lvgl_flush_finish(void)
 		return true;
 	}
 	return false;
+}
+
+int lvgl_port_check_buffer(void)
+{
+	if (port.draw_guard == NULL) {
+		return 0;
+	}
+	if (*port.draw_guard != DRAW_GUARD) {
+		pr_err("draw buffer guard broken: %08x\n", (unsigned)*port.draw_guard);
+		return -1;
+	}
+	return 0;
+}
+
+void lvgl_port_wait_idle(void)
+{
+	while (!lvgl_flush_finish()) {
+		msleep(1U);
+	}
 }
 
 /* LVGL calls this instead of spinning when it needs a draw buffer back. */
@@ -173,6 +194,17 @@ static int lvgl_open_devices(void)
 	lv_display_set_color_format(port.display, LV_COLOR_FORMAT_RGB888);
 	lv_display_set_buffers(port.display, port.draw_buffer, NULL, (uint32_t)buffer_size,
 		LV_DISPLAY_RENDER_MODE_PARTIAL);
+	{
+		/* A word right after the draw buffer catches an off-by-one area write. The SRAM
+		 * after the buffer is unused until the panel mailbox. */
+		uintptr_t guard = ((uintptr_t)port.draw_buffer + buffer_size + 3U) & ~(uintptr_t)3U;
+
+		if (guard + sizeof(uint32_t) <= (uintptr_t)SUNXI_SRAM_BUFFER_ADDRESS +
+			SUNXI_SRAM_BUFFER_SIZE) {
+			port.draw_guard = (uint32_t *)guard;
+			*port.draw_guard = DRAW_GUARD;
+		}
+	}
 	lv_display_set_flush_cb(port.display, lvgl_flush);
 	lv_display_set_flush_wait_cb(port.display, lvgl_flush_wait);
 

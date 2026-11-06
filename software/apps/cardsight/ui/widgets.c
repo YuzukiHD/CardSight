@@ -57,6 +57,49 @@ lv_obj_t *make_label(lv_obj_t *parent, const char *text, uint32_t color)
 	return label;
 }
 
+void ui_label_set_ellipsis(lv_obj_t *label, const char *text, int32_t max_width)
+{
+	static const char ellipsis[] = "…";
+	char buffer[VFS_PATH_MAX + sizeof(ellipsis)];
+	const lv_font_t *font;
+	int32_t letter_space;
+	lv_point_t size;
+	size_t length;
+	size_t cut;
+
+	if (text == NULL) {
+		text = "";
+	}
+	font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+	letter_space = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
+	length = strlen(text);
+	if (max_width <= 0 || length + sizeof(ellipsis) > sizeof(buffer)) {
+		lv_label_set_text(label, text);
+		return;
+	}
+	lv_text_get_size(&size, text, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+	if (size.x <= max_width) {
+		lv_label_set_text(label, text);
+		return;
+	}
+	cut = length;
+	while (cut > 0U) {
+		/* back off to the start of the previous UTF-8 character */
+		cut--;
+		while (cut > 0U && ((unsigned char)text[cut] & 0xc0U) == 0x80U) {
+			cut--;
+		}
+		memcpy(buffer, text, cut);
+		memcpy(buffer + cut, ellipsis, sizeof(ellipsis));
+		lv_text_get_size(&size, buffer, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+		if (size.x <= max_width) {
+			lv_label_set_text(label, buffer);
+			return;
+		}
+	}
+	lv_label_set_text(label, ellipsis);
+}
+
 /* Transparent, inert layout container. */
 lv_obj_t *make_box(lv_obj_t *parent, int32_t width, int32_t height)
 {
@@ -307,6 +350,202 @@ lv_obj_t *make_bar_button(lv_obj_t *parent, const char *text, lv_event_cb_t call
  * above or below, runs to the screen edge, so rows leave through the rounded glass instead of
  * being cut off along an invisible line. `top` and `bottom` reserve room for docked controls.
  */
+/* Top and bottom fades: strips cut from the wallpaper with an alpha ramp, drawn above the
+ * list so scrolling text dissolves into the artwork instead of being clipped. */
+#define LIST_FADE_COUNT 6U
+#define LIST_FADE_HEIGHT 16
+
+#define FADE_GUARD 0x5a17c0deU
+
+struct list_fade {
+	lv_obj_t *tile;
+	lv_obj_t *list;
+	lv_obj_t *top_image;
+	lv_obj_t *bottom_image;
+	lv_image_dsc_t top_dsc;
+	lv_image_dsc_t bottom_dsc;
+	uint8_t *top_pixels;
+	uint8_t *bottom_pixels;
+	uint8_t *top_alloc;
+	uint8_t *bottom_alloc;
+	int32_t x;
+	int32_t y;
+	int32_t origin_x; /* the tile's screen offset: the strips sample the wallpaper in screen coords */
+	int32_t origin_y;
+	int32_t width;
+	int32_t height;
+};
+
+static struct list_fade list_fades[LIST_FADE_COUNT];
+
+void ui_list_fades_reset(void)
+{
+	/* The strip images are already gone with the screen; the pixel buffers are ours to free.
+	 * Leaving them behind leaks a screenful of C heap on every rebuild. */
+	for (uint32_t index = 0U; index < LIST_FADE_COUNT; index++) {
+		lv_free(list_fades[index].top_alloc);
+		lv_free(list_fades[index].bottom_alloc);
+	}
+	memset(list_fades, 0, sizeof(list_fades));
+}
+
+static void list_fade_paint(struct list_fade *fade)
+{
+	const lv_image_dsc_t *backdrop = ui.mode == CARDSIGHT_DIRECT ? backdrop_image() :
+		backdrop_text_image();
+	const uint8_t *source = backdrop->data;
+	int source_width = (int)backdrop->header.w;
+	int source_height = (int)backdrop->header.h;
+
+	for (int32_t row = 0; row < LIST_FADE_HEIGHT; row++) {
+		/* the top strip is opaque at the very top and clears downwards, the bottom one
+		 * the other way round */
+		uint8_t alpha_top = (uint8_t)(255 - row * 255 / (LIST_FADE_HEIGHT - 1));
+		uint8_t alpha_bottom = (uint8_t)(row * 255 / (LIST_FADE_HEIGHT - 1));
+
+		for (int32_t column = 0; column < fade->width; column++) {
+			int screen_x = fade->origin_x + fade->x + column;
+			int screen_y_top = fade->origin_y + fade->y + row;
+			int screen_y_bottom = fade->origin_y + fade->y + fade->height -
+				LIST_FADE_HEIGHT + row;
+			size_t top = ((size_t)row * (size_t)fade->width + (size_t)column) * 4U;
+			const uint8_t *pixel_top;
+			const uint8_t *pixel_bottom;
+
+			if (screen_x < 0 || screen_x >= source_width) {
+				continue;
+			}
+			screen_y_top = screen_y_top < 0 ? 0 : screen_y_top >= source_height ? source_height - 1 : screen_y_top;
+			screen_y_bottom = screen_y_bottom < 0 ? 0 : screen_y_bottom >= source_height ? source_height - 1 : screen_y_bottom;
+			pixel_top = &source[((size_t)screen_y_top * source_width + screen_x) * 3U];
+			pixel_bottom = &source[((size_t)screen_y_bottom * source_width + screen_x) * 3U];
+			fade->top_pixels[top + 0U] = pixel_top[0];
+			fade->top_pixels[top + 1U] = pixel_top[1];
+			fade->top_pixels[top + 2U] = pixel_top[2];
+			fade->top_pixels[top + 3U] = alpha_top;
+			fade->bottom_pixels[top + 0U] = pixel_bottom[0];
+			fade->bottom_pixels[top + 1U] = pixel_bottom[1];
+			fade->bottom_pixels[top + 2U] = pixel_bottom[2];
+			fade->bottom_pixels[top + 3U] = alpha_bottom;
+		}
+	}
+}
+
+/* A strip means "more content this way"; hide it when the list edge is reached. */
+static void list_fade_update(struct list_fade *fade)
+{
+	lv_obj_set_hidden(fade->top_image, lv_obj_get_scroll_top(fade->list) <= 0);
+	lv_obj_set_hidden(fade->bottom_image, lv_obj_get_scroll_bottom(fade->list) <= 0);
+}
+
+static void list_fade_event(lv_event_t *event)
+{
+	list_fade_update(lv_event_get_user_data(event));
+}
+
+/* The strip pixels are written by the renderer and read by the image draw code; a guard word on
+ * each end catches the usual off-by-a-row overrun without instrumenting every write. */
+int ui_list_fades_check(void)
+{
+	int errors = 0;
+
+	for (uint32_t index = 0U; index < LIST_FADE_COUNT; index++) {
+		struct list_fade *fade = &list_fades[index];
+		size_t bytes;
+
+		if (fade->tile == NULL) {
+			continue;
+		}
+		bytes = (size_t)fade->width * LIST_FADE_HEIGHT * 4U;
+		if (*(uint32_t *)fade->top_alloc != FADE_GUARD ||
+			*(uint32_t *)(fade->top_pixels + bytes) != FADE_GUARD ||
+			*(uint32_t *)fade->bottom_alloc != FADE_GUARD ||
+			*(uint32_t *)(fade->bottom_pixels + bytes) != FADE_GUARD) {
+			pr_err("fade guard broken on %p\n", (void *)fade->tile);
+			errors++;
+		}
+	}
+	return errors;
+}
+
+void ui_refresh_list_fades(void)
+{
+	for (uint32_t index = 0U; index < LIST_FADE_COUNT; index++) {
+		if (list_fades[index].tile != NULL) {
+			list_fade_paint(&list_fades[index]);
+			list_fade_update(&list_fades[index]);
+			lv_obj_invalidate(list_fades[index].top_image);
+			lv_obj_invalidate(list_fades[index].bottom_image);
+		}
+	}
+}
+
+static void list_fade_attach(lv_obj_t *tile, lv_obj_t *list, int32_t x, int32_t y, int32_t width,
+	int32_t height)
+{
+	size_t bytes = (size_t)width * LIST_FADE_HEIGHT * 4U;
+	lv_area_t tile_area;
+	struct list_fade *fade = NULL;
+
+	if (height <= 2 * LIST_FADE_HEIGHT + 8) {
+		return;
+	}
+	for (uint32_t index = 0U; index < LIST_FADE_COUNT; index++) {
+		if (list_fades[index].tile == tile) {
+			return; /* one pair per page is enough */
+		}
+		if (list_fades[index].tile == NULL && fade == NULL) {
+			fade = &list_fades[index];
+		}
+	}
+	if (fade == NULL) {
+		return;
+	}
+	memset(fade, 0, sizeof(*fade));
+	fade->top_alloc = lv_malloc(bytes + 2U * sizeof(uint32_t));
+	fade->bottom_alloc = lv_malloc(bytes + 2U * sizeof(uint32_t));
+	if (fade->top_alloc == NULL || fade->bottom_alloc == NULL) {
+		lv_free(fade->top_alloc);
+		lv_free(fade->bottom_alloc);
+		fade->top_alloc = NULL;
+		fade->bottom_alloc = NULL;
+		return;
+	}
+	fade->top_pixels = fade->top_alloc + sizeof(uint32_t);
+	fade->bottom_pixels = fade->bottom_alloc + sizeof(uint32_t);
+	*(uint32_t *)fade->top_alloc = FADE_GUARD;
+	*(uint32_t *)fade->bottom_alloc = FADE_GUARD;
+	*(uint32_t *)(fade->top_pixels + bytes) = FADE_GUARD;
+	*(uint32_t *)(fade->bottom_pixels + bytes) = FADE_GUARD;
+	lv_obj_get_coords(tile, &tile_area);
+	fade->tile = tile;
+	fade->list = list;
+	lv_obj_add_event_cb(list, list_fade_event, LV_EVENT_SCROLL, fade);
+	/* children are positioned inside the parent's content area, not its border box */
+	fade->origin_x = tile_area.x1 + lv_obj_get_style_pad_left(tile, LV_PART_MAIN);
+	fade->origin_y = tile_area.y1 + lv_obj_get_style_pad_top(tile, LV_PART_MAIN);
+	fade->x = x;
+	fade->y = y;
+	fade->width = width;
+	fade->height = height;
+	fade->top_dsc = (lv_image_dsc_t){
+		.header = { .magic = LV_IMAGE_HEADER_MAGIC, .cf = LV_COLOR_FORMAT_ARGB8888,
+			.w = (uint32_t)width, .h = LIST_FADE_HEIGHT,
+			.stride = (uint32_t)width * 4U },
+		.data_size = (uint32_t)bytes, .data = fade->top_pixels };
+	fade->bottom_dsc = fade->top_dsc;
+	fade->bottom_dsc.data = fade->bottom_pixels;
+	fade->top_image = lv_image_create(tile);
+	lv_image_set_src(fade->top_image, &fade->top_dsc);
+	lv_obj_set_pos(fade->top_image, x, y);
+	lv_obj_set_clickable(fade->top_image, false);
+	fade->bottom_image = lv_image_create(tile);
+	lv_image_set_src(fade->bottom_image, &fade->bottom_dsc);
+	lv_obj_set_pos(fade->bottom_image, x, y + height - LIST_FADE_HEIGHT);
+	lv_obj_set_clickable(fade->bottom_image, false);
+	list_fade_paint(fade);
+}
+
 lv_obj_t *make_list(int32_t top, int32_t bottom)
 {
 	lv_obj_t *list = lv_obj_create(ui.content);
@@ -333,6 +572,8 @@ lv_obj_t *make_list(int32_t top, int32_t bottom)
 	lv_obj_set_style_outline_width(list, 0, LV_STATE_FOCUSED);
 	lv_obj_set_style_outline_width(list, 0, LV_STATE_FOCUS_KEY);
 	lv_obj_set_click_focusable(list, false);
+	list_fade_attach(ui.content, list, -margin, top, (int32_t)ui.width,
+		ui_page_height() - top - bottom - extra_bottom);
 	return list;
 }
 

@@ -112,7 +112,7 @@ static int ext_device_write(struct ext4_blockdev *ext_bdev, const void *buffer, 
 	if (mount->read_only) {
 		return EROFS;
 	}
-	vfs_format_report(mount->bdev, block + count, bdev_nr_sectors(mount->bdev));
+	vfs_format_report_write(mount->bdev, count);
 	while (count != 0U) {
 		uint32_t chunk = count < EXT_BOUNCE_SECTORS ? count : EXT_BOUNCE_SECTORS;
 

@@ -26,4 +26,7 @@
 #include <hal/message_queue.h>
 #include <hal/semaphore.h>
 
+/* Bytes the C library's bump allocator has handed out to malloc so far. */
+size_t platform_heap_used(void);
+
 #endif /* CARDSIGHT_KERNEL_H */

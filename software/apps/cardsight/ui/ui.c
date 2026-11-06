@@ -8,6 +8,7 @@ static void ui_clear_page_refs(void)
 	ui.tab_indicator = NULL;
 	ui.tab_indicator_backdrop = NULL;
 	ui.header_title = NULL;
+	ui.header_count = NULL;
 	ui.header_status = NULL;
 	ui.background = NULL;
 	ui.bar = NULL;
@@ -261,12 +262,14 @@ void ui_update_backdrop(void)
 		lv_image_set_src(ui.background, ui.mode == CARDSIGHT_DIRECT ? backdrop_image() :
 			backdrop_text_image());
 	}
+	ui_refresh_list_fades();
 }
 
 void ui_update_header(void)
 {
 	static const char *const names[APP_TAB_COUNT] = { "直连", "代理", "磁盘", "文件", "信息" };
 	char title[48];
+	char count[24] = "";
 	char status[24];
 
 	if (ui.header_title == NULL) {
@@ -282,7 +285,11 @@ void ui_update_header(void)
 	} else {
 		snprintf(status, sizeof(status), "无卡");
 	}
+	if (ui.mode == CARDSIGHT_FILES && ui.files_detail && ui.model.files.valid) {
+		snprintf(count, sizeof(count), "%u 项", (uint32_t)ui.model.files.total);
+	}
 	lv_label_set_text(ui.header_title, title);
+	lv_label_set_text(ui.header_count, count);
 	lv_label_set_text(ui.header_status, status);
 }
 
@@ -547,6 +554,7 @@ void cardsight_ui_refresh(void *argument)
 		scroll[index] = list != NULL ? lv_obj_get_scroll_y(list) : 0;
 	}
 	lv_obj_clean(ui.screen);
+	ui_list_fades_reset();
 	ui.shell = NULL;
 	ui.page_host = NULL;
 	memset(ui.tiles, 0, sizeof(ui.tiles));
@@ -577,6 +585,9 @@ void cardsight_ui_refresh(void *argument)
 	ui.header_title = make_label(ui.shell, "", UI_TEXT);
 	lv_obj_set_style_text_font(ui.header_title, &cardsight_font_20, 0);
 	lv_obj_set_pos(ui.header_title, ui_margin(), ui_margin() - 2);
+	ui.header_count = make_label(ui.shell, "", UI_MUTED);
+	lv_obj_set_style_text_font(ui.header_count, &cardsight_font_16, 0);
+	lv_obj_align(ui.header_count, LV_ALIGN_TOP_MID, 0, ui_margin() + 2);
 	ui.header_status = make_label(ui.shell, "", UI_MUTED);
 	lv_obj_set_style_text_font(ui.header_status, &cardsight_font_16, 0);
 	lv_obj_align(ui.header_status, LV_ALIGN_TOP_RIGHT, -ui_margin() - 38, ui_margin() + 2);
@@ -627,6 +638,7 @@ void cardsight_ui_refresh(void *argument)
 	ui_update_header();
 	ui_update_backdrop();
 	lv_obj_update_layout(ui.screen);
+	ui_refresh_list_fades();
 	for (uint32_t index = 0U; index < APP_TAB_COUNT; index++) {
 		lv_obj_t *list = tile_list(index);
 

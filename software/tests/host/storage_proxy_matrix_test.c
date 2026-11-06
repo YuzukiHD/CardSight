@@ -58,6 +58,26 @@ static int ram_write(struct gendisk *disk, uint64_t sector, const void *buffer, 
 
 static const struct block_device_operations ram_operations = { .read = ram_read, .write = ram_write };
 
+static uint32_t progress_updates;
+static uint64_t progress_last_done;
+static uint64_t progress_last_total;
+
+static void format_progress_cb(void *context, uint64_t done, uint64_t total)
+{
+	(void)context;
+	progress_updates++;
+	progress_last_done = done;
+	progress_last_total = total;
+	CHECK(done <= total);
+}
+
+static void reset_progress(void)
+{
+	progress_updates = 0U;
+	progress_last_done = 0U;
+	progress_last_total = 0U;
+}
+
 extern int vfs_ff_register(void);
 extern int vfs_ext_register(void);
 
@@ -175,7 +195,13 @@ static void build_card(struct gendisk **disk_out, const struct mix *mix)
 
 		snprintf(device, sizeof(device), "mmcblk0p%u", partition);
 		snprintf(mount, sizeof(mount), "/src%u", partition);
+		reset_progress();
+		vfs_set_format_progress(format_progress_cb, NULL);
 		CHECK(vfs_format(device, mix->types[partition - 1U], "CARD", 0U) == 0);
+		vfs_set_format_progress(NULL, NULL);
+		/* The bar must move during the format, not only at its two ends. */
+		CHECK(progress_updates > 2U);
+		CHECK(progress_last_done == progress_last_total);
 		CHECK(vfs_mount(device, mount, mix->types[partition - 1U]) == 0);
 		snprintf(path, sizeof(path), "%s/seed-%u.bin", mount, partition);
 		CHECK(write_pattern(path, 70000U + partition, partition, 4096U) == 0);

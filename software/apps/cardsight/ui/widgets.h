@@ -9,6 +9,11 @@ uint32_t fstype_color(const char *fstype);
 void disable_scroll(lv_obj_t *object);
 void enable_vertical_scroll(lv_obj_t *object);
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, uint32_t color);
+/*
+ * Set label text, cutting it on a whole UTF-8 character when it is wider than max_width and
+ * ending it with an ellipsis. A plain clipped label cuts the last glyph in half.
+ */
+void ui_label_set_ellipsis(lv_obj_t *label, const char *text, int32_t max_width);
 lv_obj_t *make_box(lv_obj_t *parent, int32_t width, int32_t height);
 lv_obj_t *make_card(lv_obj_t *parent, int32_t width, int32_t height, uint32_t color);
 /* Lifted glass sheet with a light edge, specular rim and soft shadow. */
@@ -28,4 +33,9 @@ int32_t ui_page_height(void);
 int32_t ui_page_width(void);
 lv_obj_t *make_list(int32_t top, int32_t bottom);
 void set_disabled(lv_obj_t *object, bool disabled);
+/* the wallpaper strips that fade the top and bottom of the scroll lists */
+void ui_list_fades_reset(void);
+void ui_refresh_list_fades(void);
+int ui_list_fades_check(void);
+
 #endif

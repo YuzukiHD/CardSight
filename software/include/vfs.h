@@ -98,7 +98,9 @@ int vfs_format(const char *blk, const char *fstype, const char *label, uint32_t 
  */
 void vfs_set_format_progress(void (*callback)(void *context, uint64_t done, uint64_t total), void *context);
 /** For file system drivers: report the end of a write to @p bdev; does nothing outside vfs_format(). */
-void vfs_format_report(struct block_device *bdev, uint64_t done, uint64_t total);
+/* A formatter announces how many sectors it is about to write, then reports every write. */
+void vfs_format_expect(struct block_device *bdev, uint64_t sectors);
+void vfs_format_report_write(struct block_device *bdev, uint64_t sectors);
 
 /** Probe an unmounted block device by mounting it briefly, then unmounting it. */
 int vfs_probe(const char *blk, struct vfs_volume_info *info);

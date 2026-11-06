@@ -371,6 +371,8 @@ static void (*format_progress)(void *context, uint64_t done, uint64_t total);
 static void *format_progress_context;
 static bool format_active;
 static uint64_t format_highest;
+static uint64_t format_written;
+static uint64_t format_expected;
 static struct block_device *format_device;
 
 void vfs_set_format_progress(void (*callback)(void *context, uint64_t done, uint64_t total), void *context)
@@ -379,16 +381,37 @@ void vfs_set_format_progress(void (*callback)(void *context, uint64_t done, uint
 	format_progress_context = context;
 }
 
-void vfs_format_report(struct block_device *bdev, uint64_t done, uint64_t total)
+void vfs_format_expect(struct block_device *bdev, uint64_t sectors)
 {
+	if (!format_active || bdev != format_device || sectors == 0U) {
+		return;
+	}
+	format_expected = sectors;
+}
+
+/*
+ * A FAT format writes only the reserved area, the FATs and the root directory, all near the
+ * start of the card: measuring progress by the sector position would sit at 0% and then jump to
+ * 100%. The formatter instead estimates the sectors it will write and this counts them.
+ */
+void vfs_format_report_write(struct block_device *bdev, uint64_t sectors)
+{
+	uint64_t total;
+	uint64_t done;
+
 	if (!format_active || format_progress == NULL || bdev != format_device) {
 		return;
 	}
-	if (done > format_highest) {
-		format_highest = done;
+	total = format_expected != 0U ? format_expected : bdev_nr_sectors(bdev);
+	format_written += sectors;
+	if (format_written > format_highest) {
+		format_highest = format_written;
 	}
-	done = format_highest;
-	format_progress(format_progress_context, done < total ? done : total, total);
+	done = format_highest < total ? format_highest : total;
+	if (done == total && total > 1U) {
+		done = total - 1U; /* 100% belongs to the finished format */
+	}
+	format_progress(format_progress_context, done, total);
 }
 
 int vfs_format(const char *blk_name, const char *fstype, const char *label, uint32_t arg)
@@ -415,12 +438,16 @@ int vfs_format(const char *blk_name, const char *fstype, const char *label, uint
 		claimed = true;
 		format_device = bdev;
 		format_highest = 0U;
+		format_written = 0U;
+		format_expected = 0U;
 		format_active = true;
 		result = fs->format(bdev, label, arg);
 		format_active = false;
 		format_device = NULL;
 		if (result == 0 && format_progress != NULL) {
-			format_progress(format_progress_context, bdev_nr_sectors(bdev), bdev_nr_sectors(bdev));
+			uint64_t total = format_expected != 0U ? format_expected : bdev_nr_sectors(bdev);
+
+			format_progress(format_progress_context, total, total);
 		}
 	}
 	if (claimed) {
