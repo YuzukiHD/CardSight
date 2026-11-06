@@ -122,7 +122,7 @@ void build_direct(void)
 
 	button = make_button(ui.content, ui.model.running ? "安全停止" : "连接 USB", start_event, NULL);
 	lv_obj_set_width(button, ui_wide_width());
-	lv_obj_set_style_radius(button, APP_BUTTON_HEIGHT / 2, 0);
+	lv_obj_set_style_radius(button, APP_CARD_RADIUS, 0);
 	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, 0);
 	ui_glass_neutral(button);
 	set_disabled(button, ui.model.busy || (!ui.model.running && !ui.model.card_present));

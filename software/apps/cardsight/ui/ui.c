@@ -19,6 +19,7 @@ static void ui_clear_page_refs(void)
 	ui.banner_fill = NULL;
 	ui.banner_label = NULL;
 	ui.format_dialog = NULL;
+	ui.settings_dialog = NULL;
 	ui.direct_status = NULL;
 	ui.direct_status_chip = NULL;
 	ui.rate_read = NULL;
@@ -65,6 +66,20 @@ static int32_t tab_width(void)
 	return (bar_width() - 2 - 2 * TAB_PAD) / (int32_t)APP_TAB_COUNT;
 }
 
+/* The five tabs share the inner width; the last one is pinned to the right pad so the
+ * outer gaps match instead of leaving the division remainder on the right. */
+static int32_t tab_x(uint32_t index)
+{
+	int32_t inner = bar_width() - 2 - 2 * TAB_PAD;
+	int32_t width = tab_width();
+	int32_t step = (inner - width) / (int32_t)(APP_TAB_COUNT - 1U);
+
+	if (index + 1U >= APP_TAB_COUNT) {
+		return TAB_PAD + inner - width;
+	}
+	return TAB_PAD + (int32_t)index * step;
+}
+
 static enum cardsight_mode tab_shown;
 
 static void tab_anim_x(void *object, int32_t value)
@@ -87,6 +102,10 @@ static void tab_icon_scale_to(lv_obj_t *icon, int32_t target)
 	if (icon == NULL || lv_image_get_scale(icon) == target) {
 		return;
 	}
+	if (!ui.animations) {
+		lv_image_set_scale(icon, (uint32_t)target);
+		return;
+	}
 	lv_anim_init(&animation);
 	lv_anim_set_var(&animation, icon);
 	lv_anim_set_exec_cb(&animation, tab_icon_anim_scale);
@@ -104,7 +123,7 @@ void ui_update_tabs(void)
 	if (ui.tabbar == NULL) {
 		return;
 	}
-	target = TAB_PAD + (int32_t)ui.mode * tab_width();
+	target = tab_x((uint32_t)ui.mode);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tab_buttons); index++) {
 		bool selected = ui.mode == (enum cardsight_mode)index;
 		uint32_t color = selected ? UI_TEXT : UI_MUTED;
@@ -116,10 +135,11 @@ void ui_update_tabs(void)
 			tab_icon_scale_to(ui.tab_icons[index], selected ? 288 : 256);
 		}
 	}
-	if (tab_shown == ui.mode) {
+	if (tab_shown == ui.mode || !ui.animations) {
 		lv_anim_delete(ui.tab_indicator, tab_anim_x);
 		lv_obj_set_x(ui.tab_indicator, target);
 		glass_highlight_move(ui.tab_indicator, ui.tab_indicator_backdrop);
+		tab_shown = ui.mode;
 		return;
 	}
 	tab_shown = ui.mode;
@@ -158,7 +178,7 @@ static void build_tab_bar(void)
 	ui.tabbar = make_glass_card(ui.bar, 0, 0, bar_width(), APP_BAR_HEIGHT, ui_bar_radius());
 	ui.tab_indicator = lv_obj_create(ui.tabbar);
 	lv_obj_set_size(ui.tab_indicator, width, inner_height);
-	lv_obj_set_pos(ui.tab_indicator, TAB_PAD + (int32_t)ui.mode * width, TAB_PAD);
+	lv_obj_set_pos(ui.tab_indicator, tab_x((uint32_t)ui.mode), TAB_PAD);
 	ui.tab_indicator_backdrop = glass_highlight_attach(ui.tab_indicator, inner_radius);
 	tab_shown = ui.mode;
 	for (uint32_t index = 0U; index < ARRAY_SIZE(icons); index++) {
@@ -166,7 +186,7 @@ static void build_tab_bar(void)
 		lv_obj_t *icon;
 
 		lv_obj_set_size(tab, width, inner_height);
-		lv_obj_set_pos(tab, TAB_PAD + (int32_t)index * width, TAB_PAD);
+		lv_obj_set_pos(tab, tab_x(index), TAB_PAD);
 		ui_style_button(tab, UI_BUTTON_GHOST);
 		lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, 0);
 		lv_obj_set_style_bg_opa(tab, LV_OPA_TRANSP, LV_STATE_PRESSED);
@@ -255,8 +275,7 @@ void ui_update_header(void)
 	if (ui.layout_editor) {
 		snprintf(title, sizeof(title), "格式化");
 	} else {
-		snprintf(title, sizeof(title), "%u/%u  %s", (uint32_t)ui.mode + 1U, APP_TAB_COUNT,
-			names[ui.mode]);
+		snprintf(title, sizeof(title), "%s", names[ui.mode]);
 	}
 	if (ui.model.card_present) {
 		capacity_text(ui.model.sectors, status, sizeof(status));
@@ -324,6 +343,63 @@ void ui_open_calibration(int32_t radius)
 	lv_obj_align(label, LV_ALIGN_CENTER, 0, -14);
 	label = make_label(ui.calibration, "左侧 减小   中间 完成   右侧 增大", UI_MUTED);
 	lv_obj_align(label, LV_ALIGN_CENTER, 0, 18);
+}
+
+static void settings_close_event(lv_event_t *event)
+{
+	(void)event;
+	if (ui.settings_dialog != NULL) {
+		lv_obj_delete_async(ui.settings_dialog);
+		ui.settings_dialog = NULL;
+	}
+}
+
+/* The sheet is built outside the input event: creating this many objects while the
+ * button is being released made LVGL walk a stale style list and fault. */
+static void settings_open_async(void *argument)
+{
+	lv_obj_t *dialog;
+	lv_obj_t *list;
+	lv_obj_t *button;
+	lv_obj_t *label;
+
+	(void)argument;
+	if (ui.settings_dialog != NULL) {
+		return;
+	}
+	dialog = lv_obj_create(ui.screen);
+	ui.settings_dialog = dialog;
+	lv_obj_set_size(dialog, ui.width, ui.height);
+	lv_obj_set_pos(dialog, 0, 0);
+	ui_style_card(dialog, UI_BACKGROUND, 0);
+	lv_obj_set_style_pad_all(dialog, 0, 0);
+	disable_scroll(dialog);
+	label = make_label(dialog, "设置", UI_TEXT);
+	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
+	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
+	list = lv_obj_create(dialog);
+	lv_obj_set_size(list, ui.width,
+		(int32_t)ui.height - APP_HEADER_HEIGHT - APP_BAR_HEIGHT - 2 * ui_margin());
+	lv_obj_set_pos(list, 0, APP_HEADER_HEIGHT + ui_margin());
+	lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(list, 0, 0);
+	lv_obj_set_style_outline_width(list, 0, 0);
+	lv_obj_set_style_pad_all(list, 0, 0);
+	lv_obj_set_style_pad_hor(list, APP_EDGE_PAD, 0);
+	lv_obj_set_style_pad_row(list, 8, 0);
+	lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+	label = make_label(list, "CardSight", UI_TEXT);
+	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
+	make_label(list, "YuzukiTsuru", UI_ACCENT);
+	make_label(list, "GPL-2.0-or-later", UI_MUTED);
+	button = make_bar_button(dialog, "返回", settings_close_event, (int32_t)ui.width - 2 * APP_BAR_MARGIN);
+	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
+}
+
+static void settings_event(lv_event_t *event)
+{
+	(void)event;
+	(void)lv_async_call(settings_open_async, NULL);
 }
 
 static void banner_event(lv_event_t *event)
@@ -397,12 +473,12 @@ static void build_banner(void)
 		int32_t resting = (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT;
 		lv_anim_t animation;
 
-		lv_obj_set_y(ui.banner, resting + 56);
+		lv_obj_set_y(ui.banner, ui.animations ? resting + 56 : resting);
 		lv_anim_init(&animation);
 		lv_anim_set_var(&animation, ui.banner);
 		lv_anim_set_exec_cb(&animation, (lv_anim_exec_xcb_t)lv_obj_set_y);
 		lv_anim_set_values(&animation, resting + 56, resting);
-		lv_anim_set_duration(&animation, 220);
+		lv_anim_set_duration(&animation, ui.animations ? 220 : 1);
 		lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
 		lv_anim_start(&animation);
 	}
@@ -457,6 +533,7 @@ void cardsight_ui_refresh(void *argument)
 		ui.landscape = ui.width >= ui.height;
 	}
 	if (ui.screen == NULL) {
+		ui.animations = true;
 		ui.screen = lv_screen_active();
 		lv_obj_set_style_bg_color(ui.screen, lv_color_hex(UI_BACKGROUND), 0);
 		lv_obj_set_style_text_font(ui.screen, &cardsight_font_16, 0);
@@ -502,7 +579,21 @@ void cardsight_ui_refresh(void *argument)
 	lv_obj_set_pos(ui.header_title, ui_margin(), ui_margin() - 2);
 	ui.header_status = make_label(ui.shell, "", UI_MUTED);
 	lv_obj_set_style_text_font(ui.header_status, &cardsight_font_16, 0);
-	lv_obj_align(ui.header_status, LV_ALIGN_TOP_RIGHT, -ui_margin(), ui_margin() + 2);
+	lv_obj_align(ui.header_status, LV_ALIGN_TOP_RIGHT, -ui_margin() - 38, ui_margin() + 2);
+	{
+		/* the settings button, a small round glass like the selected tab */
+		lv_obj_t *settings = make_glass_card(ui.shell,
+			(int32_t)ui.width - ui_margin() - 30, ui_margin() - 3, 30, 30, 15);
+		lv_obj_t *glyph = lv_image_create(settings);
+
+		lv_image_set_src(glyph, &cardsight_icon_gear);
+		lv_obj_set_style_image_recolor(glyph, lv_color_hex(UI_MUTED), 0);
+		lv_obj_set_style_image_recolor_opa(glyph, LV_OPA_COVER, 0);
+		lv_image_set_scale(glyph, 200U);
+		lv_obj_center(glyph);
+		lv_obj_set_clickable(settings, true);
+		lv_obj_add_event_cb(settings, settings_event, LV_EVENT_CLICKED, NULL);
+	}
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
 		ui.tiles[index] = lv_obj_create(ui.page_host);
 		lv_obj_set_size(ui.tiles[index], lv_pct(100), lv_pct(100));

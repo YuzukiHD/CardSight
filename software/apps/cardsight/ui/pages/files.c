@@ -195,7 +195,19 @@ static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *en
 
 static void build_directory_rows(lv_obj_t *list)
 {
-	char text[48];
+	char text[64];
+	lv_obj_t *count;
+
+	if (ui.model.files.truncated) {
+		snprintf(text, sizeof(text), "文件共 %u 项，显示前 %u 项", (uint32_t)ui.model.files.total,
+			(uint32_t)ui.model.files.count);
+	} else {
+		snprintf(text, sizeof(text), "文件共 %u 项", (uint32_t)ui.model.files.total);
+	}
+	/* the count sits at the top of the view, centred over the rows */
+	count = make_label(list, text, UI_MUTED);
+	lv_obj_set_width(count, lv_pct(100));
+	lv_obj_set_style_text_align(count, LV_TEXT_ALIGN_CENTER, 0);
 
 	if (strcmp(ui.files_path, "/") != 0) {
 		build_parent_row(list);
@@ -209,13 +221,6 @@ static void build_directory_rows(lv_obj_t *list)
 			build_file_row(list, entry);
 		}
 	}
-	if (ui.model.files.truncated) {
-		snprintf(text, sizeof(text), "仅显示前 %u 项，共 %u 项", (uint32_t)ui.model.files.count,
-			(uint32_t)ui.model.files.total);
-	} else {
-		snprintf(text, sizeof(text), "共 %u 项", (uint32_t)ui.model.files.total);
-	}
-	make_label(list, text, UI_MUTED);
 }
 
 static void build_directory(void)

@@ -19,7 +19,7 @@ SIZE = 24
 SCALE = 4
 CANVAS = SIZE * SCALE
 
-ICONS = ("usb", "proxy", "drive", "folder", "info")
+ICONS = ("usb", "proxy", "drive", "folder", "info", "gear")
 
 
 def canvas():
@@ -63,6 +63,20 @@ def folder():
     return image
 
 
+def gear():
+    import math
+
+    image, draw = canvas()
+
+    for step in range(8):
+        angle = step * math.pi / 4.0
+        x = 48.0 + math.cos(angle) * 34.0
+        y = 48.0 + math.sin(angle) * 34.0
+        draw.ellipse((x - 7, y - 7, x + 7, y + 7), fill=255)
+    draw.ellipse((24, 24, 72, 72), outline=255, width=13)
+    return image
+
+
 def info():
     image, draw = canvas()
     draw.ellipse((12, 12, 84, 84), outline=255, width=7)
@@ -71,7 +85,8 @@ def info():
     return image
 
 
-DRAWERS = {"usb": usb, "proxy": proxy, "drive": drive, "folder": folder, "info": info}
+DRAWERS = {"usb": usb, "proxy": proxy, "drive": drive, "folder": folder, "info": info,
+           "gear": gear}
 
 
 def c_array(name, data):

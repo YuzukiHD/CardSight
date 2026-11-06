@@ -245,5 +245,66 @@ int main(void)
 	lv_obj_invalidate(lv_screen_active());
 	lv_refr_now(display);
 	save_ppm("/tmp/ui-info-scroll.ppm");
+
+	/* proxy partition selection: the same row clicked three times, rendered after each */
+	{
+		lv_obj_t *row = NULL;
+
+		ui.files_detail = false;
+		cardsight_ui_refresh(NULL);
+		show_page(CARDSIGHT_PROXY);
+		for (uint32_t child = 0U; child < lv_obj_get_child_count(ui.tiles[CARDSIGHT_PROXY]); child++) {
+			lv_obj_t *item = lv_obj_get_child(ui.tiles[CARDSIGHT_PROXY], (int32_t)child);
+
+			if (!lv_obj_is_scrollable(item)) {
+				continue;
+			}
+			for (uint32_t index = 0U; index < lv_obj_get_child_count(item); index++) {
+				lv_obj_t *entry = lv_obj_get_child(item, (int32_t)index);
+
+				if (lv_obj_is_clickable(entry)) {
+					row = entry;
+					break;
+				}
+			}
+			if (row != NULL) {
+				break;
+			}
+		}
+		if (row != NULL) {
+			lv_obj_invalidate(lv_screen_active());
+			lv_refr_now(display);
+			save_ppm("/tmp/ui-proxy-sel0.ppm");
+			printf("proxy sel0: checked=%d border=%d bg=%d selected=%08lx\n",
+				(int)lv_obj_has_state(row, LV_STATE_CHECKED),
+				(int)lv_obj_get_style_border_width(row, LV_PART_MAIN),
+				(int)lv_obj_get_style_bg_opa(row, LV_PART_MAIN), (unsigned long)ui.selected);
+			for (uint32_t step = 1U; step <= 3U; step++) {
+				char path[64];
+
+				lv_obj_send_event(row, LV_EVENT_CLICKED, NULL);
+				lv_obj_invalidate(lv_screen_active());
+				lv_refr_now(display);
+				snprintf(path, sizeof(path), "/tmp/ui-proxy-sel%u.ppm", (uint32_t)step);
+				save_ppm(path);
+				printf("proxy sel%u: checked=%d border=%d bg=%d selected=%08lx\n",
+					(uint32_t)step, (int)lv_obj_has_state(row, LV_STATE_CHECKED),
+					(int)lv_obj_get_style_border_width(row, LV_PART_MAIN),
+					(int)lv_obj_get_style_bg_opa(row, LV_PART_MAIN),
+					(unsigned long)ui.selected);
+			}
+			/* what the board may be doing: a busy model disables the rows */
+			lv_obj_send_event(row, LV_EVENT_CLICKED, NULL);
+			set_disabled(row, true);
+			lv_obj_invalidate(lv_screen_active());
+			lv_refr_now(display);
+			save_ppm("/tmp/ui-proxy-disabled.ppm");
+			printf("proxy disabled: border=%d side=%d bg=%d opa=%d\n",
+				(int)lv_obj_get_style_border_width(row, LV_PART_MAIN),
+				(int)lv_obj_get_style_border_side(row, LV_PART_MAIN),
+				(int)lv_obj_get_style_bg_opa(row, LV_PART_MAIN),
+				(int)lv_obj_get_style_opa(row, LV_PART_MAIN));
+		}
+	}
 	return 0;
 }

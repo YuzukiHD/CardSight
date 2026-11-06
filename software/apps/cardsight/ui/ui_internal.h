@@ -43,6 +43,7 @@ struct cardsight_ui {
 	lv_obj_t *banner_fill;
 	lv_obj_t *banner_label;
 	lv_obj_t *format_dialog;
+	lv_obj_t *settings_dialog;
 	lv_obj_t *tabbar;
 	lv_obj_t *tab_indicator;
 	lv_obj_t *tab_indicator_backdrop;
@@ -70,6 +71,7 @@ struct cardsight_ui {
 	bool files_detail;
 	bool error_acknowledged;
 	bool format_dialog_open;
+	bool animations;
 	enum blk_partition_content format_content;
 	enum blk_partition_table_type layout_table;
 	struct cardsight_state model;

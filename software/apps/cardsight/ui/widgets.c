@@ -129,7 +129,7 @@ lv_obj_t *make_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback
 
 	lv_obj_set_height(button, APP_BUTTON_HEIGHT);
 	ui_style_button(button, UI_BUTTON_NORMAL);
-	lv_obj_set_style_radius(button, APP_BUTTON_HEIGHT / 2, 0);
+	lv_obj_set_style_radius(button, APP_CARD_RADIUS, 0);
 	disable_scroll(button);
 	lv_label_set_text(label, text);
 	lv_obj_set_width(label, lv_pct(94));
@@ -209,7 +209,11 @@ static void press_layer_event(lv_event_t *event)
 	bool pressed = lv_event_get_code(event) == LV_EVENT_PRESSED;
 	uint8_t base = (uint8_t)(uintptr_t)lv_obj_get_user_data(layer);
 
-	press_layer_fade(layer, pressed ? 52 : base, pressed ? 70 : 150);
+	if (ui.animations) {
+		press_layer_fade(layer, pressed ? 52 : base, pressed ? 70 : 150);
+	} else {
+		lv_obj_set_style_bg_opa(layer, pressed ? 52 : base, 0);
+	}
 }
 
 /* A rounded white layer that brightens the glass on press instead of a rectangular fill. */
@@ -261,6 +265,9 @@ void ui_glass_action(lv_obj_t *button, uint32_t color)
 
 	ui_style_button(button, UI_BUTTON_GHOST);
 	glass_highlight_attach(button, radius);
+	/* the highlight helper makes its object click-through for the tab indicator; a button
+	 * still has to take its presses */
+	lv_obj_set_clickable(button, true);
 	/* a soft accent wash turns the neutral glass into a primary action */
 	accent = lv_obj_create(button);
 	lv_obj_set_size(accent, width - 2, height - 2);

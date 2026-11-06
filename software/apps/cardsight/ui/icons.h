@@ -8,5 +8,6 @@ LV_IMAGE_DECLARE(cardsight_icon_proxy);
 LV_IMAGE_DECLARE(cardsight_icon_drive);
 LV_IMAGE_DECLARE(cardsight_icon_folder);
 LV_IMAGE_DECLARE(cardsight_icon_info);
+LV_IMAGE_DECLARE(cardsight_icon_gear);
 
 #endif
