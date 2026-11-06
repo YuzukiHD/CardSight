@@ -2,7 +2,7 @@
 /*
  * Glass material for the CardSight UI, following the AI Passport glass system: a translucent
  * tinted sheet over the artwork, three one-pixel edge rings mixed with the wallpaper above and
- * below, a short top specular and a bottom refraction segment. Everything is RGB888.
+ * below, and a bottom refraction segment. Everything is RGB888.
  */
 
 #include "ui/glass.h"
@@ -164,15 +164,7 @@ static void render_surface(struct glass_surface *surface)
 					blue = mix_channel(blue, ring_blue, amount);
 				}
 			}
-			/* a short specular at the top-left and refraction at the bottom-right */
-			if (y == 1 && x >= (int)radius &&
-				x <= (int)(radius + (width - 2.0f * radius) * 0.30f)) {
-				float amount = scale_opacity(76) / 255.0f;
-
-				red = mix_channel(red, mix_channel(top_red, 255.0f, 128.0f / 255.0f), amount);
-				green = mix_channel(green, mix_channel(top_green, 255.0f, 128.0f / 255.0f), amount);
-				blue = mix_channel(blue, mix_channel(top_blue, 255.0f, 128.0f / 255.0f), amount);
-			}
+			/* the bottom refraction of the material */
 			if (y == height - 2 && x <= (int)(width - radius) &&
 				x >= (int)(width - radius - (width - 2.0f * radius) * 0.36f)) {
 				float amount = scale_opacity(34) / 255.0f;

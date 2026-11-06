@@ -168,7 +168,6 @@ static void build_format_detail(void)
 	static const enum blk_partition_content contents[] = { BLK_PARTITION_FAT32, BLK_PARTITION_EXFAT, BLK_PARTITION_EXT4 };
 	bool writable = false;
 	char text[64];
-	lv_obj_t *label;
 	lv_obj_t *list;
 
 	for (size_t index = 0; index < ui.model.partition_count; index++) {
@@ -176,9 +175,6 @@ static void build_format_detail(void)
 			writable = ui.model.partitions[index].writable;
 	}
 	list = make_list(0, 0);
-	snprintf(text, sizeof(text), "P%u 格式化将清除数据", ui.manage_partition);
-	label = make_label(list, text, UI_DANGER);
-	lv_obj_set_style_pad_ver(label, 4, 0);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(contents); index++) {
 		lv_obj_t *button;
 

@@ -43,8 +43,8 @@ static lv_obj_t *make_segment(lv_obj_t *parent, int32_t x, int32_t y, int32_t wi
 {
 	lv_obj_t *button = make_button(parent, text, callback, data);
 
-	lv_obj_set_size(button, width, 32);
-	lv_obj_set_style_radius(button, 16, 0);
+	lv_obj_set_size(button, width, 36);
+	lv_obj_set_style_radius(button, 18, 0);
 	lv_obj_set_pos(button, x, y);
 	if (selected) {
 		static const lv_state_t states[] = {
@@ -92,7 +92,7 @@ void build_layout_editor(void)
 	label = make_label(card, "分区表", UI_MUTED);
 	lv_obj_set_pos(label, 14, 8);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(tables); index++) {
-		make_segment(card, 14 + (int32_t)index * 92, 26, 86, tables[index],
+		make_segment(card, 14 + (int32_t)index * 96, 26, 92, tables[index],
 			(ui.layout_table == BLK_PARTITION_TABLE_GPT) == (index != 0U), layout_table_event,
 			(void *)(uintptr_t)index);
 	}
@@ -100,7 +100,7 @@ void build_layout_editor(void)
 	label = make_label(card, "文件系统", UI_MUTED);
 	lv_obj_set_pos(label, 14, 64);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(contents); index++) {
-		make_segment(card, 14 + (int32_t)index * 62, 82, 56, content_name(contents[index]),
+		make_segment(card, 14 + (int32_t)index * 66, 82, 64, content_name(contents[index]),
 			ui.layout_content[0] == contents[index], layout_fs_event,
 			(void *)(uintptr_t)contents[index]);
 	}
