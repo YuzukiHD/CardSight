@@ -6,6 +6,10 @@ static void ui_clear_page_refs(void)
 {
 	ui.tabbar = NULL;
 	ui.tab_indicator = NULL;
+	ui.tab_indicator_backdrop = NULL;
+	ui.header_title = NULL;
+	ui.header_status = NULL;
+	ui.text_blur = NULL;
 	ui.bar = NULL;
 	ui.layout_apply = NULL;
 	ui.calibration = NULL;
@@ -39,10 +43,10 @@ void ui_schedule_rebuild(void)
 static void default_layout(void)
 {
 	uint64_t available_mib = ui.model.sectors / 2048U;
-	unsigned int count = ui.model.partition_count == 0U ? 3U : (unsigned int)MIN(ui.model.partition_count, 3U);
+	uint32_t count = ui.model.partition_count == 0U ? 3U : (uint32_t)MIN(ui.model.partition_count, 3U);
 
 	ui.layout_count = count;
-	for (unsigned int index = 0U; index < APP_LAYOUT_MAX; index++) {
+	for (uint32_t index = 0U; index < APP_LAYOUT_MAX; index++) {
 		ui.layout_mib[index] = index + 1U == count ? 0U : (uint32_t)((available_mib - 1U) / count);
 		ui.layout_content[index] = index == 0U ? BLK_PARTITION_FAT32 :
 			index == 1U ? BLK_PARTITION_EXFAT : BLK_PARTITION_EXT4;
@@ -66,6 +70,7 @@ static enum cardsight_mode tab_shown;
 static void tab_anim_x(void *object, int32_t value)
 {
 	lv_obj_set_x(object, value);
+	glass_highlight_move(ui.tab_indicator, ui.tab_indicator_backdrop);
 }
 
 /* Slide the highlight to the active tab and recolour the labels. */
@@ -77,18 +82,21 @@ void ui_update_tabs(void)
 		return;
 	}
 	target = TAB_PAD + (int32_t)ui.mode * tab_width();
-	for (unsigned int index = 0U; index < ARRAY_SIZE(ui.tab_buttons); index++) {
-		uint32_t color = ui.mode == (enum cardsight_mode)index ? UI_BACKGROUND : UI_TEXT;
+	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tab_buttons); index++) {
+		bool selected = ui.mode == (enum cardsight_mode)index;
+		uint32_t color = selected ? UI_TEXT : UI_MUTED;
 
 		lv_obj_set_style_text_color(ui.tab_buttons[index], lv_color_hex(color), 0);
 		if (ui.tab_icons[index] != NULL) {
 			lv_obj_set_style_image_recolor(ui.tab_icons[index], lv_color_hex(color), 0);
 			lv_obj_set_style_image_recolor_opa(ui.tab_icons[index], LV_OPA_COVER, 0);
+			lv_image_set_scale(ui.tab_icons[index], selected ? 288U : 256U);
 		}
 	}
 	if (tab_shown == ui.mode) {
 		lv_anim_delete(ui.tab_indicator, tab_anim_x);
 		lv_obj_set_x(ui.tab_indicator, target);
+		glass_highlight_move(ui.tab_indicator, ui.tab_indicator_backdrop);
 		return;
 	}
 	tab_shown = ui.mode;
@@ -124,15 +132,13 @@ static void build_tab_bar(void)
 	int32_t inner_height = APP_BAR_HEIGHT - 2 - 2 * TAB_PAD;
 	int32_t inner_radius = MAX(ui_bar_radius() - TAB_PAD, 8);
 
-	ui.tabbar = make_card(ui.bar, bar_width(), APP_BAR_HEIGHT, UI_SURFACE);
-	lv_obj_set_style_radius(ui.tabbar, ui_bar_radius(), 0);
-	lv_obj_set_style_border_width(ui.tabbar, 1, 0);
-	lv_obj_set_style_border_color(ui.tabbar, lv_color_hex(UI_OUTLINE), 0);
-	ui.tab_indicator = make_card(ui.tabbar, width, inner_height, UI_ACCENT);
-	lv_obj_set_style_radius(ui.tab_indicator, inner_radius, 0);
+	ui.tabbar = make_glass_card(ui.bar, 0, 0, bar_width(), APP_BAR_HEIGHT, ui_bar_radius());
+	ui.tab_indicator = lv_obj_create(ui.tabbar);
+	lv_obj_set_size(ui.tab_indicator, width, inner_height);
 	lv_obj_set_pos(ui.tab_indicator, TAB_PAD + (int32_t)ui.mode * width, TAB_PAD);
+	ui.tab_indicator_backdrop = glass_highlight_attach(ui.tab_indicator, inner_radius);
 	tab_shown = ui.mode;
-	for (unsigned int index = 0U; index < ARRAY_SIZE(icons); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(icons); index++) {
 		lv_obj_t *tab = lv_button_create(ui.tabbar);
 		lv_obj_t *icon;
 
@@ -147,10 +153,12 @@ static void build_tab_bar(void)
 		icon = lv_image_create(tab);
 		lv_image_set_src(icon, icons[index]);
 		lv_obj_center(icon);
-		lv_obj_set_style_image_recolor(icon, lv_color_hex(UI_TEXT), 0);
+		lv_obj_set_style_image_recolor(icon, lv_color_hex(UI_MUTED), 0);
 		lv_obj_set_style_image_recolor_opa(icon, LV_OPA_COVER, 0);
+		lv_image_set_scale(icon, 256U);
 		ui.tab_icons[index] = icon;
 		ui.tab_buttons[index] = tab;
+		disable_scroll(tab);
 		set_disabled(tab, ui.model.busy);
 	}
 }
@@ -175,6 +183,8 @@ static void build_bar(void)
 {
 	ui.bar = make_box(ui.screen, bar_width(), APP_BAR_HEIGHT);
 	lv_obj_set_pos(ui.bar, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
+	/* the glass card's shadow lives outside the bar; the screen still clips the outside */
+	lv_obj_set_overflow_visible(ui.bar, true);
 	if (ui.layout_editor) {
 		build_layout_bar(ui.bar);
 	} else if (ui.manage_detail || (ui.mode == CARDSIGHT_FILES && ui.files_detail)) {
@@ -186,8 +196,8 @@ static void build_bar(void)
 
 void show_page(enum cardsight_mode mode)
 {
-	for (unsigned int index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
-		lv_obj_set_hidden(ui.tiles[index], index != (unsigned int)mode);
+	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
+		lv_obj_set_hidden(ui.tiles[index], index != (uint32_t)mode);
 	}
 	ui.mode = mode;
 	if (ui.layout_editor || ui.manage_detail) {
@@ -195,8 +205,41 @@ void show_page(enum cardsight_mode mode)
 		ui.manage_detail = false;
 		ui_schedule_rebuild();
 	}
-	ui.content = ui.tiles[(unsigned int)mode];
+	ui.content = ui.tiles[(uint32_t)mode];
 	ui_update_tabs();
+	ui_update_header();
+	ui_update_backdrop();
+}
+
+void ui_update_backdrop(void)
+{
+	if (ui.text_blur != NULL) {
+		lv_obj_set_hidden(ui.text_blur, ui.mode == CARDSIGHT_DIRECT);
+	}
+}
+
+void ui_update_header(void)
+{
+	static const char *const names[APP_TAB_COUNT] = { "直连", "代理", "磁盘", "文件", "信息" };
+	char title[48];
+	char status[24];
+
+	if (ui.header_title == NULL) {
+		return;
+	}
+	if (ui.layout_editor) {
+		snprintf(title, sizeof(title), "格式化");
+	} else {
+		snprintf(title, sizeof(title), "%u/%u  %s", (uint32_t)ui.mode + 1U, APP_TAB_COUNT,
+			names[ui.mode]);
+	}
+	if (ui.model.card_present) {
+		capacity_text(ui.model.sectors, status, sizeof(status));
+	} else {
+		snprintf(status, sizeof(status), "无卡");
+	}
+	lv_label_set_text(ui.header_title, title);
+	lv_label_set_text(ui.header_status, status);
 }
 
 /* Rounded outline of the glass and the bar inset, to line up against the real corners. */
@@ -326,7 +369,7 @@ static void build_banner(void)
 	lv_obj_center(ui.banner_label);
 }
 
-static lv_obj_t *tile_list(unsigned int index)
+static lv_obj_t *tile_list(uint32_t index)
 {
 	lv_obj_t *tile = ui.tiles[index];
 
@@ -382,7 +425,7 @@ void cardsight_ui_refresh(void *argument)
 		disable_scroll(ui.screen);
 	}
 	/* A rebuild must not throw a list back to the top while the finger is moving it. */
-	for (unsigned int index = 0U; index < APP_TAB_COUNT; index++) {
+	for (uint32_t index = 0U; index < APP_TAB_COUNT; index++) {
 		lv_obj_t *list = tile_list(index);
 
 		scroll[index] = list != NULL ? lv_obj_get_scroll_y(list) : 0;
@@ -395,10 +438,23 @@ void cardsight_ui_refresh(void *argument)
 	if (ui.screen_radius == 0) {
 		ui.screen_radius = APP_SCREEN_RADIUS;
 	}
+	{
+		lv_obj_t *background = lv_image_create(ui.screen);
+
+		lv_image_set_src(background, backdrop_image());
+		lv_obj_set_pos(background, 0, 0);
+	}
+	/* Text-heavy pages get a light frosted layer over the wallpaper; the home page stays sharp. */
+	ui.text_blur = lv_image_create(ui.screen);
+	lv_image_set_src(ui.text_blur, backdrop_blurred_image());
+	lv_obj_set_pos(ui.text_blur, 0, 0);
+	lv_obj_set_style_image_opa(ui.text_blur, 160, 0);
 	ui.shell = lv_obj_create(ui.screen);
 	lv_obj_set_size(ui.shell, ui.width, ui.height);
 	lv_obj_set_pos(ui.shell, 0, 0);
-	ui_style_card(ui.shell, UI_BACKGROUND, 0);
+	lv_obj_set_style_bg_opa(ui.shell, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(ui.shell, 0, 0);
+	lv_obj_set_style_radius(ui.shell, 0, 0);
 	lv_obj_set_style_pad_all(ui.shell, 0, 0);
 	disable_scroll(ui.shell);
 
@@ -408,7 +464,13 @@ void cardsight_ui_refresh(void *argument)
 	lv_obj_set_style_border_width(ui.page_host, 0, 0);
 	lv_obj_set_style_pad_all(ui.page_host, 0, 0);
 	disable_scroll(ui.page_host);
-	for (unsigned int index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
+	ui.header_title = make_label(ui.shell, "", UI_TEXT);
+	lv_obj_set_style_text_font(ui.header_title, &cardsight_font_20, 0);
+	lv_obj_set_pos(ui.header_title, ui_margin(), ui_margin() - 2);
+	ui.header_status = make_label(ui.shell, "", UI_MUTED);
+	lv_obj_set_style_text_font(ui.header_status, &cardsight_font_16, 0);
+	lv_obj_align(ui.header_status, LV_ALIGN_TOP_RIGHT, -ui_margin(), ui_margin() + 2);
+	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
 		ui.tiles[index] = lv_obj_create(ui.page_host);
 		lv_obj_set_size(ui.tiles[index], lv_pct(100), lv_pct(100));
 		lv_obj_set_pos(ui.tiles[index], 0, 0);
@@ -417,7 +479,9 @@ void cardsight_ui_refresh(void *argument)
 		/* The tile spans the glass so a scrolling list can run to the edge; the padding keeps the
 		 * content box where the pages lay out their fixed controls. */
 		lv_obj_set_style_pad_all(ui.tiles[index], ui_margin(), 0);
-		lv_obj_set_style_pad_bottom(ui.tiles[index], (int32_t)ui.height - ui_margin() - ui_page_height(), 0);
+		lv_obj_set_style_pad_top(ui.tiles[index], ui_margin() + APP_HEADER_HEIGHT, 0);
+		lv_obj_set_style_pad_bottom(ui.tiles[index],
+			(int32_t)ui.height - ui_margin() - APP_HEADER_HEIGHT - ui_page_height(), 0);
 		disable_scroll(ui.tiles[index]);
 	}
 	ui.content = ui.tiles[CARDSIGHT_DIRECT];
@@ -431,13 +495,15 @@ void cardsight_ui_refresh(void *argument)
 	ui.content = ui.tiles[CARDSIGHT_INFO];
 	build_info();
 	build_bar();
-	ui.content = ui.tiles[(unsigned int)ui.mode];
-	for (unsigned int index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
-		lv_obj_set_hidden(ui.tiles[index], index != (unsigned int)ui.mode);
+	ui.content = ui.tiles[(uint32_t)ui.mode];
+	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
+		lv_obj_set_hidden(ui.tiles[index], index != (uint32_t)ui.mode);
 	}
 	ui_update_tabs();
+	ui_update_header();
+	ui_update_backdrop();
 	lv_obj_update_layout(ui.screen);
-	for (unsigned int index = 0U; index < APP_TAB_COUNT; index++) {
+	for (uint32_t index = 0U; index < APP_TAB_COUNT; index++) {
 		lv_obj_t *list = tile_list(index);
 
 		if (list != NULL && scroll[index] != 0) {

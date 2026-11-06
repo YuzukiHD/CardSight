@@ -50,7 +50,7 @@ static const char *list_error_text(int error)
 
 static void partition_event(lv_event_t *event)
 {
-	ui.files_partition = (unsigned int)(uintptr_t)lv_event_get_user_data(event);
+	ui.files_partition = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
 	snprintf(ui.files_path, sizeof(ui.files_path), "/");
 	ui.files_detail = true;
 	list_request();
@@ -107,7 +107,7 @@ static void build_partitions(void)
 
 static void directory_event(lv_event_t *event)
 {
-	unsigned int index = (unsigned int)(uintptr_t)lv_event_get_user_data(event);
+	uint32_t index = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
 	const struct cardsight_file_entry *entry = &ui.model.files.entries[index];
 	size_t used = strcmp(ui.files_path, "/") == 0 ? 0U : strlen(ui.files_path);
 	int written;
@@ -154,7 +154,7 @@ static void build_parent_row(lv_obj_t *list)
 	set_disabled(button, ui.model.busy);
 }
 
-static void build_directory_row(lv_obj_t *list, unsigned int index, const struct cardsight_file_entry *entry)
+static void build_directory_row(lv_obj_t *list, uint32_t index, const struct cardsight_file_entry *entry)
 {
 	lv_obj_t *button = lv_button_create(list);
 	lv_obj_t *icon = lv_image_create(button);
@@ -170,7 +170,7 @@ static void build_directory_row(lv_obj_t *list, unsigned int index, const struct
 	lv_obj_align(icon, LV_ALIGN_LEFT_MID, FILES_ROW_INSET, 0);
 	label = make_label(button, entry->name, UI_TEXT);
 	lv_obj_set_width(label, row_width() - FILES_ROW_INSET - 32 - FILES_ROW_INSET);
-	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
 	lv_obj_align(label, LV_ALIGN_LEFT_MID, FILES_ROW_INSET + 32, 0);
 	lv_obj_add_event_cb(button, directory_event, LV_EVENT_CLICKED, (void *)(uintptr_t)index);
 	set_disabled(button, ui.model.busy);
@@ -184,7 +184,7 @@ static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *en
 	char text[24];
 
 	lv_obj_set_width(name, row_width() - 2 * FILES_ROW_INSET - APP_GAP - FILES_SIZE_WIDTH);
-	lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
+	lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_CLIP);
 	lv_obj_align(name, LV_ALIGN_LEFT_MID, FILES_ROW_INSET, 0);
 	format_capacity(entry->size, text, sizeof(text));
 	lv_label_set_text(size, text);
@@ -204,16 +204,16 @@ static void build_directory_rows(lv_obj_t *list)
 		const struct cardsight_file_entry *entry = &ui.model.files.entries[index];
 
 		if (entry->dir) {
-			build_directory_row(list, (unsigned int)index, entry);
+			build_directory_row(list, (uint32_t)index, entry);
 		} else {
 			build_file_row(list, entry);
 		}
 	}
 	if (ui.model.files.truncated) {
-		snprintf(text, sizeof(text), "仅显示前 %u 项，共 %u 项", (unsigned int)ui.model.files.count,
-			(unsigned int)ui.model.files.total);
+		snprintf(text, sizeof(text), "仅显示前 %u 项，共 %u 项", (uint32_t)ui.model.files.count,
+			(uint32_t)ui.model.files.total);
 	} else {
-		snprintf(text, sizeof(text), "共 %u 项", (unsigned int)ui.model.files.total);
+		snprintf(text, sizeof(text), "共 %u 项", (uint32_t)ui.model.files.total);
 	}
 	make_label(list, text, UI_MUTED);
 }
@@ -227,7 +227,7 @@ static void build_directory(void)
 	snprintf(head, sizeof(head), "P%u  %s", ui.files_partition, ui.files_path);
 	label = make_label(ui.content, head, UI_MUTED);
 	lv_obj_set_width(label, ui_page_width() - 8);
-	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_DOTS);
+	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
 	list = make_list(FILES_HEADER_HEIGHT, 0);
 	if (!list_matches()) {
 		make_label(list, ui.model.busy ? "正在读取…" : "读取失败", UI_MUTED);

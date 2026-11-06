@@ -18,7 +18,7 @@ static void app_post_refresh(void)
 /* The last refresh of a request must not be lost to a full queue, or the banner never clears. */
 static void app_post_refresh_final(void)
 {
-	for (unsigned int attempt = 0U; attempt < 100U; attempt++) {
+	for (uint32_t attempt = 0U; attempt < 100U; attempt++) {
 		if (lvgl_port_post(cardsight_ui_refresh, NULL) == 0) {
 			return;
 		}
@@ -115,7 +115,7 @@ static void worker(void *argument)
 				request.type == CARDSIGHT_REQUEST_STOP ? "正在安全停止" :
 				request.type == CARDSIGHT_REQUEST_FORMAT ? "正在格式化" :
 				request.type == CARDSIGHT_REQUEST_LIST ? "正在读取目录" :
-				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在重建分区" : "正在连接USB");
+				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在格式化" : "正在连接USB");
 			mutex_unlock(&app_lock);
 			app_post_refresh();
 			if (request.type == CARDSIGHT_REQUEST_SCAN) {

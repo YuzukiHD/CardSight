@@ -106,6 +106,7 @@ if(CARDSIGHT_WITH_APP)
     file(GLOB CS_APP_SOURCES CONFIGURE_DEPENDS
         ${CS_ROOT}/apps/cardsight/main.c
         ${CS_ROOT}/apps/cardsight/app/*.c
+        ${CS_ROOT}/apps/cardsight/assets/*.c
         ${CS_ROOT}/apps/cardsight/storage/*.c
         ${CS_ROOT}/apps/cardsight/ui/*.c
         ${CS_ROOT}/apps/cardsight/ui/pages/*.c
@@ -158,6 +159,9 @@ set_source_files_properties(
 target_compile_options(cardsight PRIVATE
     -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare
     -Werror=implicit-function-declaration -Werror=return-type
+    # The XuanTie newlib declares uint32_t as unsigned long, so %u/%x with uint32_t
+    # values trips -Wformat even though the value fits in both types.
+    -Wno-format
 )
 if(CARDSIGHT_WERROR)
     target_compile_options(cardsight PRIVATE -Werror)

@@ -69,3 +69,32 @@ target_link_libraries(test_storage_proxy_matrix PRIVATE cs_host_core)
 target_compile_options(test_storage_proxy_matrix PRIVATE ${CARDSIGHT_HOST_WARNINGS})
 
 add_test(NAME storage_proxy_matrix COMMAND test_storage_proxy_matrix)
+
+# The UI simulator builds the real LVGL, pages and glass material against host stubs and writes
+# one PPM per page to /tmp; it is a development tool, not a test.
+file(GLOB_RECURSE CS_LVGL_SIM_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/third_party/LVGL/src/*.c)
+list(FILTER CS_LVGL_SIM_SOURCES EXCLUDE REGEX "/(libs|others|drivers)/")
+file(GLOB CS_UI_SIM_SOURCES CONFIGURE_DEPENDS
+    ${CS_ROOT}/apps/cardsight/ui/*.c
+    ${CS_ROOT}/apps/cardsight/ui/pages/*.c
+    ${CS_ROOT}/apps/cardsight/fonts/*.c
+    ${CS_ROOT}/apps/cardsight/assets/*.c
+)
+list(REMOVE_ITEM CS_UI_SIM_SOURCES ${CS_ROOT}/apps/cardsight/ui/screenshot.c)
+add_executable(ui_sim
+    ${CS_LVGL_SIM_SOURCES}
+    ${CS_UI_SIM_SOURCES}
+    ${CS_ROOT}/src/kernel/size.c
+    ui_sim.c
+)
+target_include_directories(ui_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${CS_ROOT}/include
+    ${CS_ROOT}/src
+    ${CS_ROOT}/src/gui
+    ${CS_ROOT}/apps/cardsight
+    ${CS_ROOT}/third_party/LVGL
+)
+target_compile_definitions(ui_sim PRIVATE LV_CONF_INCLUDE_SIMPLE=1)
+target_compile_options(ui_sim PRIVATE -w)
+target_link_libraries(ui_sim PRIVATE m)

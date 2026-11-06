@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ui/theme.h"
+#include <bits.h>
 
 /* Mix a colour into the surface tone; amount 0 is the surface, 255 is the colour. */
 lv_color_t ui_tint(uint32_t color, uint8_t amount)
@@ -13,6 +14,11 @@ void ui_style_button(lv_obj_t *button, enum ui_button_kind kind)
 	uint32_t border = UI_OUTLINE;
 	lv_color_t background = lv_color_hex(UI_RAISED);
 	lv_color_t pressed = lv_color_hex(UI_OUTLINE);
+	lv_opa_t background_opa = LV_OPA_COVER;
+	lv_border_side_t border_side = LV_BORDER_SIDE_FULL;
+	lv_opa_t border_opa = LV_OPA_COVER;
+	const lv_font_t *font = &cardsight_font_20;
+	bool filled_press = true;
 
 	switch (kind) {
 	case UI_BUTTON_PRIMARY:
@@ -28,33 +34,69 @@ void ui_style_button(lv_obj_t *button, enum ui_button_kind kind)
 		border = UI_DANGER;
 		break;
 	case UI_BUTTON_GHOST:
-		background = lv_color_hex(UI_SURFACE);
-		pressed = lv_color_hex(UI_RAISED);
-		text = UI_MUTED;
-		border = UI_SURFACE;
+		background_opa = LV_OPA_TRANSP;
+		pressed = lv_color_white();
+		text = UI_ACCENT;
+		border_side = LV_BORDER_SIDE_NONE;
+		font = &cardsight_font_16;
+		filled_press = false;
 		break;
 	default:
+		/* list rows sit directly on the artwork: no fill, a hairline separator */
+		background_opa = LV_OPA_TRANSP;
+		pressed = lv_color_white();
+		text = UI_TEXT;
+		border = UI_OUTLINE;
+		border_side = LV_BORDER_SIDE_BOTTOM;
+		border_opa = 48;
+		font = &cardsight_font_16;
+		filled_press = false;
 		break;
 	}
-	lv_obj_set_style_bg_color(button, background, 0);
-	lv_obj_set_style_bg_opa(button, LV_OPA_COVER, 0);
-	lv_obj_set_style_text_color(button, lv_color_hex(text), 0);
-	lv_obj_set_style_text_font(button, &cardsight_font_20, 0);
-	lv_obj_set_style_border_width(button, 1, 0);
-	lv_obj_set_style_border_color(button, lv_color_hex(border), 0);
-	lv_obj_set_style_outline_width(button, 0, 0);
-	lv_obj_set_style_shadow_width(button, 0, 0);
-	lv_obj_set_style_pad_all(button, 0, 0);
-	lv_obj_set_style_bg_color(button, pressed, LV_STATE_PRESSED);
-	/* The stock theme grows a pressed button, which the screen edge and the parent clip. */
-	lv_obj_set_style_transform_width(button, 0, LV_STATE_PRESSED);
-	lv_obj_set_style_transform_height(button, 0, LV_STATE_PRESSED);
-	if (kind == UI_BUTTON_PRIMARY) {
-		lv_obj_set_style_text_color(button, lv_color_hex(UI_BACKGROUND), LV_STATE_PRESSED);
+
+	/*
+	 * The default theme adds a focus/pressed outline and border of its own. Every property is
+	 * written for every state we can enter, so nothing from the theme leaks through.
+	 */
+	{
+		static const lv_state_t states[] = {
+			0, LV_STATE_PRESSED, LV_STATE_FOCUSED, LV_STATE_FOCUS_KEY, LV_STATE_CHECKED,
+			LV_STATE_DISABLED,
+		};
+
+		for (uint32_t index = 0U; index < ARRAY_SIZE(states); index++) {
+			lv_state_t state = states[index];
+			bool is_pressed = state == LV_STATE_PRESSED;
+			bool is_disabled = state == LV_STATE_DISABLED;
+
+			lv_obj_set_style_bg_color(button,
+				is_disabled ? lv_color_hex(UI_SURFACE) : is_pressed ? pressed : background, state);
+			lv_obj_set_style_bg_opa(button,
+				is_disabled ? LV_OPA_COVER :
+				is_pressed ? (filled_press ? LV_OPA_COVER : LV_OPA_TRANSP) : background_opa,
+				state);
+			lv_obj_set_style_text_color(button,
+				is_disabled ? lv_color_hex(UI_MUTED) :
+				(is_pressed && kind == UI_BUTTON_PRIMARY) ? lv_color_hex(UI_BACKGROUND) :
+				lv_color_hex(text), state);
+			lv_obj_set_style_text_font(button, font, state);
+			lv_obj_set_style_border_width(button, border_side == LV_BORDER_SIDE_NONE ? 0 : 1, state);
+			lv_obj_set_style_border_side(button, border_side, state);
+			lv_obj_set_style_border_color(button,
+				is_disabled ? lv_color_hex(UI_OUTLINE) : lv_color_hex(border), state);
+			lv_obj_set_style_border_opa(button, border_opa, state);
+			lv_obj_set_style_outline_width(button, 0, state);
+			lv_obj_set_style_outline_opa(button, LV_OPA_TRANSP, state);
+			lv_obj_set_style_shadow_width(button, 0, state);
+			lv_obj_set_style_shadow_opa(button, LV_OPA_TRANSP, state);
+			/* the default theme darkens the whole rectangle on press through recolor */
+			lv_obj_set_style_recolor(button, lv_color_white(), state);
+			lv_obj_set_style_recolor_opa(button, LV_OPA_TRANSP, state);
+			lv_obj_set_style_pad_all(button, 0, state);
+			lv_obj_set_style_transform_width(button, 0, state);
+			lv_obj_set_style_transform_height(button, 0, state);
+		}
 	}
-	lv_obj_set_style_bg_color(button, lv_color_hex(UI_SURFACE), LV_STATE_DISABLED);
-	lv_obj_set_style_border_color(button, lv_color_hex(UI_OUTLINE), LV_STATE_DISABLED);
-	lv_obj_set_style_text_color(button, lv_color_hex(UI_MUTED), LV_STATE_DISABLED);
 	lv_obj_set_style_opa(button, LV_OPA_70, LV_STATE_DISABLED);
 }
 

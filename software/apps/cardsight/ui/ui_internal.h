@@ -3,7 +3,9 @@
 #define CARDSIGHT_UI_INTERNAL_H
 #include "app/app.h"
 #include "ui/ui.h"
+#include "ui/backdrop.h"
 #include "ui/icons.h"
+#include "ui/glass.h"
 #include "ui/theme.h"
 #include "ui/widgets.h"
 #include <gui/lvgl_port.h>
@@ -28,6 +30,7 @@
 #define APP_ROW_HEIGHT 44
 #define APP_PART_ROW_HEIGHT 52
 #define APP_TOUCH_MIN 44
+#define APP_HEADER_HEIGHT 30
 #define APP_TAB_COUNT 5U
 
 enum cardsight_mode { CARDSIGHT_DIRECT, CARDSIGHT_PROXY, CARDSIGHT_MANAGE, CARDSIGHT_FILES, CARDSIGHT_INFO };
@@ -42,9 +45,13 @@ struct cardsight_ui {
 	lv_obj_t *format_dialog;
 	lv_obj_t *tabbar;
 	lv_obj_t *tab_indicator;
+	lv_obj_t *tab_indicator_backdrop;
 	lv_obj_t *tab_buttons[APP_TAB_COUNT];
 	lv_obj_t *tab_icons[APP_TAB_COUNT];
 	lv_obj_t *bar;
+	lv_obj_t *text_blur;
+	lv_obj_t *header_title;
+	lv_obj_t *header_status;
 	lv_obj_t *content;
 	lv_obj_t *direct_status;
 	lv_obj_t *direct_status_chip;
@@ -68,11 +75,11 @@ struct cardsight_ui {
 	struct cardsight_state model;
 	uint32_t selected;
 	enum cardsight_mode mode;
-	unsigned int manage_partition;
-	unsigned int files_partition;
+	uint32_t manage_partition;
+	uint32_t files_partition;
 	char files_path[VFS_PATH_MAX];
 	bool layout_editor;
-	unsigned int layout_count;
+	uint32_t layout_count;
 	uint64_t layout_sectors;
 	uint32_t layout_mib[APP_LAYOUT_MAX];
 	enum blk_partition_content layout_content[APP_LAYOUT_MAX];
@@ -81,6 +88,8 @@ extern struct cardsight_ui ui;
 void ui_schedule_rebuild(void);
 void show_page(enum cardsight_mode mode);
 void ui_update_tabs(void);
+void ui_update_header(void);
+void ui_update_backdrop(void);
 void ui_back_event(lv_event_t *event);
 void ui_open_calibration(int32_t radius);
 int32_t ui_bar_radius(void);

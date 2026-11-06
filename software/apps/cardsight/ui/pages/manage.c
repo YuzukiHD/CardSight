@@ -5,7 +5,7 @@
 
 static void manage_partition_event(lv_event_t *event)
 {
-	ui.manage_partition = (unsigned int)(uintptr_t)lv_event_get_user_data(event);
+	ui.manage_partition = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
 	ui.manage_detail = true;
 	ui_schedule_rebuild();
 }
@@ -28,7 +28,7 @@ static void format_cancel_event(lv_event_t *event)
 		lv_obj_delete_async(ui.format_dialog);
 		ui.format_dialog = NULL;
 	}
-	ui.content = ui.tiles[(unsigned int)ui.mode];
+	ui.content = ui.tiles[(uint32_t)ui.mode];
 }
 
 static void format_start_event(lv_event_t *event)
@@ -155,14 +155,11 @@ static void build_partition_rows(lv_obj_t *list)
 /* The editor is a rare action, so it is a quiet row at the end of the list, not a docked button. */
 static void build_layout_entry(lv_obj_t *list)
 {
-	lv_obj_t *button = make_button(list, "编辑分区布局", layout_open_event, NULL);
+	lv_obj_t *button = make_button(list, "格式化整卡", layout_open_event, NULL);
 
 	lv_obj_set_size(button, lv_pct(100), APP_ROW_HEIGHT);
 	lv_obj_set_style_radius(button, APP_ROW_HEIGHT / 2, 0);
-	ui_style_button(button, UI_BUTTON_GHOST);
-	lv_obj_set_style_border_color(button, lv_color_hex(UI_OUTLINE), 0);
-	lv_obj_set_style_text_color(button, lv_color_hex(UI_ACCENT), 0);
-	lv_obj_set_style_text_font(button, &cardsight_font_16, 0);
+	ui_glass_neutral(button);
 	set_disabled(button, ui.model.running || ui.model.busy || !ui.model.card_writable);
 }
 
@@ -182,7 +179,7 @@ static void build_format_detail(void)
 	snprintf(text, sizeof(text), "P%u 格式化将清除数据", ui.manage_partition);
 	label = make_label(list, text, UI_DANGER);
 	lv_obj_set_style_pad_ver(label, 4, 0);
-	for (unsigned int index = 0U; index < ARRAY_SIZE(contents); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(contents); index++) {
 		lv_obj_t *button;
 
 		snprintf(text, sizeof(text), "格式化 %s", content_name(contents[index]));

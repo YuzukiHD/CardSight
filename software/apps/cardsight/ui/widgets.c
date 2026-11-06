@@ -44,8 +44,8 @@ void enable_vertical_scroll(lv_obj_t *object)
 {
 	lv_obj_set_scrollable(object, true);
 	lv_obj_set_scroll_dir(object, LV_DIR_VER);
-	lv_obj_set_scrollbar_mode(object, LV_SCROLLBAR_MODE_AUTO);
-	ui_style_scrollbar(object);
+	/* the reference UI has no visible scrollbars; the list still drags and scrolls */
+	lv_obj_set_scrollbar_mode(object, LV_SCROLLBAR_MODE_OFF);
 }
 
 lv_obj_t *make_label(lv_obj_t *parent, const char *text, uint32_t color)
@@ -76,6 +76,34 @@ lv_obj_t *make_card(lv_obj_t *parent, int32_t width, int32_t height, uint32_t co
 	lv_obj_t *card = make_box(parent, width, height);
 
 	ui_style_card(card, color, APP_CARD_RADIUS);
+	return card;
+}
+
+/*
+ * A liquid-glass surface: its own refraction canvas (see glass.c), a one-pixel light edge and a
+ * soft shadow. The canvas is the object's background image, so it moves and clips with it.
+ */
+lv_obj_t *make_glass_card(lv_obj_t *parent, int32_t x, int32_t y, int32_t width, int32_t height,
+	int32_t radius)
+{
+	lv_obj_t *card = lv_obj_create(parent);
+
+	lv_obj_set_size(card, width, height);
+	lv_obj_set_pos(card, x, y);
+	lv_obj_set_style_bg_opa(card, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(card, 1, 0);
+	lv_obj_set_style_border_color(card, lv_color_hex(UI_GLASS_EDGE), 0);
+	lv_obj_set_style_border_opa(card, UI_GLASS_EDGE_OPA, 0);
+	lv_obj_set_style_radius(card, radius, 0);
+	lv_obj_set_style_clip_corner(card, true, 0);
+	lv_obj_set_style_pad_all(card, 0, 0);
+	lv_obj_set_style_shadow_width(card, 10, 0);
+	lv_obj_set_style_shadow_color(card, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_shadow_opa(card, 70, 0);
+	lv_obj_set_style_shadow_ofs_y(card, 3, 0);
+	lv_obj_set_clickable(card, false);
+	disable_scroll(card);
+	glass_attach(card, radius);
 	return card;
 }
 
@@ -151,16 +179,100 @@ int32_t ui_page_width(void)
 /* Content stops above the bottom bar, which always holds the tabs or the back button. */
 int32_t ui_page_height(void)
 {
-	return (int32_t)ui.height - ui_margin() - APP_BAR_MARGIN - APP_BAR_HEIGHT - APP_GAP;
+	return (int32_t)ui.height - ui_margin() - APP_HEADER_HEIGHT - APP_BAR_MARGIN - APP_BAR_HEIGHT -
+		APP_GAP;
 }
 
 /* Button that fills a bottom bar, with the corners following the glass. */
+static void press_layer_event(lv_event_t *event)
+{
+	lv_obj_t *layer = lv_event_get_user_data(event);
+	bool pressed = lv_event_get_code(event) == LV_EVENT_PRESSED;
+	uint8_t base = (uint8_t)(uintptr_t)lv_obj_get_user_data(layer);
+
+	lv_obj_set_style_bg_opa(layer, pressed ? 52 : base, 0);
+}
+
+/* A rounded white layer that brightens the glass on press instead of a rectangular fill. */
+static void add_press_layer(lv_obj_t *button, lv_obj_t *label, int32_t radius, uint8_t base_opa)
+{
+	int32_t width = lv_obj_get_width(button);
+	int32_t height = lv_obj_get_height(button);
+	lv_obj_t *layer = lv_obj_create(button);
+
+	lv_obj_set_size(layer, width - 2, height - 2);
+	lv_obj_set_pos(layer, 1, 1);
+	lv_obj_set_style_bg_color(layer, lv_color_hex(0xffffff), 0);
+	lv_obj_set_style_bg_opa(layer, base_opa, 0);
+	lv_obj_set_style_border_width(layer, 0, 0);
+	lv_obj_set_style_radius(layer, radius > 2 ? radius - 1 : radius, 0);
+	lv_obj_set_style_pad_all(layer, 0, 0);
+	lv_obj_set_clickable(layer, false);
+	lv_obj_set_scrollable(layer, false);
+	lv_obj_set_user_data(layer, (void *)(uintptr_t)base_opa);
+	lv_obj_add_event_cb(button, press_layer_event, LV_EVENT_PRESSED, layer);
+	lv_obj_add_event_cb(button, press_layer_event, LV_EVENT_RELEASED, layer);
+	lv_obj_add_event_cb(button, press_layer_event, LV_EVENT_PRESS_LOST, layer);
+	if (label != NULL) {
+		lv_obj_move_foreground(label);
+	}
+}
+
+void ui_glass_neutral(lv_obj_t *button)
+{
+	lv_obj_t *label = lv_obj_get_child(button, 0);
+	int32_t radius = lv_obj_get_style_radius(button, 0);
+
+	ui_style_button(button, UI_BUTTON_GHOST);
+	lv_obj_set_style_text_color(button, lv_color_hex(UI_TEXT), 0);
+	if (label != NULL) {
+		lv_obj_set_style_text_color(label, lv_color_hex(UI_TEXT), 0);
+	}
+	glass_attach_tinted(button, radius, UI_GLASS_TINT_OPA);
+	add_press_layer(button, label, radius, 20);
+}
+
+void ui_glass_action(lv_obj_t *button, uint32_t color)
+{
+	lv_obj_t *label = lv_obj_get_child(button, 0);
+	int32_t width = lv_obj_get_width(button);
+	int32_t height = lv_obj_get_height(button);
+	int32_t radius = lv_obj_get_style_radius(button, 0);
+	lv_obj_t *accent;
+
+	ui_style_button(button, UI_BUTTON_GHOST);
+	glass_highlight_attach(button, radius);
+	/* a soft accent wash turns the neutral glass into a primary action */
+	accent = lv_obj_create(button);
+	lv_obj_set_size(accent, width - 2, height - 2);
+	lv_obj_set_pos(accent, 1, 1);
+	lv_obj_set_style_bg_color(accent, lv_color_hex(color), 0);
+	lv_obj_set_style_bg_opa(accent, 38, 0);
+	lv_obj_set_style_border_width(accent, 0, 0);
+	lv_obj_set_style_radius(accent, radius > 2 ? radius - 1 : radius, 0);
+	lv_obj_set_style_pad_all(accent, 0, 0);
+	lv_obj_set_clickable(accent, false);
+	lv_obj_set_scrollable(accent, false);
+	if (label != NULL) {
+		lv_obj_set_style_text_color(label, lv_color_hex(UI_TEXT), 0);
+		lv_obj_move_foreground(label);
+	}
+	lv_obj_set_style_text_color(button, lv_color_hex(UI_TEXT), 0);
+	lv_obj_set_style_border_width(button, 1, 0);
+	lv_obj_set_style_border_color(button, lv_color_hex(color), 0);
+	lv_obj_set_style_border_opa(button, 160, 0);
+	lv_obj_set_style_shadow_color(button, lv_color_hex(color), 0);
+	lv_obj_set_style_shadow_opa(button, 60, 0);
+	add_press_layer(button, label, radius, 0);
+}
+
 lv_obj_t *make_bar_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback, int32_t width)
 {
 	lv_obj_t *button = make_button(parent, text, callback, NULL);
 
 	lv_obj_set_size(button, width, APP_BAR_HEIGHT);
 	lv_obj_set_style_radius(button, ui_bar_radius(), 0);
+	ui_glass_neutral(button);
 	return button;
 }
 
@@ -173,15 +285,17 @@ lv_obj_t *make_list(int32_t top, int32_t bottom)
 {
 	lv_obj_t *list = lv_obj_create(ui.content);
 	int32_t margin = ui_margin();
-	int32_t extra_top = top == 0 ? margin : 0;
 	int32_t extra_bottom = bottom == 0 ? APP_GAP : 0;
 
-	lv_obj_set_size(list, ui.width, ui_page_height() - top - bottom + extra_top + extra_bottom);
-	lv_obj_set_pos(list, -margin, top - extra_top);
+	/*
+	 * The list starts below the page header now; the extra bottom keeps its last row and the
+	 * scrollbar clear of the bottom bar.
+	 */
+	lv_obj_set_size(list, ui.width, ui_page_height() - top - bottom - extra_bottom);
+	lv_obj_set_pos(list, -margin, top);
 	lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
 	lv_obj_set_style_border_width(list, 0, 0);
 	lv_obj_set_style_pad_hor(list, APP_EDGE_PAD, 0);
-	lv_obj_set_style_pad_top(list, extra_top, 0);
 	lv_obj_set_style_pad_bottom(list, extra_bottom, 0);
 	lv_obj_set_style_pad_row(list, 6, 0);
 	lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
@@ -189,6 +303,10 @@ lv_obj_t *make_list(int32_t top, int32_t bottom)
 	/* The thumb sits on the screen edge, starting below the rounded corner. */
 	lv_obj_set_style_pad_top(list, ui.screen_radius, LV_PART_SCROLLBAR);
 	lv_obj_set_style_pad_bottom(list, 4, LV_PART_SCROLLBAR);
+	lv_obj_set_style_outline_width(list, 0, 0);
+	lv_obj_set_style_outline_width(list, 0, LV_STATE_FOCUSED);
+	lv_obj_set_style_outline_width(list, 0, LV_STATE_FOCUS_KEY);
+	lv_obj_set_click_focusable(list, false);
 	return list;
 }
 

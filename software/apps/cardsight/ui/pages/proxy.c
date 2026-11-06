@@ -11,7 +11,7 @@ static void style_selection(lv_obj_t *row, bool selected)
 
 static void partition_event(lv_event_t *event)
 {
-	unsigned int partno = (unsigned int)(uintptr_t)lv_event_get_user_data(event);
+	uint32_t partno = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
 	lv_obj_t *checkbox = lv_event_get_target_obj(event);
 	bool selected = lv_obj_has_state(checkbox, LV_STATE_CHECKED);
 
@@ -53,9 +53,8 @@ void ui_update_proxy_controls(void)
 		text = "启动代理 读写";
 	}
 	disabled = ui.model.busy || (!ui.model.running && (!ui.model.card_present || ui.selected == 0U));
-	label = lv_obj_get_child(ui.proxy_start, 0);
+	label = lv_obj_get_child(ui.proxy_start, -1);
 	lv_label_set_text(label, text);
-	ui_style_button(ui.proxy_start, ui.model.running ? UI_BUTTON_DANGER : UI_BUTTON_PRIMARY);
 	set_disabled(ui.proxy_start, disabled);
 }
 
@@ -73,12 +72,16 @@ static void build_partition_row(lv_obj_t *list, const struct storage_proxy_parti
 	snprintf(detail, sizeof(detail), "%s%s", capacity, part->writable ? "" : " 只读");
 	lv_obj_set_size(row, lv_pct(100), APP_PART_ROW_HEIGHT);
 	ui_style_button(row, UI_BUTTON_NORMAL);
-	lv_obj_set_style_radius(row, 22, 0);
+	lv_obj_set_style_radius(row, 14, 0);
 	disable_scroll(row);
 	lv_obj_set_checkable(row, true);
-	lv_obj_set_style_bg_color(row, lv_color_hex(UI_RAISED), LV_STATE_CHECKED);
+	/* selected rows are a soft glass outline, not a filled card */
+	lv_obj_set_style_bg_color(row, lv_color_hex(UI_GLASS_TINT), LV_STATE_CHECKED);
+	lv_obj_set_style_bg_opa(row, 40, LV_STATE_CHECKED);
 	lv_obj_set_style_border_color(row, lv_color_hex(UI_ACCENT), LV_STATE_CHECKED);
-	lv_obj_set_style_border_width(row, 2, LV_STATE_CHECKED);
+	lv_obj_set_style_border_opa(row, 120, LV_STATE_CHECKED);
+	lv_obj_set_style_border_width(row, 1, LV_STATE_CHECKED);
+	lv_obj_set_style_border_side(row, LV_BORDER_SIDE_FULL, LV_STATE_CHECKED);
 	label = make_label(row, title, UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_align(label, LV_ALIGN_TOP_LEFT, 44, 1);
@@ -106,6 +109,8 @@ void build_proxy(void)
 
 	ui.proxy_start = make_button(ui.content, "", start_event, NULL);
 	lv_obj_set_width(ui.proxy_start, ui_wide_width());
+	lv_obj_set_style_radius(ui.proxy_start, APP_BUTTON_HEIGHT / 2, 0);
 	lv_obj_align(ui.proxy_start, LV_ALIGN_BOTTOM_MID, 0, 0);
+	ui_glass_neutral(ui.proxy_start);
 	ui_update_proxy_controls();
 }

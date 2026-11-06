@@ -67,10 +67,8 @@ void build_direct(void)
 	lv_obj_t *unit;
 	lv_obj_t *button;
 
-	hero = make_card(ui.content, ui_wide_width(), hero_height, UI_SURFACE);
-	lv_obj_set_style_border_width(hero, 1, 0);
-	lv_obj_set_style_border_color(hero, lv_color_hex(UI_OUTLINE), 0);
-	lv_obj_set_pos(hero, -(ui_margin() - APP_EDGE_PAD), 0);
+	hero = make_glass_card(ui.content, -(ui_margin() - APP_EDGE_PAD), 0, ui_wide_width(), hero_height,
+		APP_CARD_RADIUS);
 	lv_obj_set_style_pad_hor(hero, 14, 0);
 	lv_obj_set_style_pad_ver(hero, 12, 0);
 	lv_obj_set_flex_flow(hero, LV_FLEX_FLOW_COLUMN);
@@ -113,7 +111,7 @@ void build_direct(void)
 	lv_obj_set_style_pad_column(row, 6, 0);
 	if (ui.model.card_present) {
 		make_chip(row, ui.model.table == BLK_PARTITION_TABLE_GPT ? "GPT" : "MBR", UI_MUTED);
-		snprintf(text, sizeof(text), "%u 区", (unsigned int)ui.model.partition_count);
+		snprintf(text, sizeof(text), "%u 区", (uint32_t)ui.model.partition_count);
 		make_chip(row, text, UI_MUTED);
 		make_chip(row, ui.model.card_writable ? "读写" : "只读",
 			ui.model.card_writable ? UI_SUCCESS : UI_WARNING);
@@ -124,7 +122,8 @@ void build_direct(void)
 
 	button = make_button(ui.content, ui.model.running ? "安全停止" : "连接 USB", start_event, NULL);
 	lv_obj_set_width(button, ui_wide_width());
-	ui_style_button(button, ui.model.running ? UI_BUTTON_DANGER : UI_BUTTON_PRIMARY);
+	lv_obj_set_style_radius(button, APP_BUTTON_HEIGHT / 2, 0);
 	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, 0);
+	ui_glass_neutral(button);
 	set_disabled(button, ui.model.busy || (!ui.model.running && !ui.model.card_present));
 }

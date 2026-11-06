@@ -20,5 +20,6 @@
 #define LV_DRAW_BUF_ALIGN	 64
 
 #define LV_USE_LOG 0
+#define LV_USE_SNAPSHOT 1
 
 #endif /* LV_CONF_H */

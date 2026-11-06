@@ -38,10 +38,10 @@ static void info_card_rows(lv_obj_t *body)
 	info_row(body, "容量", "%s", capacity);
 	info_row(body, "类型", "%s", card->high_capacity ? ui.model.sectors > 67108864U ? "SDXC" : "SDHC" : "SDSC");
 	info_row(body, "分区表", "%s  %u 个分区", ui.model.table == BLK_PARTITION_TABLE_GPT ? "GPT" : "MBR",
-		(unsigned int)ui.model.partition_count);
+		(uint32_t)ui.model.partition_count);
 	info_row(body, "访问", "%s", ui.model.card_writable ? "可读写" : "只读");
 	if (ui.model.card_info_valid) {
-		for (unsigned int index = 0U; index < sizeof(card->cid); index++) {
+		for (uint32_t index = 0U; index < sizeof(card->cid); index++) {
 			snprintf(cid + index * 2U, sizeof(cid) - index * 2U, "%02x", card->cid[index]);
 		}
 		if ((card->sw_groups[0] & (1U << 1)) != 0U) strcat(modes, "/SDR25");
@@ -51,9 +51,9 @@ static void info_card_rows(lv_obj_t *body)
 		info_row(body, "厂商", "%02X  OEM %.2s", card->identity.manufacturer_id, card->identity.oem_id);
 		info_row(body, "产品", "%.5s  v%u.%u", card->identity.product_name,
 			card->identity.product_revision_major, card->identity.product_revision_minor);
-		info_row(body, "序列", "%08X", (unsigned int)card->identity.serial_number);
+		info_row(body, "序列", "%08X", (uint32_t)card->identity.serial_number);
 		info_row(body, "制造年月", "%04u-%02u", card->identity.manufacture_year, card->identity.manufacture_month);
-		info_row(body, "模式", "%s  %u MHz  %d-bit", card->mode, (unsigned int)(card->clock / 1000000U),
+		info_row(body, "模式", "%s  %u MHz  %d-bit", card->mode, (uint32_t)(card->clock / 1000000U),
 			card->bus_width);
 		info_row(body, "1.8V", "%s", card->s18a ? "支持" : "不支持");
 		info_row(body, "调谐", "%s", card->tuned ? "完成" : "无");
