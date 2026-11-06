@@ -27,4 +27,18 @@ int sunxi_display_get_info(struct sunxi_display_info *info);
 int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t height,
 	uint16_t pitch, const void *buffer);
 
+/**
+ * The same write without waiting for the wire: the window command goes out at once and the
+ * second hart pushes the pixels. Poll sunxi_display_write_done() before reusing @p buffer.
+ * Only packed rectangles (pitch == width) are supported.
+ */
+int sunxi_display_write_async(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t height,
+	uint16_t pitch, const void *buffer);
+
+/** The asynchronous write has finished; true once, with the result in @p result. */
+bool sunxi_display_write_done(int *result);
+
+/** Block until the panel is quiet again (the next window command needs it). */
+void sunxi_display_wait(void);
+
 #endif /* CARDSIGHT_SUNXI_DISPLAY_H */

@@ -11,5 +11,7 @@ const lv_image_dsc_t *backdrop_image(void);
 const uint8_t *backdrop_blurred(void);
 /* The same blurred copy as an image, used as the screen backdrop and by glass highlights. */
 const lv_image_dsc_t *backdrop_blurred_image(void);
+/* The darkened artwork with the blurred copy already mixed in at 160/255, for text pages. */
+const lv_image_dsc_t *backdrop_text_image(void);
 
 #endif

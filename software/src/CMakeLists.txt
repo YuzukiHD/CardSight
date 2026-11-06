@@ -38,6 +38,7 @@ set(CS_PLATFORM_SOURCES
     ${CS_ROOT}/src/drivers/spi/spi-sunxi.c
     ${CS_ROOT}/src/drivers/i2c/i2c-sunxi.c
     ${CS_ROOT}/src/drivers/display/panel-st7789.c
+    ${CS_ROOT}/src/drivers/display/panel-worker.c
     ${CS_ROOT}/src/drivers/display/display.c
     ${CS_ROOT}/src/drivers/input/touchscreen/cst816.c
     ${CS_ROOT}/src/gui/lvgl_port.c

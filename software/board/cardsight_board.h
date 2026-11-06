@@ -22,6 +22,13 @@
 #define SUNXI_MSC_BUFFER_ADDRESS 0x00100000UL
 #define SUNXI_MSC_BUFFER_SIZE    0x00010000UL
 
+/* The other half of the 128 KiB boot SRAM: buffers written every frame live here, because
+ * stores to the PSRAM run at about 11 MB/s while the SRAM takes them at over 400 MB/s. The
+ * second hart pushes the pixels out of these buffers while the first renders the next one. */
+#define SUNXI_SRAM_BUFFER_ADDRESS   0x00110000UL
+#define SUNXI_SRAM_BUFFER_SIZE	    0x00010000UL
+#define SUNXI_PANEL_MAILBOX_ADDRESS 0x0011F100UL
+
 /* The panel and its touch digitizer cover the same glass. */
 #define SUNXI_PANEL_WIDTH	240U
 #define SUNXI_PANEL_HEIGHT 284U

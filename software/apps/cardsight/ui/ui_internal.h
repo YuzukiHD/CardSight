@@ -49,7 +49,7 @@ struct cardsight_ui {
 	lv_obj_t *tab_buttons[APP_TAB_COUNT];
 	lv_obj_t *tab_icons[APP_TAB_COUNT];
 	lv_obj_t *bar;
-	lv_obj_t *text_blur;
+	lv_obj_t *background;
 	lv_obj_t *header_title;
 	lv_obj_t *header_status;
 	lv_obj_t *content;

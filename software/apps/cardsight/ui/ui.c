@@ -9,7 +9,7 @@ static void ui_clear_page_refs(void)
 	ui.tab_indicator_backdrop = NULL;
 	ui.header_title = NULL;
 	ui.header_status = NULL;
-	ui.text_blur = NULL;
+	ui.background = NULL;
 	ui.bar = NULL;
 	ui.layout_apply = NULL;
 	ui.calibration = NULL;
@@ -213,8 +213,10 @@ void show_page(enum cardsight_mode mode)
 
 void ui_update_backdrop(void)
 {
-	if (ui.text_blur != NULL) {
-		lv_obj_set_hidden(ui.text_blur, ui.mode == CARDSIGHT_DIRECT);
+	/* Text-heavy pages get the frosted wallpaper; the home page stays sharp. */
+	if (ui.background != NULL) {
+		lv_image_set_src(ui.background, ui.mode == CARDSIGHT_DIRECT ? backdrop_image() :
+			backdrop_text_image());
 	}
 }
 
@@ -439,16 +441,10 @@ void cardsight_ui_refresh(void *argument)
 		ui.screen_radius = APP_SCREEN_RADIUS;
 	}
 	{
-		lv_obj_t *background = lv_image_create(ui.screen);
-
-		lv_image_set_src(background, backdrop_image());
-		lv_obj_set_pos(background, 0, 0);
+		ui.background = lv_image_create(ui.screen);
+		lv_image_set_src(ui.background, backdrop_image());
+		lv_obj_set_pos(ui.background, 0, 0);
 	}
-	/* Text-heavy pages get a light frosted layer over the wallpaper; the home page stays sharp. */
-	ui.text_blur = lv_image_create(ui.screen);
-	lv_image_set_src(ui.text_blur, backdrop_blurred_image());
-	lv_obj_set_pos(ui.text_blur, 0, 0);
-	lv_obj_set_style_image_opa(ui.text_blur, 160, 0);
 	ui.shell = lv_obj_create(ui.screen);
 	lv_obj_set_size(ui.shell, ui.width, ui.height);
 	lv_obj_set_pos(ui.shell, 0, 0);

@@ -17,9 +17,11 @@
 
 static uint8_t background[BACKDROP_WIDTH * BACKDROP_HEIGHT * BACKDROP_BPP];
 static uint8_t blurred[BACKDROP_WIDTH * BACKDROP_HEIGHT * BACKDROP_BPP];
+static uint8_t frosted[BACKDROP_WIDTH * BACKDROP_HEIGHT * BACKDROP_BPP];
 static uint8_t scratch[BACKDROP_WIDTH * BACKDROP_HEIGHT * BACKDROP_BPP];
 static bool dark_ready;
 static bool ready;
+static bool frosted_ready;
 
 static lv_image_dsc_t dark_image = {
 	.header = {
@@ -43,6 +45,18 @@ static lv_image_dsc_t blurred_image = {
 	},
 	.data_size = sizeof(blurred),
 	.data = blurred,
+};
+
+static lv_image_dsc_t frosted_image = {
+	.header = {
+		.magic = LV_IMAGE_HEADER_MAGIC,
+		.cf = LV_COLOR_FORMAT_RGB888,
+		.w = BACKDROP_WIDTH,
+		.h = BACKDROP_HEIGHT,
+		.stride = BACKDROP_WIDTH * BACKDROP_BPP,
+	},
+	.data_size = sizeof(frosted),
+	.data = frosted,
 };
 
 /* A calmer copy of the artwork keeps white text readable over it. */
@@ -121,4 +135,21 @@ const lv_image_dsc_t *backdrop_blurred_image(void)
 {
 	make_blurred();
 	return &blurred_image;
+}
+
+/* The blurred copy laid over the darkened artwork at the old layer opacity. Drawing it as one
+ * image instead of blending two full-screen layers every frame leaves the pixels unchanged and
+ * takes the 160/255 blend off the render path. */
+const lv_image_dsc_t *backdrop_text_image(void)
+{
+	make_dark();
+	make_blurred();
+	if (!frosted_ready) {
+		for (size_t index = 0U; index < sizeof(frosted); index++) {
+			frosted[index] = (uint8_t)(((uint32_t)blurred[index] * 160U +
+						   (uint32_t)background[index] * 95U) >> 8);
+		}
+		frosted_ready = true;
+	}
+	return &frosted_image;
 }

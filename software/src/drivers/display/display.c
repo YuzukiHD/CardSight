@@ -21,6 +21,7 @@
 #include <shell.h>
 
 #include "drivers/display/panel-st7789.h"
+#include "drivers/display/panel-worker.h"
 #include "drivers/drivers.h"
 
 static bool display_ready;
@@ -78,6 +79,10 @@ int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t
 	if (result != 0) {
 		return result;
 	}
+	/* the panel advances the address itself, so a packed rectangle is one transfer */
+	if (pitch == width) {
+		return st7789_write_pixels(buffer, (size_t)width * height * display_info.bytes_per_pixel);
+	}
 	for (uint16_t row = 0U; row < height; row++) {
 		result = st7789_write_pixels(rows + (size_t)row * pitch * display_info.bytes_per_pixel,
 			(size_t)width * display_info.bytes_per_pixel);
@@ -86,6 +91,35 @@ int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t
 		}
 	}
 	return 0;
+}
+
+int sunxi_display_write_async(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t height,
+	uint16_t pitch, const void *buffer)
+{
+	int result;
+
+	if (!display_ready || width == 0U || height == 0U || pitch != width ||
+	    x_pos + width > display_info.width || y_pos + height > display_info.height) {
+		return -EINVAL;
+	}
+	result = st7789_set_window(x_pos, y_pos, width, height);
+	if (result != 0) {
+		return result;
+	}
+	return sunxi_panel_worker_start(buffer,
+		(size_t)width * height * display_info.bytes_per_pixel);
+}
+
+bool sunxi_display_write_done(int *result)
+{
+	return sunxi_panel_worker_done(result);
+}
+
+void sunxi_display_wait(void)
+{
+	if (display_ready) {
+		sunxi_panel_worker_wait();
+	}
 }
 
 /* Fill the whole panel with one RGB565 colour, written in the same B, G, R order as LVGL. */
@@ -116,6 +150,21 @@ static int display_fill(uint16_t color)
 }
 
 #ifdef CONFIG_SHELL
+static int command_panel(int argc, char **argv)
+{
+	uint32_t alive;
+	uint32_t command;
+	uint32_t heartbeat;
+
+	(void)argc;
+	(void)argv;
+	sunxi_panel_worker_status(&alive, &command, &heartbeat);
+	printf("panel: worker %s, command %u, heartbeat %u\n", alive != 0U ? "alive" : "off",
+		(uint32_t)command, (uint32_t)heartbeat);
+	return 0;
+}
+SHELL_CMD(panel, "panel: the state of the second hart's pixel pusher", command_panel);
+
 static int command_display(int argc, char **argv)
 {
 	uint16_t color;

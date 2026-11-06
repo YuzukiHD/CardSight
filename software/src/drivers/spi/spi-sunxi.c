@@ -85,10 +85,22 @@ static int spi_send(const uint8_t *data, size_t length, uint64_t deadline)
 		uint32_t count = (status >> 16) & 0xffU;
 		uint32_t received = status & 0xffU;
 
+		/* one store pushes four bytes, as the FIFO is four bytes wide: a quarter of the
+		 * bus transactions, which matters when the other hart is drawing */
 		while (count < FIFO_DEPTH - 4U && written < length) {
-			writeb(data[written], base + SPI_TXDATA);
-			written++;
-			count++;
+			if (written + 4U <= length) {
+				const uint8_t *bytes = data + written;
+				uint32_t packed = (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+					((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+
+				writel(packed, base + SPI_TXDATA);
+				written += 4U;
+				count += 4U;
+			} else {
+				writeb(data[written], base + SPI_TXDATA);
+				written++;
+				count++;
+			}
 		}
 		/* start as soon as the FIFO holds the first bytes; the transmit pause lets it refill */
 		if (!started && written != 0U) {
