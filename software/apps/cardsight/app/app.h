@@ -56,6 +56,7 @@ struct cardsight_state {
 	size_t partition_count;
 	uint64_t sectors;
 	int error;
+	enum cardsight_request_type request;
 	enum blk_partition_table_type table;
 	bool card_present;
 	bool card_writable;

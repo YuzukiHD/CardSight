@@ -21,6 +21,7 @@ static void ui_clear_page_refs(void)
 	ui.banner_label = NULL;
 	ui.format_dialog = NULL;
 	ui.settings_dialog = NULL;
+	ui.error_dialog = NULL;
 	ui.direct_status = NULL;
 	ui.direct_status_chip = NULL;
 	ui.rate_read = NULL;
@@ -409,14 +410,93 @@ static void settings_event(lv_event_t *event)
 	(void)lv_async_call(settings_open_async, NULL);
 }
 
-static void banner_event(lv_event_t *event)
+static const char *error_title(enum cardsight_request_type request)
+{
+	switch (request) {
+	case CARDSIGHT_REQUEST_SCAN:
+	case CARDSIGHT_REQUEST_LIST:
+		return "读取失败";
+	case CARDSIGHT_REQUEST_FORMAT:
+	case CARDSIGHT_REQUEST_LAYOUT:
+		return "格式化失败";
+	case CARDSIGHT_REQUEST_START_DIRECT:
+	case CARDSIGHT_REQUEST_START_PROXY:
+		return "连接失败";
+	case CARDSIGHT_REQUEST_STOP:
+		return "停止失败";
+	default:
+		return "操作失败";
+	}
+}
+
+static void error_close_event(lv_event_t *event)
 {
 	(void)event;
 	ui.error_acknowledged = true;
-	if (ui.banner != NULL) {
-		lv_obj_delete_async(ui.banner);
-		ui.banner = NULL;
+	if (ui.error_dialog != NULL) {
+		lv_obj_delete_async(ui.error_dialog);
+		ui.error_dialog = NULL;
 	}
+}
+
+/* Same material as the settings sheet: a full-screen frost, a title, one glass card with the
+ * concrete failure, and the bar button at the bottom. Created outside the input event. */
+static void error_open_async(void *argument)
+{
+	lv_obj_t *dialog;
+	lv_obj_t *card;
+	lv_obj_t *label;
+	lv_obj_t *button;
+	char text[64];
+
+	(void)argument;
+	if (ui.error_dialog != NULL || ui.model.error == 0 || ui.model.busy) {
+		return;
+	}
+	dialog = lv_obj_create(ui.screen);
+	ui.error_dialog = dialog;
+	lv_obj_set_size(dialog, ui.width, ui.height);
+	lv_obj_set_pos(dialog, 0, 0);
+	ui_style_card(dialog, UI_BACKGROUND, 0);
+	lv_obj_set_style_pad_all(dialog, 0, 0);
+	disable_scroll(dialog);
+	label = make_label(dialog, error_title(ui.model.request), UI_DANGER);
+	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
+	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
+	card = make_glass_card(dialog, ui_margin(), APP_HEADER_HEIGHT + ui_margin(),
+		ui_wide_width(), 124, APP_CARD_RADIUS);
+	label = make_label(card, ui.model.operation[0] != '\0' ? ui.model.operation : "操作失败",
+		UI_TEXT);
+	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
+	lv_obj_set_pos(label, 14, 12);
+	snprintf(text, sizeof(text), "错误码: %d", ui.model.error);
+	label = make_label(card, text, UI_MUTED);
+	lv_obj_set_pos(label, 14, 44);
+	if (ui.model.request == CARDSIGHT_REQUEST_LIST && ui.model.files.path[0] != '\0') {
+		label = make_label(card, ui.model.files.path, UI_MUTED);
+		lv_obj_set_width(label, ui_wide_width() - 28);
+		lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+		ui_label_set_ellipsis(label, ui.model.files.path, ui_wide_width() - 28);
+		lv_obj_set_pos(label, 14, 68);
+	}
+	label = make_label(card, "请检查存储卡后重试", UI_MUTED);
+	lv_obj_set_pos(label, 14, 92);
+	button = make_bar_button(dialog, "返回", error_close_event,
+		(int32_t)ui.width - 2 * APP_BAR_MARGIN);
+	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
+}
+
+/* A failed request keeps its error in the snapshot until the sheet is dismissed. */
+static void ui_error_check(void)
+{
+	if (ui.model.busy) {
+		ui.error_acknowledged = false;
+		return;
+	}
+	if (ui.model.error == 0 || ui.error_acknowledged || ui.error_dialog != NULL) {
+		return;
+	}
+	(void)lv_async_call(error_open_async, NULL);
 }
 
 /* Fill and text of the busy banner; called again for every progress step without a rebuild. */
@@ -439,18 +519,15 @@ void ui_update_progress(void)
 	lv_obj_set_hidden(ui.banner_fill, percent <= 0);
 }
 
-/* Progress while a request runs, or the last failure until it is tapped away. */
+/* Progress while a request runs; failures get the error sheet instead. */
 static void build_banner(void)
 {
-	bool failed = !ui.model.busy;
-	uint32_t color = failed ? UI_DANGER : UI_ACCENT;
+	uint32_t color = UI_ACCENT;
 
-	if (ui.model.busy) {
-		ui.error_acknowledged = false;
-	}
-	if (!ui.model.busy && (ui.model.error == 0 || ui.error_acknowledged)) {
+	if (!ui.model.busy) {
 		return;
 	}
+	ui.error_acknowledged = false;
 	ui.banner = lv_obj_create(ui.screen);
 	lv_obj_set_size(ui.banner, bar_width(), APP_BAR_HEIGHT);
 	lv_obj_set_pos(ui.banner, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
@@ -460,20 +537,13 @@ static void build_banner(void)
 	lv_obj_set_style_border_width(ui.banner, 2, 0);
 	lv_obj_set_style_pad_all(ui.banner, 0, 0);
 	disable_scroll(ui.banner);
-	lv_obj_set_clickable(ui.banner, failed);
-	lv_obj_add_event_cb(ui.banner, banner_event, LV_EVENT_CLICKED, NULL);
 	ui.banner_fill = make_card(ui.banner, 0, APP_BAR_HEIGHT - 4, color);
 	lv_obj_set_style_bg_opa(ui.banner_fill, LV_OPA_50, 0);
 	lv_obj_set_style_radius(ui.banner_fill, ui_bar_radius() - 2, 0);
 	lv_obj_set_pos(ui.banner_fill, 0, 0);
 	ui.banner_label = make_label(ui.banner, "", UI_TEXT);
 	lv_obj_set_style_text_font(ui.banner_label, &cardsight_font_20, 0);
-	if (failed) {
-		lv_label_set_text_fmt(ui.banner_label, "%s (%d)", ui.model.operation, ui.model.error);
-		lv_obj_set_hidden(ui.banner_fill, true);
-	} else {
-		ui_update_progress();
-	}
+	ui_update_progress();
 	lv_obj_center(ui.banner_label);
 	{
 		/* slide in from behind the tab bar */
@@ -649,6 +719,7 @@ void cardsight_ui_refresh(void *argument)
 	if (ui.format_dialog_open && ui.manage_detail) build_format_dialog();
 	else ui.format_dialog_open = false;
 	build_banner();
+	ui_error_check();
 }
 
 void cardsight_ui_runtime(void *argument)
@@ -658,4 +729,5 @@ void cardsight_ui_runtime(void *argument)
 	ui_update_direct();
 	ui_update_proxy_controls();
 	ui_update_progress();
+	ui_error_check();
 }

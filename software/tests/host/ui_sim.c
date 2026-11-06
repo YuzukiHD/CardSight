@@ -17,6 +17,12 @@
 
 static struct cardsight_state model;
 static uint8_t framebuffer[SIM_WIDTH * SIM_HEIGHT * 3U] __attribute__((aligned(64)));
+static uint32_t tick_ms;
+
+static uint32_t sim_tick(void)
+{
+	return tick_ms;
+}
 
 void log_print(int level, const char *module, const char *format, ...)
 {
@@ -158,6 +164,7 @@ int main(void)
 	lv_display_t *display;
 
 	lv_init();
+	lv_tick_set_cb(sim_tick);
 	display = lv_display_create(SIM_WIDTH, SIM_HEIGHT);
 	lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB888);
 	lv_display_set_buffers(display, framebuffer, NULL, sizeof(framebuffer),
@@ -181,6 +188,23 @@ int main(void)
 		snprintf(path, sizeof(path), "/tmp/ui-%s.ppm", scenes[index].name);
 		save_ppm(path);
 
+	}
+	/* a failed card read opens the error sheet */
+	{
+		model.error = -EIO;
+		model.request = CARDSIGHT_REQUEST_SCAN;
+		snprintf(model.operation, sizeof(model.operation), "%s", "存储卡读写错误");
+		ui.error_acknowledged = false;
+		cardsight_ui_refresh(NULL);
+		for (uint32_t step = 0U; step < 5U; step++) {
+			tick_ms += 10U;
+			lv_timer_handler();
+		}
+		lv_obj_invalidate(lv_screen_active());
+		lv_refr_now(display);
+		save_ppm("/tmp/ui-error.ppm");
+		model.error = 0;
+		model.request = CARDSIGHT_REQUEST_SCAN;
 	}
 	/* files: enter a directory, then come straight back */
 	{

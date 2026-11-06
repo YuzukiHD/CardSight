@@ -33,9 +33,16 @@ static const char *failure_text(int result)
 	case 0: return "操作完成";
 	case -ENOSPC: return "空间不足";
 	case -EBUSY: return "请先停止USB";
-	case -EROFS: return "卡为只读";
+	case -EROFS: return "存储卡为只读";
+	case -EACCES: return "没有访问权限";
 	case -ENODEV: return "未找到存储卡";
 	case -ENOMEM: return "内存不足";
+	case -EIO: return "存储卡读写错误";
+	case -EINVAL: return "分区表无法识别";
+	case -ENODATA: return "没有可读取的数据";
+	case -ENOENT: return "文件或目录不存在";
+	case -ENOTSUP: return "不支持的文件系统";
+	case -ETIMEDOUT: return "等待存储卡超时";
 	default: return "操作失败";
 	}
 }
@@ -57,6 +64,7 @@ void send_request(const struct cardsight_request *request)
 	app.busy = true;
 	app.error = 0;
 	app.progress = -1;
+	app.request = request->type;
 	strcpy(app.operation, "正在处理");
 	mutex_unlock(&app_lock);
 	if (msg_queue_put(&requests, request, NO_WAIT) != 0) {
@@ -97,7 +105,17 @@ static void worker(void *argument)
 	bool last_present;
 
 	(void)argument;
-	(void)card_scan();
+	{
+		int result = card_scan();
+
+		if (result != 0 && card_disk_present()) {
+			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+			app.error = result;
+			app.request = CARDSIGHT_REQUEST_SCAN;
+			strcpy(app.operation, failure_text(result));
+			mutex_unlock(&app_lock);
+		}
+	}
 	last_present = card_disk_present();
 	while (!lvgl_port_ready()) {
 		msleep(20);
@@ -165,10 +183,19 @@ static void worker(void *argument)
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.proxy_active = false;
 				app.files.valid = false;
+				app.error = 0;
 				mutex_unlock(&app_lock);
 			}
 			pr_info("card %s\n", last_present ? "inserted" : "removed");
-			(void)card_scan();
+			{
+				int result = card_scan();
+
+				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+				app.error = result;
+				app.request = CARDSIGHT_REQUEST_SCAN;
+				strcpy(app.operation, failure_text(result));
+				mutex_unlock(&app_lock);
+			}
 			app_post_refresh();
 		}
 		if (usb_mass_storage_running()) {
