@@ -184,13 +184,32 @@ int32_t ui_page_height(void)
 }
 
 /* Button that fills a bottom bar, with the corners following the glass. */
+static void press_layer_anim_opa(void *object, int32_t value)
+{
+	lv_obj_set_style_bg_opa(object, (lv_opa_t)value, 0);
+}
+
+/* Fade the white layer in and out instead of switching it, so the press reads as a glow. */
+static void press_layer_fade(lv_obj_t *layer, uint8_t target, uint32_t duration)
+{
+	lv_anim_t animation;
+
+	lv_anim_init(&animation);
+	lv_anim_set_var(&animation, layer);
+	lv_anim_set_exec_cb(&animation, press_layer_anim_opa);
+	lv_anim_set_values(&animation, lv_obj_get_style_bg_opa(layer, 0), target);
+	lv_anim_set_duration(&animation, duration);
+	lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+	lv_anim_start(&animation);
+}
+
 static void press_layer_event(lv_event_t *event)
 {
 	lv_obj_t *layer = lv_event_get_user_data(event);
 	bool pressed = lv_event_get_code(event) == LV_EVENT_PRESSED;
 	uint8_t base = (uint8_t)(uintptr_t)lv_obj_get_user_data(layer);
 
-	lv_obj_set_style_bg_opa(layer, pressed ? 52 : base, 0);
+	press_layer_fade(layer, pressed ? 52 : base, pressed ? 70 : 150);
 }
 
 /* A rounded white layer that brightens the glass on press instead of a rectangular fill. */

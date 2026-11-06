@@ -73,6 +73,29 @@ static void tab_anim_x(void *object, int32_t value)
 	glass_highlight_move(ui.tab_indicator, ui.tab_indicator_backdrop);
 }
 
+/* The selected icon grows a little; the move is eased so it reads as one motion with the
+ * sliding highlight. */
+static void tab_icon_anim_scale(void *object, int32_t value)
+{
+	lv_image_set_scale(object, (uint32_t)value);
+}
+
+static void tab_icon_scale_to(lv_obj_t *icon, int32_t target)
+{
+	lv_anim_t animation;
+
+	if (icon == NULL || lv_image_get_scale(icon) == target) {
+		return;
+	}
+	lv_anim_init(&animation);
+	lv_anim_set_var(&animation, icon);
+	lv_anim_set_exec_cb(&animation, tab_icon_anim_scale);
+	lv_anim_set_values(&animation, lv_image_get_scale(icon), target);
+	lv_anim_set_duration(&animation, 160);
+	lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+	lv_anim_start(&animation);
+}
+
 /* Slide the highlight to the active tab and recolour the labels. */
 void ui_update_tabs(void)
 {
@@ -90,7 +113,7 @@ void ui_update_tabs(void)
 		if (ui.tab_icons[index] != NULL) {
 			lv_obj_set_style_image_recolor(ui.tab_icons[index], lv_color_hex(color), 0);
 			lv_obj_set_style_image_recolor_opa(ui.tab_icons[index], LV_OPA_COVER, 0);
-			lv_image_set_scale(ui.tab_icons[index], selected ? 288U : 256U);
+			tab_icon_scale_to(ui.tab_icons[index], selected ? 288 : 256);
 		}
 	}
 	if (tab_shown == ui.mode) {
@@ -369,6 +392,20 @@ static void build_banner(void)
 		ui_update_progress();
 	}
 	lv_obj_center(ui.banner_label);
+	{
+		/* slide in from behind the tab bar */
+		int32_t resting = (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT;
+		lv_anim_t animation;
+
+		lv_obj_set_y(ui.banner, resting + 56);
+		lv_anim_init(&animation);
+		lv_anim_set_var(&animation, ui.banner);
+		lv_anim_set_exec_cb(&animation, (lv_anim_exec_xcb_t)lv_obj_set_y);
+		lv_anim_set_values(&animation, resting + 56, resting);
+		lv_anim_set_duration(&animation, 220);
+		lv_anim_set_path_cb(&animation, lv_anim_path_ease_out);
+		lv_anim_start(&animation);
+	}
 }
 
 static lv_obj_t *tile_list(uint32_t index)
