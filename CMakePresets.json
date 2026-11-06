@@ -1,0 +1,51 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "riscv",
+      "displayName": "CardSight (RISC-V C907)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/riscv",
+      "toolchainFile": "${sourceDir}/cmake/riscv32-elf.cmake",
+      "cacheVariables": {
+        "CARDSIGHT_BUILD_EFEX": "ON",
+        "CARDSIGHT_HOST_TESTS": "OFF",
+        "CARDSIGHT_WITH_APP": "ON"
+      }
+    },
+    {
+      "name": "host",
+      "displayName": "Host tests",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/host",
+      "cacheVariables": {
+        "CARDSIGHT_HOST_TESTS": "ON",
+        "CARDSIGHT_BUILD_EFEX": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "riscv",
+      "configurePreset": "riscv"
+    },
+    {
+      "name": "host",
+      "configurePreset": "host"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "host",
+      "configurePreset": "host",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

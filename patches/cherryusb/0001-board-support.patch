@@ -1,0 +1,2963 @@
+--- a/Kconfig
++++ b/Kconfig
+@@ -1,481 +1,45 @@
+-# Kconfig file for CherryUSB
++# SPDX-License-Identifier: Apache-2.0
++
+ menuconfig CHERRYUSB
+-    bool "CherryUSB Configuration"
+-    default n
++	bool "CherryUSB USB device and host stack"
++	select KERNEL_USE_TIMERS
++	select KERNEL_USE_COUNTING_SEMAPHORES
++	select KERNEL_USE_RECURSIVE_MUTEXES
++	help
++	  The CherryUSB stack (Apache-2.0, see LICENSE in the directory) with
++	  its FreeRTOS layer. The controller ports and the platform glue of the
++	  F101 are in drivers/drv_osal/usb.
+ 
+ if CHERRYUSB
+ 
+-    menuconfig CHERRYUSB_DEVICE
+-        bool "Enable usb device mode"
+-        default n
+-
+-    if CHERRYUSB_DEVICE
+-        choice CHERRYUSB_DEVICE_SPEED
+-            prompt "Select usb device speed"
+-            default CHERRYUSB_DEVICE_SPEED_FS
+-            config CHERRYUSB_DEVICE_SPEED_FS
+-                bool "FS"
+-            config CHERRYUSB_DEVICE_SPEED_HS
+-                bool "HS"
+-            config CHERRYUSB_DEVICE_SPEED_AUTO
+-                bool "AUTO"
+-        endchoice
+-
+-        choice CHERRYUSB_DEVICE_IP
+-            prompt "Select usb device ip, and some ip need config in usb_config.h, please check"
+-            default CHERRYUSB_DEVICE_CUSTOM
+-            config CHERRYUSB_DEVICE_CUSTOM
+-                bool "CUSTOM (Implement it yourself)"
+-            config CHERRYUSB_DEVICE_FSDEV_ST
+-                bool "fsdev_st"
+-            config CHERRYUSB_DEVICE_FSDEV_CUSTOM
+-                bool "fsdev_custom"
+-            config CHERRYUSB_DEVICE_DWC2_ST
+-                bool "dwc2_st"
+-            config CHERRYUSB_DEVICE_DWC2_ESP
+-                bool "dwc2_esp"
+-            config CHERRYUSB_DEVICE_DWC2_KENDRYTE
+-                bool "dwc2_kendryte"
+-            config CHERRYUSB_DEVICE_DWC2_INFINEON
+-                bool "dwc2_infineon"
+-            config CHERRYUSB_DEVICE_DWC2_AT
+-                bool "dwc2_at"
+-            config CHERRYUSB_DEVICE_DWC2_HC
+-                bool "dwc2_hc"
+-            config CHERRYUSB_DEVICE_DWC2_NATION
+-                bool "dwc2_nation"
+-            config CHERRYUSB_DEVICE_DWC2_GD
+-                bool "dwc2_gd"
+-            config CHERRYUSB_DEVICE_DWC2_CUSTOM
+-                bool "dwc2_custom"
+-            config CHERRYUSB_DEVICE_MUSB_ES
+-                bool "musb_es"
+-            config CHERRYUSB_DEVICE_MUSB_SUNXI
+-                bool "musb_sunxi"
+-            config CHERRYUSB_DEVICE_MUSB_BK
+-                bool "musb_bk"
+-            config CHERRYUSB_DEVICE_MUSB_SIFLI
+-                bool "musb_sifli"
+-            config CHERRYUSB_DEVICE_MUSB_CUSTOM
+-                bool "musb_custom"
+-            config CHERRYUSB_DEVICE_CHIPIDEA_MCX
+-                bool "chipidea_mcx"
+-            config CHERRYUSB_DEVICE_CHIPIDEA_CUSTOM
+-                bool "chipidea_custom"
+-            config CHERRYUSB_DEVICE_KINETIS_MCX
+-                bool "kinetis_mcx"
+-            config CHERRYUSB_DEVICE_KINETIS_MM32
+-                bool "kinetis_mm32"
+-            config CHERRYUSB_DEVICE_KINETIS_CUSTOM
+-                bool "kinetis_custom"
+-            config CHERRYUSB_DEVICE_BL
+-                bool "bouffalo"
+-            config CHERRYUSB_DEVICE_HPM
+-                bool "hpm"
+-            config CHERRYUSB_DEVICE_AIC
+-                bool "aic"
+-            config CHERRYUSB_DEVICE_RP2040
+-                bool "rp2040"
+-            config CHERRYUSB_DEVICE_CH32
+-                bool "ch32"
+-            config CHERRYUSB_DEVICE_PUSB2
+-                bool "pusb2"
+-        endchoice
+-
+-        config CHERRYUSB_DEVICE_CDC_ACM
+-            bool
+-            prompt "Enable usb cdc acm device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_HID
+-            bool
+-            prompt "Enable usb hid device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_MSC
+-            bool
+-            prompt "Enable usb msc device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_AUDIO
+-            bool
+-            prompt "Enable usb audio device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_VIDEO
+-            bool
+-            prompt "Enable usb video device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_CDC_RNDIS
+-            bool
+-            prompt "Enable usb cdc rndis device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_CDC_ECM
+-            bool
+-            prompt "Enable usb cdc ecm device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_CDC_NCM
+-            bool
+-            prompt "Enable usb cdc ncm device"
+-            depends on !IDF_CMAKE
+-            default n
+-
+-        config CHERRYUSB_DEVICE_MTP
+-            bool
+-            prompt "Enable usb mtp device, it is commercial charge"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_ADB
+-            bool
+-            prompt "Enable usb adb device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_DFU
+-            bool
+-            prompt "Enable usb dfu device"
+-            default n
+-
+-        config CHERRYUSB_DEVICE_DISPLAY
+-            bool
+-            prompt "Enable usb display device"
+-            default n
+-
+-        config USBDEV_REQUEST_BUFFER_LEN
+-            int
+-            prompt "Set device control transfer max buffer size"
+-            default 512
+-
+-        config USBDEV_MSC_MAX_BUFSIZE
+-            int
+-            prompt "Set usb msc device max buffer size"
+-            default 512
+-            help
+-                Set the maximum buffer size for usb msc device, it is used to transfer data.
+-                you can change it to a larger value if you need larger speed but must be a power of blocksize.
+-
+-        config USBDEV_RNDIS_USING_LWIP
+-            bool
+-            prompt "Enable usb rndis device with lwip for lan"
+-            default n
+-
+-        config USBDEV_CDC_ECM_USING_LWIP
+-            bool
+-            prompt "Enable usb cdc ecm device with lwip for lan"
+-            default n
+-
+-        choice CHERRYUSB_DEVICE_TEMPLATE
+-            prompt "Select usb device template, please select class driver first"
+-            default CHERRYUSB_DEVICE_TEMPLATE_NONE
+-            config CHERRYUSB_DEVICE_TEMPLATE_NONE
+-                bool
+-                prompt "none (Implement it yourself)"
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_ACM
+-                bool
+-                prompt "cdc_acm"
+-                depends on CHERRYUSB_DEVICE_CDC_ACM
+-            config CHERRYUSB_DEVICE_TEMPLATE_MSC
+-                bool
+-                prompt "msc_ram"
+-                depends on CHERRYUSB_DEVICE_MSC
+-            config CHERRYUSB_DEVICE_TEMPLATE_HID_KEYBOARD
+-                bool
+-                prompt "hid_keyboard"
+-                depends on CHERRYUSB_DEVICE_HID
+-            config CHERRYUSB_DEVICE_TEMPLATE_HID_MOUSE
+-                bool
+-                prompt "hid_mouse"
+-                depends on CHERRYUSB_DEVICE_HID
+-            config CHERRYUSB_DEVICE_TEMPLATE_HID_CUSTOM
+-                bool
+-                prompt "hid_custom"
+-                depends on CHERRYUSB_DEVICE_HID
+-            config CHERRYUSB_DEVICE_TEMPLATE_VIDEO
+-                bool
+-                prompt "video"
+-                depends on CHERRYUSB_DEVICE_VIDEO
+-            config CHERRYUSB_DEVICE_TEMPLATE_AUDIO_V1_MIC_SPEAKER
+-                bool
+-                prompt "audio_v1_mic_speaker_multichan"
+-                depends on CHERRYUSB_DEVICE_AUDIO
+-            config CHERRYUSB_DEVICE_TEMPLATE_AUDIO_V2_MIC_SPEAKER
+-                bool
+-                prompt "audio_v2_mic_speaker_multichan"
+-                depends on CHERRYUSB_DEVICE_AUDIO
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_RNDIS
+-                bool
+-                prompt "cdc_rndis"
+-                depends on CHERRYUSB_DEVICE_CDC_RNDIS
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_ECM
+-                bool
+-                prompt "cdc_ecm"
+-                depends on CHERRYUSB_DEVICE_CDC_ECM
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_NCM
+-                bool
+-                prompt "cdc_ncm"
+-                depends on CHERRYUSB_DEVICE_CDC_NCM
+-            config CHERRYUSB_DEVICE_TEMPLATE_DFU
+-                bool
+-                prompt "dfu"
+-                depends on CHERRYUSB_DEVICE_DFU
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_ACM_MSC
+-                bool
+-                prompt "cdc_acm_msc"
+-                depends on CHERRYUSB_DEVICE_CDC_ACM && CHERRYUSB_DEVICE_MSC
+-            config CHERRYUSB_DEVICE_TEMPLATE_CDC_ACM_MSC_HID
+-                bool
+-                prompt "cdc_acm_msc_hid"
+-                depends on CHERRYUSB_DEVICE_CDC_ACM && CHERRYUSB_DEVICE_MSC && CHERRYUSB_DEVICE_HID
+-            config CHERRYUSB_DEVICE_TEMPLATE_WINUSBV1
+-                bool
+-                prompt "winusbv1"
+-            config CHERRYUSB_DEVICE_TEMPLATE_WINUSBV2
+-                bool
+-                prompt "winusbv2"
+-            config CHERRYUSB_DEVICE_TEMPLATE_WINUSBV2_CDC
+-                bool
+-                prompt "winusbv2_cdc"
+-                depends on CHERRYUSB_DEVICE_CDC_ACM
+-            config CHERRYUSB_DEVICE_TEMPLATE_WEBUSB_HID
+-                bool
+-                prompt "webusb_hid"
+-                depends on CHERRYUSB_DEVICE_HID
+-            config CHERRYUSB_DEVICE_TEMPLATE_DISPLAY
+-                bool
+-                prompt "display"
+-                depends on CHERRYUSB_DEVICE_DISPLAY
+-        endchoice
+-    endif
+-
+-    menuconfig CHERRYUSB_HOST
+-        bool "Enable usb host mode"
+-        default n
+-
+-    if CHERRYUSB_HOST
+-        choice CHERRYUSB_HOST_IP
+-            prompt "Select usb host ip, and some ip need config in usb_config.h, please check"
+-            default CHERRYUSB_HOST_CUSTOM
+-            config CHERRYUSB_HOST_CUSTOM
+-                bool "CUSTOM (Implement it yourself)"
+-            config CHERRYUSB_HOST_EHCI_BL
+-                bool "ehci_bouffalo"
+-            config CHERRYUSB_HOST_EHCI_HPM
+-                bool "ehci_hpm"
+-            config CHERRYUSB_HOST_EHCI_AIC
+-                bool "ehci_aic"
+-            config CHERRYUSB_HOST_EHCI_MCX
+-                bool "ehci_mcx"
+-            config CHERRYUSB_HOST_EHCI_NUC980
+-                bool "ehci_nuc980"
+-            config CHERRYUSB_HOST_EHCI_MA35D0
+-                bool "ehci_ma35d0"
+-            config CHERRYUSB_HOST_EHCI_CUSTOM
+-                bool "ehci_custom"
+-            config CHERRYUSB_HOST_DWC2_ST
+-                bool "dwc2_st"
+-            config CHERRYUSB_HOST_DWC2_ESP
+-                bool "dwc2_esp"
+-            config CHERRYUSB_HOST_DWC2_KENDRYTE
+-                bool "dwc2_kendryte"
+-            config CHERRYUSB_HOST_DWC2_INFINEON
+-                bool "dwc2_infineon"
+-            config CHERRYUSB_HOST_DWC2_AT
+-                bool "dwc2_at, f405 only"
+-            config CHERRYUSB_HOST_DWC2_HC
+-                bool "dwc2_hc"
+-            config CHERRYUSB_HOST_DWC2_NATION
+-                bool "dwc2_nation"
+-            config CHERRYUSB_HOST_DWC2_CUSTOM
+-                bool "dwc2_custom"
+-            config CHERRYUSB_HOST_MUSB_ES
+-                bool "musb_es"
+-            config CHERRYUSB_HOST_MUSB_SUNXI
+-                bool "musb_sunxi"
+-            config CHERRYUSB_HOST_MUSB_BK
+-                bool "musb_bk"
+-            config CHERRYUSB_HOST_MUSB_SIFLI
+-                bool "musb_sifli"
+-            config CHERRYUSB_HOST_MUSB_CUSTOM
+-                bool "musb_custom"
+-            config CHERRYUSB_HOST_PUSB2
+-                bool "pusb2"
+-            config CHERRYUSB_HOST_XHCI_PHYTIUM
+-                bool "xhci_phytium"
+-            config CHERRYUSB_HOST_XHCI_CUSTOM
+-                bool "xhci"
+-            config CHERRYUSB_HOST_KINETIS_MCX
+-                bool "kinetis_mcx"
+-            config CHERRYUSB_HOST_KINETIS_MM32
+-                bool "kinetis_mm32"
+-            config CHERRYUSB_HOST_KINETIS_CUSTOM
+-                bool "kinetis_custom"
+-            config CHERRYUSB_HOST_RP2040
+-                bool "rp2040"
+-        endchoice
+-
+-        config CHERRYUSB_HOST_CDC_ACM
+-            bool
+-            prompt "Enable usb cdc acm driver"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_HID
+-            bool
+-            prompt "Enable usb hid driver"
+-            default n
+-
+-        config CHERRYUSB_HOST_MSC
+-            bool
+-            prompt "Enable usb msc driver"
+-            default n
+-
+-        config CHERRYUSB_HOST_CDC_ECM
+-            bool
+-            prompt "Enable usb cdc ecm driver"
+-            select USBHOST_PLATFORM_CDC_ECM
+-            default n
+-
+-        config CHERRYUSB_HOST_CDC_RNDIS
+-            bool
+-            prompt "Enable usb rndis driver"
+-            select USBHOST_PLATFORM_CDC_RNDIS
+-            default n
+-
+-        config CHERRYUSB_HOST_CDC_NCM
+-            bool
+-            prompt "Enable usb cdc ncm driver"
+-            select USBHOST_PLATFORM_CDC_NCM
+-            default n
+-
+-        config CHERRYUSB_HOST_VIDEO
+-            bool
+-            prompt "Enable usb video driver, it is commercial charge"
+-            default n
+-
+-        config CHERRYUSB_HOST_AUDIO
+-            bool
+-            prompt "Enable usb audio driver, it is commercial charge"
+-            default n
+-
+-        config CHERRYUSB_HOST_BLUETOOTH
+-            bool
+-            prompt "Enable usb bluetooth driver"
+-            depends on !IDF_CMAKE
+-            default n
+-
+-        config CHERRYUSB_HOST_ASIX
+-            bool
+-            prompt "Enable usb asix driver"
+-            select USBHOST_PLATFORM_ASIX
+-            default n
+-
+-        config CHERRYUSB_HOST_RTL8152
+-            bool
+-            prompt "Enable usb rtl8152 driver"
+-            select USBHOST_PLATFORM_RTL8152
+-            default n
+-
+-        config CHERRYUSB_HOST_FTDI
+-            bool
+-            prompt "Enable usb ftdi driver"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_CH34X
+-            bool
+-            prompt "Enable usb ch34x driver"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_CP210X
+-            bool
+-            prompt "Enable usb cp210x driver"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_PL2303
+-            bool
+-            prompt "Enable usb pl2303 driver"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_GSM
+-            bool
+-            prompt "Enable usb gsm driver for 4g module"
+-            select USBHOST_SERIAL
+-            default n
+-
+-        config CHERRYUSB_HOST_AOA
+-            bool
+-            prompt "Enable usb aoa driver"
+-            default n
+-
+-        config USBHOST_SERIAL
+-            bool
+-
+-        config USBHOST_PLATFORM_CDC_ECM
+-            bool
+-
+-        config USBHOST_PLATFORM_CDC_RNDIS
+-            bool
+-
+-        config USBHOST_PLATFORM_CDC_NCM
+-            bool
+-
+-        config USBHOST_PLATFORM_ASIX
+-            bool
+-
+-        config USBHOST_PLATFORM_RTL8152
+-            bool
+-
+-        config USBHOST_PSC_PRIO
+-            int
+-            prompt "Set hubport change thread priority, 0 is the max priority"
+-            default 0
+-
+-        config USBHOST_PSC_STACKSIZE
+-            int
+-            prompt "Set hubport change thread stacksize"
+-            default 4096
+-
+-        config USBHOST_REQUEST_BUFFER_LEN
+-            int
+-            prompt "Set host control transfer max buffer size"
+-            default 512
+-
+-        config USBHOST_CONTROL_TRANSFER_TIMEOUT
+-            int
+-            prompt "Set host control transfer timeout, unit is ms"
+-            default 500
+-
+-        config USBHOST_SERIAL_RX_SIZE
+-            int
+-            prompt "Set host serial rx max buffer size"
+-            default 2048
++config CHERRYUSB_DEVICE
++	bool "Device mode (MUSB controller)"
++	default y
++
++config CHERRYUSB_DEVICE_CDC_ACM
++	bool "Device class: CDC ACM (virtual serial port)"
++	default y
++	depends on CHERRYUSB_DEVICE
++
++config CHERRYUSB_DEVICE_MSC
++	bool "Device class: mass storage"
++	depends on CHERRYUSB_DEVICE
++
++config CHERRYUSB_HOST
++	bool "Host mode (EHCI with the OHCI companion)"
++	default y
++
++config CHERRYUSB_HOST_CDC_ACM
++	bool "Host class: CDC ACM"
++	depends on CHERRYUSB_HOST
++
++config CHERRYUSB_HOST_MSC
++	bool "Host class: mass storage"
++	default y
++	depends on CHERRYUSB_HOST
++
++config CHERRYUSB_HOST_HID
++	bool "Host class: HID"
++	depends on CHERRYUSB_HOST
+ 
+-        menu "Select USB host template, please select class driver first"
+-            config TEST_USBH_SERIAL
+-                bool
+-                prompt "demo for test serial"
+-                default n
+-                depends on CHERRYUSB_HOST_CDC_ACM || CHERRYUSB_HOST_FTDI || CHERRYUSB_HOST_CH34X || CHERRYUSB_HOST_CP210X || CHERRYUSB_HOST_PL2303
+-            config TEST_USBH_HID
+-                bool
+-                prompt "demo for test hid"
+-                default n
+-                depends on CHERRYUSB_HOST_HID
+-            config TEST_USBH_MSC
+-                bool
+-                prompt "demo for test msc"
+-                default n
+-                depends on CHERRYUSB_HOST_MSC
+-            config TEST_USBH_NET
+-                bool
+-                prompt "demo for test net, no demo for this, you can use lwip api to test"
+-                default n
+-                depends on CHERRYUSB_HOST_CDC_ECM || CHERRYUSB_HOST_CDC_RNDIS || CHERRYUSB_HOST_CDC_NCM || CHERRYUSB_HOST_ASIX || CHERRYUSB_HOST_RTL8152
+-        endmenu
+-    endif
+-endif
++endif # CHERRYUSB
+--- a/core/usbotg_core.c
++++ b/core/usbotg_core.c
+@@ -88,17 +88,14 @@
+ 
+     g_usbotg_core[busid].change_sem = usb_osal_sem_create(0);
+     if (g_usbotg_core[busid].change_sem == NULL) {
+-        USB_LOG_ERR("Failed to create change_sem\r\n");
+-        while (1) {
+-        }
++        return -USB_ERR_NOMEM;
+     }
+ 
+     snprintf(thread_name, 32, "usbotg%u", busid);
+     g_usbotg_core[busid].change_thread = usb_osal_thread_create(thread_name, 2048, 10, usbotg_rolechange_thread, (void *)(uintptr_t)busid);
+     if (g_usbotg_core[busid].change_thread == NULL) {
+-        USB_LOG_ERR("Failed to create usbotg thread\r\n");
+-        while (1) {
+-        }
++        usb_osal_sem_delete(g_usbotg_core[busid].change_sem);
++        return -USB_ERR_NOMEM;
+     }
+ 
+     usbotg_trigger_role_change(busid, default_role);
+--- a/core/usbh_core.h
++++ b/core/usbh_core.h
+@@ -107,6 +107,7 @@
+ struct usbh_hubport;
+ struct usbh_class_driver {
+     const char *driver_name;
++    const char *driver_desc;
+     int (*connect)(struct usbh_hubport *hport, uint8_t intf);
+     int (*disconnect)(struct usbh_hubport *hport, uint8_t intf);
+ };
+@@ -205,6 +206,9 @@
+     usb_osal_mq_t hub_mq;
+     usb_osal_sem_t hub_sem;
+     usbh_event_handler_t event_handler;
++#if defined(CONFIG_USBHOST_MULT_HC)
++    const struct usbh_hc_driver *hc_driver;
++#endif
+ };
+ 
+ static inline void usbh_control_urb_fill(struct usbh_urb *urb,
+@@ -311,6 +315,9 @@
+  */
+ int usbh_set_interface(struct usbh_hubport *hport, uint8_t intf, uint8_t altsetting);
+ 
++#if defined(CONFIG_USBHOST_MULT_HC)
++void usbh_register_hc_driver(uint8_t busid, const struct usbh_hc_driver *driver);
++#endif
+ int usbh_initialize(uint8_t busid, uintptr_t reg_base, usbh_event_handler_t event_handler);
+ int usbh_deinitialize(uint8_t busid);
+ void *usbh_find_class_instance(const char *devname);
+--- a/core/usbh_core.c
++++ b/core/usbh_core.c
+@@ -225,9 +225,12 @@
+ 
+         memset(hport->config.intf, 0, sizeof(struct usbh_interface) * CONFIG_USBHOST_MAX_INTERFACES);
+ 
+-        while (p[DESC_bLength] && (desc_len <= length)) {
++        while (p[DESC_bLength]) {
+             switch (p[DESC_bDescriptorType]) {
+                 case USB_DESCRIPTOR_TYPE_INTERFACE:
++                    if (p[DESC_bLength] < USB_SIZEOF_INTERFACE_DESC) {
++                        return -USB_ERR_INVAL;
++                    }
+                     intf_desc = (struct usb_interface_descriptor *)p;
+                     cur_iface = intf_desc->bInterfaceNumber;
+                     cur_alt_setting = intf_desc->bAlternateSetting;
+@@ -239,7 +242,7 @@
+                         return -USB_ERR_NOMEM;
+                     }
+ 
+-                    if (cur_ep_num >= CONFIG_USBHOST_MAX_ENDPOINTS) {
++                    if (cur_ep_num > CONFIG_USBHOST_MAX_ENDPOINTS) {
+                         USB_LOG_ERR("Endpoint num %d overflow\r\n", cur_ep_num);
+                         return -USB_ERR_NOMEM;
+                     }
+@@ -265,7 +268,16 @@
+                     hport->config.intf[cur_iface].altsetting_num = cur_alt_setting + 1;
+                     break;
+                 case USB_DESCRIPTOR_TYPE_ENDPOINT:
++                    if (p[DESC_bLength] < USB_SIZEOF_ENDPOINT_DESC) {
++                        return -USB_ERR_INVAL;
++                    }
+                     ep_desc = (struct usb_endpoint_descriptor *)p;
++
++                    if (cur_ep >= CONFIG_USBHOST_MAX_ENDPOINTS) {
++                        USB_LOG_ERR("Endpoint num %d overflow\r\n", cur_ep);
++                        return -USB_ERR_NOMEM;
++                    }
++
+                     memcpy(&hport->config.intf[cur_iface].altsetting[cur_alt_setting].ep[cur_ep].ep_desc, ep_desc, 7);
+                     cur_ep++;
+                     break;
+@@ -276,6 +288,15 @@
+             /* skip to next descriptor */
+             desc_len += p[DESC_bLength];
+             p += p[DESC_bLength];
++
++            if (desc_len > length) {
++                return -USB_ERR_INVAL;
++            }
++        }
++
++        if (desc_len != length) {
++            USB_LOG_ERR("Config descriptor length mismatch, expect %d, actual %d\r\n", length, desc_len);
++            return -USB_ERR_INVAL;
+         }
+     }
+     return 0;
+@@ -345,7 +366,7 @@
+     setup->wLength = 8;
+ 
+     ret = usbh_control_transfer(hport, setup, ep0_request_buffer[hport->bus->busid]);
+-    if (ret < 0) {
++    if (ret < 8) {
+         USB_LOG_ERR("Failed to get device descriptor,errorcode:%d\r\n", ret);
+         goto errout;
+     }
+@@ -405,7 +426,7 @@
+     setup->wLength = USB_SIZEOF_DEVICE_DESC;
+ 
+     ret = usbh_control_transfer(hport, setup, ep0_request_buffer[hport->bus->busid]);
+-    if (ret < 0) {
++    if (ret < USB_SIZEOF_DEVICE_DESC) {
+         USB_LOG_ERR("Failed to get full device descriptor,errorcode:%d\r\n", ret);
+         goto errout;
+     }
+@@ -429,7 +450,7 @@
+     setup->wLength = USB_SIZEOF_CONFIG_DESC;
+ 
+     ret = usbh_control_transfer(hport, setup, ep0_request_buffer[hport->bus->busid]);
+-    if (ret < 0) {
++    if (ret < USB_SIZEOF_CONFIG_DESC) {
+         USB_LOG_ERR("Failed to get config descriptor,errorcode:%d\r\n", ret);
+         goto errout;
+     }
+@@ -443,7 +464,7 @@
+     /* Read the full size of the configuration data */
+     uint16_t wTotalLength = ((struct usb_configuration_descriptor *)ep0_request_buffer[hport->bus->busid])->wTotalLength;
+ 
+-    if (wTotalLength > CONFIG_USBHOST_REQUEST_BUFFER_LEN) {
++    if (wTotalLength >= CONFIG_USBHOST_REQUEST_BUFFER_LEN) {
+         ret = -USB_ERR_NOMEM;
+         USB_LOG_ERR("wTotalLength %d is overflow, default is %d\r\n", wTotalLength, (unsigned int)CONFIG_USBHOST_REQUEST_BUFFER_LEN);
+         goto errout;
+@@ -456,11 +477,12 @@
+     setup->wLength = wTotalLength;
+ 
+     ret = usbh_control_transfer(hport, setup, ep0_request_buffer[hport->bus->busid]);
+-    if (ret < 0) {
++    if (ret < wTotalLength) {
+         USB_LOG_ERR("Failed to get full config descriptor,errorcode:%d\r\n", ret);
+         goto errout;
+     }
+ 
++    ep0_request_buffer[hport->bus->busid][wTotalLength] = '\0';
+     ret = parse_config_descriptor(hport, (struct usb_configuration_descriptor *)ep0_request_buffer[hport->bus->busid], wTotalLength);
+     if (ret < 0) {
+         USB_LOG_ERR("Parse config descriptor fail\r\n");
+@@ -612,11 +634,18 @@
+ 
+ static void usbh_bus_init(struct usbh_bus *bus, uint8_t busid, uintptr_t reg_base)
+ {
++#if defined(CONFIG_USBHOST_MULT_HC)
++    const struct usbh_hc_driver *hc_driver = bus->hc_driver;
++    USB_ASSERT_MSG(hc_driver != NULL, "usb hc driver is not registered");
++#endif
++
+     memset(bus, 0, sizeof(struct usbh_bus));
+     bus->busid = busid;
+     bus->hcd.hcd_id = busid;
+     bus->hcd.reg_base = reg_base;
+-
++#if defined(CONFIG_USBHOST_MULT_HC)
++    bus->hc_driver = hc_driver;
++#endif
+     /* devaddr 1 is for roothub */
+     bus->devgen.last = 0x7f;
+ 
+@@ -664,6 +693,9 @@
+     USB_ASSERT_MSG(busid < CONFIG_USBHOST_MAX_BUS, "bus overflow\r\n");
+ 
+     bus = &g_usbhost_bus[busid];
++#if defined(CONFIG_USBHOST_MULT_HC)
++    USB_ASSERT_MSG(bus->hc_driver != NULL, "usb hc driver is not registered");
++#endif
+ 
+     usbh_hub_deinitialize(bus);
+ 
+@@ -699,7 +731,7 @@
+         ret = urb->actual_length;
+     }
+ 
+-    if (ret < 0 && (ret != -USB_ERR_TIMEOUT)) {
++    if (ret < (int)sizeof(struct usb_setup_packet) && (ret != -USB_ERR_TIMEOUT)) {
+         retry--;
+         if (retry > 0) {
+             USB_LOG_WRN("Control transfer failed, errorcode %d, retrying...\r\n", ret);
+@@ -708,7 +740,7 @@
+     }
+ 
+     usb_osal_mutex_give(hport->mutex);
+-    return ret;
++    return ret < (int)sizeof(struct usb_setup_packet) ? ret : (ret - (int)sizeof(struct usb_setup_packet));
+ }
+ 
+ int usbh_get_string_desc(struct usbh_hubport *hport, uint8_t index, uint8_t *output, uint16_t output_len)
+@@ -737,6 +769,13 @@
+     dst = output;
+     len = src[0];
+ 
++    if (ret != len) {
++        USB_LOG_ERR("Get string descriptor failed, expect %d, actual %d\r\n", len, ret);
++        return -USB_ERR_IO;
++    }
++
++    memset(output, 0, output_len);
++
+     if (((len - 2) / 2) > output_len) {
+         return -USB_ERR_NOMEM;
+     }
+@@ -799,6 +838,8 @@
+     struct usbh_hubport *hport;
+     struct usbh_hub *hub_next;
+ 
++    USB_ASSERT((hub_index > 0) && (hub_port > 0) && (hub_index <= hub->index) && (hub_port <= hub->nports));
++
+     if (hub->index == hub_index) {
+         hport = &hub->child[hub_port - 1];
+         if (hport->connected) {
+@@ -816,9 +857,9 @@
+                             hub_next = hport->config.intf[itf].priv;
+ 
+                             if (hub_next && hub_next->connected) {
+-                                hport = usbh_list_all_hubport(hub_next, hub_index, hub_port);
+-                                if (hport) {
+-                                    return hport;
++                                struct usbh_hubport *hport_next = usbh_list_all_hubport(hub_next, hub_index, hub_port);
++                                if (hport_next) {
++                                    return hport_next;
+                                 }
+                             }
+                         }
+@@ -861,6 +902,8 @@
+     struct usbh_hubport *hport;
+     size_t flags;
+ 
++    USB_ASSERT_MSG(busid < CONFIG_USBHOST_MAX_BUS, "bus overflow\r\n");
++
+     flags = usb_osal_enter_critical_section();
+ 
+     bus = &g_usbhost_bus[busid];
+@@ -1216,3 +1259,76 @@
+ 
+     return 0; // Default to configuration index 0
+ }
++
++#if defined(CONFIG_USBHOST_MULT_HC)
++void usbh_register_hc_driver(uint8_t busid, const struct usbh_hc_driver *driver)
++{
++    USB_ASSERT_MSG(busid < CONFIG_USBHOST_MAX_BUS, "bus overflow\r\n");
++    USB_ASSERT_MSG(driver != NULL, "hc driver driver is NULL\r\n");
++
++    g_usbhost_bus[busid].hc_driver = driver;
++}
++
++int usb_hc_init(struct usbh_bus *bus)
++{
++    if (bus && bus->hc_driver && bus->hc_driver->init) {
++        return bus->hc_driver->init(bus);
++    } else {
++        return -USB_ERR_INVAL;
++    }
++}
++
++int usb_hc_deinit(struct usbh_bus *bus)
++{
++    if (bus && bus->hc_driver && bus->hc_driver->deinit) {
++        return bus->hc_driver->deinit(bus);
++    } else {
++        return -USB_ERR_INVAL;
++    }
++}
++
++uint16_t usbh_get_frame_number(struct usbh_bus *bus)
++{
++    if (bus && bus->hc_driver && bus->hc_driver->get_frame_number) {
++        return bus->hc_driver->get_frame_number(bus);
++    } else {
++        return 0;
++    }
++}
++
++int usbh_roothub_control(struct usbh_bus *bus, struct usb_setup_packet *setup, uint8_t *buf)
++{
++    if (bus && bus->hc_driver && bus->hc_driver->roothub_control) {
++        return bus->hc_driver->roothub_control(bus, setup, buf);
++    } else {
++        return -USB_ERR_INVAL;
++    }
++}
++
++int usbh_submit_urb(struct usbh_urb *urb)
++{
++    if (urb && urb->hport && urb->hport->bus && urb->hport->bus->hc_driver && urb->hport->bus->hc_driver->submit_urb) {
++        return urb->hport->bus->hc_driver->submit_urb(urb);
++    } else {
++        return -USB_ERR_INVAL;
++    }
++}
++
++int usbh_kill_urb(struct usbh_urb *urb)
++{
++    if (urb && urb->hport && urb->hport->bus && urb->hport->bus->hc_driver && urb->hport->bus->hc_driver->kill_urb) {
++        return urb->hport->bus->hc_driver->kill_urb(urb);
++    } else {
++        return -USB_ERR_INVAL;
++    }
++}
++
++void USBH_IRQHandler(uint8_t busid)
++{
++    USB_ASSERT_MSG(busid < CONFIG_USBHOST_MAX_BUS, "bus overflow\r\n");
++
++    if (g_usbhost_bus[busid].hc_driver && g_usbhost_bus[busid].hc_driver->irq_handler) {
++        g_usbhost_bus[busid].hc_driver->irq_handler(busid);
++    }
++}
++#endif
+--- a/core/usbd_core.h
++++ b/core/usbd_core.h
+@@ -44,6 +44,10 @@
+     USBD_EVENT_SET_INTERFACE,     /** USB interface selected */
+     USBD_EVENT_SET_REMOTE_WAKEUP, /** USB set remote wakeup */
+     USBD_EVENT_CLR_REMOTE_WAKEUP, /** USB clear remote wakeup */
++    USBD_EVENT_SET_U1_ENABLE,     /** USB U1 enable */
++    USBD_EVENT_SET_U2_ENABLE,     /** USB U2 enable */
++    USBD_EVENT_CLR_U1_ENABLE,     /** USB U1 disable */
++    USBD_EVENT_CLR_U2_ENABLE,     /** USB U2 disable */
+     USBD_EVENT_INIT,              /** USB init done when call usbd_initialize */
+     USBD_EVENT_DEINIT,            /** USB deinit done when call usbd_deinitialize */
+     USBD_EVENT_UNKNOWN
+@@ -60,6 +64,15 @@
+ typedef void (*usbd_notify_handler)(uint8_t busid, uint8_t event, void *arg);
+ typedef void (*usbd_event_handler_t)(uint8_t busid, uint8_t event);
+ 
++struct usbd_endpoint_info {
++    uint8_t ep_type;
++    uint8_t ep_mult;
++    uint16_t ep_mps;
++    uint8_t ep_interval;
++    uint8_t ep_maxburst;
++    uint8_t ep_maxstream;
++};
++
+ struct usbd_endpoint {
+     uint8_t ep_addr;
+     usbd_endpoint_callback ep_cb;
+@@ -90,6 +103,9 @@
+ struct usbd_bus {
+     uint8_t busid;
+     uintptr_t reg_base;
++#if defined(CONFIG_USBDEV_MULT_DC)
++    const struct usbd_dc_driver *driver;
++#endif
+ };
+ 
+ extern struct usbd_bus g_usbdev_bus[];
+@@ -103,13 +119,18 @@
+ void usbd_add_interface(uint8_t busid, struct usbd_interface *intf);
+ void usbd_add_endpoint(uint8_t busid, struct usbd_endpoint *ep);
+ 
++uint8_t usbd_get_device_speed(uint8_t busid);
+ uint16_t usbd_get_ep_mps(uint8_t busid, uint8_t ep);
+ uint8_t usbd_get_ep_mult(uint8_t busid, uint8_t ep);
++int usbd_get_ep_info(uint8_t busid, uint8_t ep, struct usbd_endpoint_info *ep_info);
+ bool usb_device_is_configured(uint8_t busid);
+ bool usb_device_is_suspend(uint8_t busid);
+ int usbd_send_remote_wakeup(uint8_t busid);
+ uint8_t usbd_get_ep0_next_state(uint8_t busid);
+ 
++#if defined(CONFIG_USBDEV_MULT_DC)
++void usbd_register_dc_driver(uint8_t busid, const struct usbd_dc_driver *driver);
++#endif
+ int usbd_initialize(uint8_t busid, uintptr_t reg_base, usbd_event_handler_t event_handler);
+ int usbd_deinitialize(uint8_t busid);
+ 
+--- a/core/usbd_core.c
++++ b/core/usbd_core.c
+@@ -31,8 +31,12 @@
+ 
+ struct usbd_tx_rx_msg {
+     uint8_t ep;
++    uint8_t ep_type;
+     uint8_t ep_mult;
+     uint16_t ep_mps;
++    uint8_t ep_interval;
++    uint8_t ep_maxburst;
++    uint8_t ep_maxstream;
+     uint32_t nbytes;
+     usbd_endpoint_callback cb;
+ };
+@@ -62,8 +66,11 @@
+     bool self_powered;
+     bool remote_wakeup_support;
+     bool remote_wakeup_enabled;
++    bool u1_enable;
++    bool u2_enable;
+     bool is_suspend;
+     uint8_t speed;
++    uint16_t isoch_delay;
+ #ifdef CONFIG_USBDEV_TEST_MODE
+     bool test_req;
+ #endif
+@@ -132,9 +139,13 @@
+     if (ep->bEndpointAddress & 0x80) {
+         g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
+         g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_mult = USB_GET_MULT(ep->wMaxPacketSize);
++        g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_type = USB_GET_ENDPOINT_TYPE(ep->bmAttributes);
++        g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_interval = ep->bInterval;
+     } else {
+         g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
+         g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_mult = USB_GET_MULT(ep->wMaxPacketSize);
++        g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_type = USB_GET_ENDPOINT_TYPE(ep->bmAttributes);
++        g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_interval = ep->bInterval;
+     }
+ 
+     return usbd_ep_open(busid, ep) == 0 ? true : false;
+@@ -160,6 +171,79 @@
+ }
+ 
+ /**
++ * @brief Set endpoint companion descriptor for the specified endpoint
++ */
++static bool usbd_set_endpoint_extra(uint8_t busid, const struct usb_endpoint_descriptor *ep, const struct usb_endpoint_companion_descriptor *ep_comp)
++{
++    USB_LOG_DBG("Set ep maxburst:%u bmAttributes:%u wBytesPerInterval:%u\r\n",
++                ep_comp->bMaxBurst,
++                ep_comp->bmAttributes,
++                ep_comp->wBytesPerInterval);
++
++    uint16_t wBytesPerInterval = 0;
++
++    (void)wBytesPerInterval;
++
++    if (ep->bEndpointAddress & 0x80) {
++        g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst = ep_comp->bMaxBurst + 1;
++
++        switch (USB_GET_ENDPOINT_TYPE(ep->bmAttributes)) {
++            case USB_ENDPOINT_TYPE_BULK:
++                g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 2 << (ep_comp->bmAttributes & 0x1f);
++                break;
++            case USB_ENDPOINT_TYPE_INTERRUPT:
++                g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 0;
++
++                wBytesPerInterval = g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst * USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
++                USB_ASSERT_MSG(wBytesPerInterval == ep_comp->wBytesPerInterval, "wBytesPerInterval mismatch");
++                break;
++
++            case USB_ENDPOINT_TYPE_ISOCHRONOUS:
++                g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 0;
++
++                USB_ASSERT_MSG((USB_GET_MULT(ep->wMaxPacketSize) == (ep_comp->bmAttributes & 0x03)), "mult mismatch");
++                wBytesPerInterval = g_usbd_core[busid].tx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst *
++                                    (USB_GET_MULT(ep->wMaxPacketSize) + 1) *
++                                    USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
++
++                USB_ASSERT_MSG(wBytesPerInterval == ep_comp->wBytesPerInterval, "wBytesPerInterval mismatch");
++                break;
++
++            default:
++                break;
++        }
++    } else {
++        g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst = ep_comp->bMaxBurst + 1;
++
++        switch (USB_GET_ENDPOINT_TYPE(ep->bmAttributes)) {
++            case USB_ENDPOINT_TYPE_BULK:
++                g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 2 << (ep_comp->bmAttributes & 0x1f);
++                break;
++            case USB_ENDPOINT_TYPE_INTERRUPT:
++                g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 0;
++
++                wBytesPerInterval = g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst * USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
++                USB_ASSERT_MSG(wBytesPerInterval == ep_comp->wBytesPerInterval, "wBytesPerInterval mismatch");
++                break;
++
++            case USB_ENDPOINT_TYPE_ISOCHRONOUS:
++                g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxstream = 0;
++
++                USB_ASSERT_MSG((USB_GET_MULT(ep->wMaxPacketSize) == (ep_comp->bmAttributes & 0x03)), "mult mismatch");
++                wBytesPerInterval = g_usbd_core[busid].rx_msg[ep->bEndpointAddress & 0x7f].ep_maxburst *
++                                    (USB_GET_MULT(ep->wMaxPacketSize) + 1) *
++                                    USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize);
++
++                USB_ASSERT_MSG(wBytesPerInterval == ep_comp->wBytesPerInterval, "wBytesPerInterval mismatch");
++                break;
++
++            default:
++                break;
++        }
++    }
++    return usbd_ep_open_extra(busid, ep, ep_comp) == 0 ? true : false;
++}
++/**
+  * @brief get specified USB descriptor
+  *
+  * This function parses the list of installed USB descriptors and attempts
+@@ -372,8 +456,21 @@
+                 }
+ 
+                 found = usbd_set_endpoint(busid, (struct usb_endpoint_descriptor *)p);
+-                break;
+ 
++                if (g_usbd_core[busid].speed >= USB_SPEED_SUPER) {
++                    const uint8_t *ep_comp_desc;
++
++                    ep_comp_desc = p;
++                    ep_comp_desc += p[DESC_bLength];
++
++                    if (ep_comp_desc[DESC_bLength] == USB_SIZEOF_ENDPOINT_COMPANION_DESC &&
++                        ep_comp_desc[DESC_bDescriptorType] == USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION) {
++                        usbd_set_endpoint_extra(busid, (struct usb_endpoint_descriptor *)p, (struct usb_endpoint_companion_descriptor *)ep_comp_desc);
++                    } else {
++                        USB_ASSERT("Invalid endpoint companion descriptor");
++                    }
++                }
++                break;
+             default:
+                 break;
+         }
+@@ -442,12 +539,25 @@
+                         ret = usbd_reset_endpoint(busid, ep_desc);
+                     } else if (cur_alt_setting == alt_setting) {
+                         ret = usbd_set_endpoint(busid, ep_desc);
++
++                        if (g_usbd_core[busid].speed >= USB_SPEED_SUPER) {
++                            const uint8_t *ep_comp_desc;
++
++                            ep_comp_desc = p;
++                            ep_comp_desc += p[DESC_bLength];
++
++                            if (ep_comp_desc[DESC_bLength] == USB_SIZEOF_ENDPOINT_COMPANION_DESC &&
++                                ep_comp_desc[DESC_bDescriptorType] == USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION) {
++                                usbd_set_endpoint_extra(busid, ep_desc, (struct usb_endpoint_companion_descriptor *)ep_comp_desc);
++                            } else {
++                                USB_ASSERT("Invalid endpoint companion descriptor");
++                            }
++                        }
+                     } else {
+                     }
+                 }
+ 
+                 break;
+-
+             default:
+                 break;
+         }
+@@ -491,6 +601,13 @@
+             if (g_usbd_core[busid].remote_wakeup_enabled) {
+                 (*data)[0] |= USB_GETSTATUS_REMOTE_WAKEUP;
+             }
++            if (g_usbd_core[busid].u1_enable) {
++                (*data)[0] |= USB_GETSTATUS_U1_ENABLE;
++            }
++            if (g_usbd_core[busid].u2_enable) {
++                (*data)[0] |= USB_GETSTATUS_U2_ENABLE;
++            }
++
+             (*data)[1] = 0x00;
+             *len = 2;
+             break;
+@@ -505,11 +622,28 @@
+                     g_usbd_core[busid].remote_wakeup_enabled = false;
+                     g_usbd_core[busid].event_handler(busid, USBD_EVENT_CLR_REMOTE_WAKEUP);
+                 }
++            } else if (value == USB_FEATURE_U1_ENABLE) {
++                if (setup->bRequest == USB_REQUEST_SET_FEATURE) {
++                    g_usbd_core[busid].u1_enable = true;
++                    g_usbd_core[busid].event_handler(busid, USBD_EVENT_SET_U1_ENABLE);
++                } else {
++                    g_usbd_core[busid].u1_enable = false;
++                    g_usbd_core[busid].event_handler(busid, USBD_EVENT_CLR_U1_ENABLE);
++                }
++            } else if (value == USB_FEATURE_U2_ENABLE) {
++                if (setup->bRequest == USB_REQUEST_SET_FEATURE) {
++                    g_usbd_core[busid].u2_enable = true;
++                    g_usbd_core[busid].event_handler(busid, USBD_EVENT_SET_U2_ENABLE);
++                } else {
++                    g_usbd_core[busid].u2_enable = false;
++                    g_usbd_core[busid].event_handler(busid, USBD_EVENT_CLR_U2_ENABLE);
++                }
+             } else if (value == USB_FEATURE_TEST_MODE) {
+ #ifdef CONFIG_USBDEV_TEST_MODE
+                 g_usbd_core[busid].test_req = true;
+ #endif
+             }
++
+             *len = 0;
+             break;
+ 
+@@ -552,6 +686,11 @@
+         case USB_REQUEST_SET_INTERFACE:
+             ret = false;
+             break;
++        case USB_REQUEST_SET_SEL:
++            break;
++        case USB_REQUEST_SET_ISOCH_DLY:
++            g_usbd_core[busid].isoch_delay = value;
++            break;
+ 
+         default:
+             ret = false;
+@@ -1244,6 +1383,11 @@
+     }
+ }
+ 
++uint8_t usbd_get_device_speed(uint8_t busid)
++{
++    return g_usbd_core[busid].speed;
++}
++
+ uint16_t usbd_get_ep_mps(uint8_t busid, uint8_t ep)
+ {
+     if (ep & 0x80) {
+@@ -1262,6 +1406,29 @@
+     }
+ }
+ 
++int usbd_get_ep_info(uint8_t busid, uint8_t ep, struct usbd_endpoint_info *ep_info)
++{
++    if (g_usbd_core[busid].configuration == 0)
++        return -1;
++
++    if (ep & 0x80) {
++        ep_info->ep_type = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_type;
++        ep_info->ep_mult = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_mult;
++        ep_info->ep_mps = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_mps;
++        ep_info->ep_interval = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_interval;
++        ep_info->ep_maxburst = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_maxburst;
++        ep_info->ep_maxstream = g_usbd_core[busid].tx_msg[ep & 0x7f].ep_maxstream;
++    } else {
++        ep_info->ep_type = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_type;
++        ep_info->ep_mult = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_mult;
++        ep_info->ep_mps = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_mps;
++        ep_info->ep_interval = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_interval;
++        ep_info->ep_maxburst = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_maxburst;
++        ep_info->ep_maxstream = g_usbd_core[busid].rx_msg[ep & 0x7f].ep_maxstream;
++    }
++    return 0;
++}
++
+ bool usb_device_is_configured(uint8_t busid)
+ {
+     return g_usbd_core[busid].configuration;
+@@ -1346,20 +1513,21 @@
+     USB_ASSERT_MSG(busid < CONFIG_USBDEV_MAX_BUS, "bus overflow\r\n");
+ 
+     bus = &g_usbdev_bus[busid];
++    bus->busid = busid;
+     bus->reg_base = reg_base;
++#if defined(CONFIG_USBDEV_MULT_DC)
++    USB_ASSERT_MSG(g_usbdev_bus[busid].driver != NULL, "usb dc driver is not registered");
++#endif
+ 
+ #ifdef CONFIG_USBDEV_EP0_THREAD
+     g_usbd_core[busid].usbd_ep0_mq = usb_osal_mq_create(1);
+     if (g_usbd_core[busid].usbd_ep0_mq == NULL) {
+-        USB_LOG_ERR("No memory to alloc for g_usbd_core[busid].usbd_ep0_mq\r\n");
+-        while (1) {
+-        }
++        return -USB_ERR_NOMEM;
+     }
+     g_usbd_core[busid].usbd_ep0_thread = usb_osal_thread_create("usbd_ep0", CONFIG_USBDEV_EP0_STACKSIZE, CONFIG_USBDEV_EP0_PRIO, usbdev_ep0_thread, (void *)(uint32_t)busid);
+     if (g_usbd_core[busid].usbd_ep0_thread == NULL) {
+-        USB_LOG_ERR("No memory to alloc for g_usbd_core[busid].usbd_ep0_thread\r\n");
+-        while (1) {
+-        }
++        usb_osal_mq_delete(g_usbd_core[busid].usbd_ep0_mq);
++        return -USB_ERR_NOMEM;
+     }
+ #endif
+ 
+@@ -1374,6 +1542,10 @@
+ {
+     USB_ASSERT_MSG(busid < CONFIG_USBDEV_MAX_BUS, "bus overflow\r\n");
+ 
++#if defined(CONFIG_USBDEV_MULT_DC)
++    USB_ASSERT_MSG(g_usbdev_bus[busid].driver != NULL, "usb dc driver is not registered");
++#endif
++
+     usb_dc_deinit(busid);
+ #ifdef CONFIG_USBDEV_EP0_THREAD
+     if (g_usbd_core[busid].usbd_ep0_thread) {
+@@ -1387,3 +1559,256 @@
+     usbd_class_event_notify_handler(busid, USBD_EVENT_DEINIT, NULL);
+     return 0;
+ }
++
++#if !defined(CONFIG_USBDEV_MULT_DC)
++__WEAK int usbd_ep_open_extra(uint8_t busid, const struct usb_endpoint_descriptor *ep, const struct usb_endpoint_companion_descriptor *ep_comp)
++{
++    (void)busid;
++    (void)ep;
++    (void)ep_comp;
++
++    return 0;
++}
++#endif
++
++#if defined(CONFIG_USBDEV_MULT_DC)
++void usbd_register_dc_driver(uint8_t busid, const struct usbd_dc_driver *driver)
++{
++    struct usbd_bus *bus;
++
++    USB_ASSERT_MSG(busid < CONFIG_USBDEV_MAX_BUS, "bus overflow\r\n");
++    USB_ASSERT_MSG(driver != NULL, "dc driver driver is NULL\r\n");
++
++    bus = &g_usbdev_bus[busid];
++
++    memset(bus, 0, sizeof(struct usbd_bus));
++    bus->busid = busid;
++    bus->driver = driver;
++}
++
++int usb_dc_init(uint8_t busid)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->init) {
++        return bus->driver->init(busid);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usb_dc_deinit(uint8_t busid)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->deinit) {
++        return bus->driver->deinit(busid);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_set_address(uint8_t busid, const uint8_t addr)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->set_address) {
++        return bus->driver->set_address(busid, addr);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_set_remote_wakeup(uint8_t busid)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->set_remote_wakeup) {
++        return bus->driver->set_remote_wakeup(busid);
++    }
++    return -USB_ERR_INVAL;
++}
++
++uint8_t usbd_get_port_speed(uint8_t busid)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->get_port_speed) {
++        return bus->driver->get_port_speed(busid);
++    }
++    return USB_SPEED_UNKNOWN;
++}
++
++int usbd_ep_open(uint8_t busid, const struct usb_endpoint_descriptor *ep)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_open) {
++        return bus->driver->ep_open(busid, ep);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_open_extra(uint8_t busid, const struct usb_endpoint_descriptor *ep, const struct usb_endpoint_companion_descriptor *ep_comp)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_open_extra) {
++        return bus->driver->ep_open_extra(busid, ep, ep_comp);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_close(uint8_t busid, const uint8_t ep)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_close) {
++        return bus->driver->ep_close(busid, ep);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_set_stall(uint8_t busid, const uint8_t ep)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_set_stall) {
++        return bus->driver->ep_set_stall(busid, ep);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_clear_stall(uint8_t busid, const uint8_t ep)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_clear_stall) {
++        return bus->driver->ep_clear_stall(busid, ep);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_is_stalled(uint8_t busid, const uint8_t ep, uint8_t *stalled)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_is_stalled) {
++        return bus->driver->ep_is_stalled(busid, ep, stalled);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_start_write(uint8_t busid, const uint8_t ep, const uint8_t *data, uint32_t data_len)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_start_write) {
++        return bus->driver->ep_start_write(busid, ep, data, data_len);
++    }
++    return -USB_ERR_INVAL;
++}
++
++int usbd_ep_start_read(uint8_t busid, const uint8_t ep, uint8_t *data, uint32_t data_len)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return -USB_ERR_INVAL;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->ep_start_read) {
++        return bus->driver->ep_start_read(busid, ep, data, data_len);
++    }
++    return -USB_ERR_INVAL;
++}
++
++void USBD_IRQHandler(uint8_t busid)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->irq_handler) {
++        return bus->driver->irq_handler(busid);
++    }
++}
++
++#ifdef CONFIG_USBDEV_TEST_MODE
++void usbd_execute_test_mode(uint8_t busid, uint8_t test_mode)
++{
++    struct usbd_bus *bus;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS) {
++        return;
++    }
++
++    bus = &g_usbdev_bus[busid];
++    if (bus->driver && bus->driver->execute_test_mode) {
++        return bus->driver->execute_test_mode(busid, test_mode);
++    }
++}
++#endif
++
++#endif
+--- a/common/usb_util.h
++++ b/common/usb_util.h
+@@ -185,6 +185,26 @@
+         (field)[3] = (uint8_t)((value) >> 0);  \
+     } while (0)
+ 
++#define GET_LE16(field) \
++    (((uint16_t)(field)[0] << 0) | ((uint16_t)(field)[1] << 8))
++
++#define GET_LE32(field) \
++    (((uint32_t)(field)[0] << 0) | ((uint32_t)(field)[1] << 8) | ((uint32_t)(field)[2] << 16) | ((uint32_t)(field)[3] << 24))
++
++#define SET_LE16(field, value)                \
++    do {                                      \
++        (field)[0] = (uint8_t)((value) >> 0); \
++        (field)[1] = (uint8_t)((value) >> 8); \
++    } while (0)
++
++#define SET_LE32(field, value)                \
++    do {                                      \
++        (field)[0] = (uint8_t)((value) >> 0); \
++        (field)[1] = (uint8_t)((value) >> 8); \
++        (field)[2] = (uint8_t)((value) >> 16); \
++        (field)[3] = (uint8_t)((value) >> 24); \
++    } while (0)
++
+ #define WBVAL(x) ((x) & 0xFF), (((x) >> 8) & 0xFF)
+ #define DBVAL(x) ((x) & 0xFF), (((x) >> 8) & 0xFF), (((x) >> 16) & 0xFF), (((x) >> 24) & 0xFF)
+ 
+@@ -215,6 +235,7 @@
+  * divisors if the dividend variable type is unsigned and for negative
+  * dividends if the divisor variable type is unsigned.
+  */
++#undef DIV_ROUND_CLOSEST
+ #define DIV_ROUND_CLOSEST(x, divisor) (       \
+     {                                         \
+         typeof(x) __x = x;                    \
+--- a/common/usb_hc.h
++++ b/common/usb_hc.h
+@@ -59,6 +59,23 @@
+ };
+ 
+ /**
++ * @brief USB host controller driver.
++ *
++ * Structure containing the USB host controller driver.
++ */
++struct usbh_hc_driver {
++    const char *driver_name;
++    const char *driver_desc;
++    int (*init)(struct usbh_bus *bus);
++    int (*deinit)(struct usbh_bus *bus);
++    uint16_t (*get_frame_number)(struct usbh_bus *bus);
++    int (*roothub_control)(struct usbh_bus *bus, struct usb_setup_packet *setup, uint8_t *buf);
++    int (*submit_urb)(struct usbh_urb *urb);
++    int (*kill_urb)(struct usbh_urb *urb);
++    void (*irq_handler)(uint8_t busid);
++};
++
++/**
+  * @brief usb host controller hardware init.
+  *
+  * @return On success will return 0, and others indicate fail.
+--- a/common/usb_def.h
++++ b/common/usb_def.h
+@@ -104,6 +104,8 @@
+ #define USB_REQUEST_LOOPBACK_DATA_WRITE 0x15
+ #define USB_REQUEST_LOOPBACK_DATA_READ  0x16
+ #define USB_REQUEST_SET_INTERFACE_DS    0x17
++#define USB_REQUEST_SET_SEL             0x30
++#define USB_REQUEST_SET_ISOCH_DLY       0x31
+ 
+ /* USB Standard Feature selectors */
+ #define USB_FEATURE_ENDPOINT_HALT  0
+@@ -116,11 +118,15 @@
+ #define USB_FEATURE_AHNPSUPPORT    4
+ #define USB_FEATURE_AALTHNPSUPPORT 5
+ #define USB_FEATURE_DEBUGMODE      6
++#define USB_FEATURE_U1_ENABLE      0x30
++#define USB_FEATURE_U2_ENABLE      0x31
+ 
+ /* USB GET_STATUS Bit Values */
+ #define USB_GETSTATUS_ENDPOINT_HALT 0x01
+ #define USB_GETSTATUS_SELF_POWERED  0x01
+ #define USB_GETSTATUS_REMOTE_WAKEUP 0x02
++#define USB_GETSTATUS_U1_ENABLE     0x04
++#define USB_GETSTATUS_U2_ENABLE     0x08
+ 
+ /* USB Descriptor Types */
+ #define USB_DESCRIPTOR_TYPE_DEVICE                0x01U
+@@ -137,6 +143,7 @@
+ #define USB_DESCRIPTOR_TYPE_BINARY_OBJECT_STORE   0x0FU
+ #define USB_DESCRIPTOR_TYPE_DEVICE_CAPABILITY     0x10U
+ #define USB_DESCRIPTOR_TYPE_WIRELESS_ENDPOINTCOMP 0x11U
++#define USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION    0x30U
+ 
+ /* Class Specific Descriptor */
+ #define USB_CS_DESCRIPTOR_TYPE_DEVICE        0x21U
+@@ -405,6 +412,17 @@
+ 
+ #define USB_SIZEOF_ENDPOINT_DESC 7
+ 
++/** Standard Endpoint Companion Descriptor */
++struct usb_endpoint_companion_descriptor {
++    uint8_t bLength;          /* Descriptor size in bytes = 6 */
++    uint8_t bDescriptorType;  /* ENDPOINT COMPANION descriptor type = 0x30 */
++    uint8_t bMaxBurst;        /* Maximum number of bursts */
++    uint8_t bmAttributes;     /* Companion attributes */
++    uint16_t wBytesPerInterval; /* Bytes per interval */
++} __PACKED;
++
++#define USB_SIZEOF_ENDPOINT_COMPANION_DESC 6
++
+ /** Unicode (UTF16LE) String Descriptor */
+ struct usb_string_descriptor {
+     uint8_t bLength;
+@@ -638,6 +656,22 @@
+     USB_STRING_SERIAL_INDEX,    /* iSerial */                                                                                              \
+     bNumConfigurations          /* bNumConfigurations */
+ 
++#define USB3_DEVICE_DESCRIPTOR_INIT(bcdUSB, bDeviceClass, bDeviceSubClass, bDeviceProtocol, idVendor, idProduct, bcdDevice, bNumConfigurations) \
++    0x12,                       /* bLength */                                                                                              \
++    USB_DESCRIPTOR_TYPE_DEVICE, /* bDescriptorType */                                                                                      \
++    WBVAL(USB_3_0),             /* bcdUSB */                                                                                               \
++    bDeviceClass,               /* bDeviceClass */                                                                                         \
++    bDeviceSubClass,            /* bDeviceSubClass */                                                                                      \
++    bDeviceProtocol,            /* bDeviceProtocol */                                                                                      \
++    0x09,                       /* bMaxPacketSize */                                                                                       \
++    WBVAL(idVendor),            /* idVendor */                                                                                             \
++    WBVAL(idProduct),           /* idProduct */                                                                                            \
++    WBVAL(bcdDevice),           /* bcdDevice */                                                                                            \
++    USB_STRING_MFC_INDEX,       /* iManufacturer */                                                                                        \
++    USB_STRING_PRODUCT_INDEX,   /* iProduct */                                                                                             \
++    USB_STRING_SERIAL_INDEX,    /* iSerial */                                                                                              \
++    bNumConfigurations          /* bNumConfigurations */
++
+ #define USB_CONFIG_DESCRIPTOR_INIT(wTotalLength, bNumInterfaces, bConfigurationValue, bmAttributes, bMaxPower) \
+     0x09,                              /* bLength */                                                       \
+     USB_DESCRIPTOR_TYPE_CONFIGURATION, /* bDescriptorType */                                               \
+@@ -689,6 +723,13 @@
+     WBVAL(wMaxPacketSize),        /* wMaxPacketSize */                                      \
+     bInterval                     /* bInterval */
+ 
++#define USB_ENDPOINT_COMPANION_DESCRIPTOR_INIT(bMaxBurst, bmAttributes, wBytesPerInterval) \
++    0x06,                         /* bLength */                                            \
++    USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION, /* bDescriptorType */                          \
++    bMaxBurst,                     /* bMaxBurst */                                         \
++    bmAttributes,                  /* bmAttributes */                                      \
++    WBVAL(wBytesPerInterval)       /* wBytesPerInterval */
++
+ #define USB_IAD_DESCRIPTOR_INIT(bFirstInterface, bInterfaceCount, bFunctionClass, bFunctionSubClass, bFunctionProtocol) \
+     0x08,                                      /* bLength */                                             \
+     USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION, /* bDescriptorType */                                     \
+@@ -766,12 +807,12 @@
+ #define USB_MSOSV1_COMP_ID_FUNCTION_MTP_DESCRIPTOR_INIT(bFirstInterfaceNumber)\
+     bFirstInterfaceNumber,                          /* bFirstInterfaceNumber */\
+     0x01,                                           /* reserved1 */            \
+-    'M', 'T', 'P', 'U', 'S', 'B', 0x00, 0x00,       /* compatibleID[8] */      \
++    'M', 'T', 'P', 0x00, 0x00, 0x00, 0x00, 0x00,    /* compatibleID[8] */      \
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* subCompatibleID[8] */   \
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00              /* reserved2[6] */
+ 
+ #define USB_MSOSV1_COMP_ID_FUNCTION_ADB_DESCRIPTOR_INIT(bFirstInterfaceNumber)\
+-    bFirstInterfaceNumber,                          * bFirstInterfaceNumber */\
++    bFirstInterfaceNumber,                          /* bFirstInterfaceNumber */\
+     0x01,                                           /* reserved1 */            \
+     'A', 'D', 'B', 0x00, 0x00, 0x00, 0x00, 0x00,    /* compatibleID[8] */      \
+     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* subCompatibleID[8] */   \
+--- a/common/usb_dc.h
++++ b/common/usb_dc.h
+@@ -13,6 +13,33 @@
+ #endif
+ 
+ /**
++ * @brief USB device controller driver ops.
++ *
++ * Structure containing the USB device controller driver ops.
++ */
++struct usbd_dc_driver {
++    const char *driver_name;
++    const char *driver_desc;
++    int (*init)(uint8_t busid);
++    int (*deinit)(uint8_t busid);
++    int (*set_address)(uint8_t busid, const uint8_t addr);
++    int (*set_remote_wakeup)(uint8_t busid);
++    uint8_t (*get_port_speed)(uint8_t busid);
++    int (*ep_open)(uint8_t busid, const struct usb_endpoint_descriptor *ep);
++    int (*ep_open_extra)(uint8_t busid, const struct usb_endpoint_descriptor *ep, const struct usb_endpoint_companion_descriptor *ep_comp);
++    int (*ep_close)(uint8_t busid, const uint8_t ep);
++    int (*ep_set_stall)(uint8_t busid, const uint8_t ep);
++    int (*ep_clear_stall)(uint8_t busid, const uint8_t ep);
++    int (*ep_is_stalled)(uint8_t busid, const uint8_t ep, uint8_t *stalled);
++    int (*ep_start_write)(uint8_t busid, const uint8_t ep, const uint8_t *data, uint32_t data_len);
++    int (*ep_start_read)(uint8_t busid, const uint8_t ep, uint8_t *data, uint32_t data_len);
++    void (*irq_handler)(uint8_t busid);
++#ifdef CONFIG_USBDEV_TEST_MODE
++    void (*execute_test_mode)(uint8_t busid, uint8_t test_mode);
++#endif
++};
++
++/**
+  * @brief init device controller registers.
+  * @return On success will return 0, and others indicate fail.
+  */
+@@ -59,6 +86,15 @@
+ int usbd_ep_open(uint8_t busid, const struct usb_endpoint_descriptor *ep);
+ 
+ /**
++ * @brief configure endpoint extra for usb3.0.
++ *
++ * @param [in]  ep_cfg Endpoint config.
++ *
++ * @return On success will return 0, and others indicate fail.
++ */
++int usbd_ep_open_extra(uint8_t busid, const struct usb_endpoint_descriptor *ep, const struct usb_endpoint_companion_descriptor *ep_comp);
++
++/**
+  * @brief Disable the selected endpoint
+  *
+  * @param[in] ep Endpoint address
+--- a/osal/usb_osal_freertos.c
++++ b/osal/usb_osal_freertos.c
+@@ -8,6 +8,10 @@
+ #include "usb_config.h"
+ #include "usb_log.h"
+ #include <FreeRTOS.h>
++#include <irq.h>
++
++/* the RISC-V port has no such call; the PLIC dispatcher knows */
++#define xPortIsInsideInterrupt() in_interrupt()
+ #include "semphr.h"
+ #include "timers.h"
+ #include "event_groups.h"
+@@ -18,9 +22,7 @@
+     stack_size /= sizeof(StackType_t);
+     xTaskCreate(entry, name, stack_size, args, configMAX_PRIORITIES - 1 - prio, &htask);
+     if (htask == NULL) {
+-        USB_LOG_ERR("Create thread %s failed\r\n", name);
+-        while (1) {
+-        }
++        return NULL;
+     }
+     return (usb_osal_thread_t)htask;
+ }
+@@ -44,24 +46,12 @@
+ 
+ usb_osal_sem_t usb_osal_sem_create(uint32_t initial_count)
+ {
+-    usb_osal_sem_t sem = (usb_osal_sem_t)xSemaphoreCreateCounting(1, initial_count);
+-    if (sem == NULL) {
+-        USB_LOG_ERR("Create semaphore failed\r\n");
+-        while (1) {
+-        }
+-    }
+-    return sem;
++    return (usb_osal_sem_t)xSemaphoreCreateCounting(1, initial_count);
+ }
+ 
+ usb_osal_sem_t usb_osal_sem_create_counting(uint32_t max_count)
+ {
+-    usb_osal_sem_t sem = (usb_osal_sem_t)xSemaphoreCreateCounting(max_count, 0);
+-    if (sem == NULL) {
+-        USB_LOG_ERR("Create semaphore failed\r\n");
+-        while (1) {
+-        }
+-    }
+-    return sem;
++    return (usb_osal_sem_t)xSemaphoreCreateCounting(max_count, 0);
+ }
+ 
+ void usb_osal_sem_delete(usb_osal_sem_t sem)
+@@ -71,11 +61,22 @@
+ 
+ int usb_osal_sem_take(usb_osal_sem_t sem, uint32_t timeout)
+ {
+-    if (timeout == USB_OSAL_WAITING_FOREVER) {
+-        return (xSemaphoreTake((SemaphoreHandle_t)sem, portMAX_DELAY) == pdPASS) ? 0 : -USB_ERR_TIMEOUT;
++    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
++    int ret;
++
++    if (xPortIsInsideInterrupt()) {
++        /* ISR context: only non-blocking take is allowed */
++        ret = xSemaphoreTakeFromISR((SemaphoreHandle_t)sem, &xHigherPriorityTaskWoken);
++        if (ret == pdPASS) {
++            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
++        }
++    } else if (timeout == USB_OSAL_WAITING_FOREVER) {
++        ret = xSemaphoreTake((SemaphoreHandle_t)sem, portMAX_DELAY);
+     } else {
+-        return (xSemaphoreTake((SemaphoreHandle_t)sem, pdMS_TO_TICKS(timeout)) == pdPASS) ? 0 : -USB_ERR_TIMEOUT;
++        ret = xSemaphoreTake((SemaphoreHandle_t)sem, pdMS_TO_TICKS(timeout));
+     }
++
++    return (ret == pdPASS) ? 0 : -USB_ERR_TIMEOUT;
+ }
+ 
+ int usb_osal_sem_give(usb_osal_sem_t sem)
+@@ -102,13 +103,7 @@
+ 
+ usb_osal_mutex_t usb_osal_mutex_create(void)
+ {
+-    usb_osal_mutex_t mutex = (usb_osal_mutex_t)xSemaphoreCreateMutex();
+-    if (mutex == NULL) {
+-        USB_LOG_ERR("Create mutex failed\r\n");
+-        while (1) {
+-        }
+-    }
+-    return mutex;
++    return (usb_osal_mutex_t)xSemaphoreCreateMutex();
+ }
+ 
+ void usb_osal_mutex_delete(usb_osal_mutex_t mutex)
+@@ -186,11 +181,8 @@
+     (void)name;
+ 
+     timer = pvPortMalloc(sizeof(struct usb_osal_timer));
+-
+     if (timer == NULL) {
+-        USB_LOG_ERR("Create usb_osal_timer failed\r\n");
+-        while (1) {
+-        }
++        return NULL;
+     }
+     memset(timer, 0, sizeof(struct usb_osal_timer));
+ 
+@@ -199,9 +191,8 @@
+ 
+     timer->timer = (void *)xTimerCreate("usb_tim", pdMS_TO_TICKS(timeout_ms), is_period, timer, (TimerCallbackFunction_t)__usb_timeout);
+     if (timer->timer == NULL) {
+-        USB_LOG_ERR("Create timer failed\r\n");
+-        while (1) {
+-        }
++        vPortFree(timer);
++        return NULL;
+     }
+     return timer;
+ }
+@@ -230,30 +221,30 @@
+ 
+ void usb_osal_timer_stop(struct usb_osal_timer *timer)
+ {
+-    xTimerStop(timer->timer, 0);
+-}
+-
+-size_t usb_osal_enter_critical_section(void)
+-{
+-    size_t ret;
++    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
++    int ret;
+ 
+     if (xPortIsInsideInterrupt()) {
+-        ret = taskENTER_CRITICAL_FROM_ISR();
++        ret = xTimerStopFromISR(timer->timer, &xHigherPriorityTaskWoken);
++        if (ret == pdPASS) {
++            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
++        }
+     } else {
+-        taskENTER_CRITICAL();
+-        ret = 1;
++        xTimerStop(timer->timer, 0);
+     }
++}
+ 
+-    return ret;
++/* taskENTER_CRITICAL() must not run in a handler (its exit re-enables interrupts) */
++size_t usb_osal_enter_critical_section(void)
++{
++    os_crit_enter();
++    return 1;
+ }
+ 
+ void usb_osal_leave_critical_section(size_t flag)
+ {
+-    if (xPortIsInsideInterrupt()) {
+-        taskEXIT_CRITICAL_FROM_ISR(flag);
+-    } else {
+-        taskEXIT_CRITICAL();
+-    }
++    (void)flag;
++    os_crit_exit();
+ }
+ 
+ void usb_osal_msleep(uint32_t delay)
+--- a/port/ehci/usb_hc_ehci.h
++++ b/port/ehci/usb_hc_ehci.h
+@@ -64,6 +64,7 @@
+     struct usbh_urb *urb;
+     usb_osal_sem_t waitsem;
+     uint8_t remove_in_iaad;
++    volatile uint8_t killed;
+ } __attribute__((aligned(CONFIG_USB_EHCI_ALIGN_SIZE)));
+ 
+ struct ehci_itd_hw {
+--- a/port/ehci/usb_hc_ehci.c
++++ b/port/ehci/usb_hc_ehci.c
+@@ -8,6 +8,18 @@
+ #include "usb_hc_ohci.h"
+ #endif
+ 
++#if defined(CONFIG_USBHOST_MULT_HC)
++#define usb_hc_init            usbh_ehci_hc_init
++#define usb_hc_deinit          usbh_ehci_hc_deinit
++#define usbh_get_frame_number  usbh_ehci_get_frame_number
++#define usbh_roothub_control   usbh_ehci_roothub_control
++#define usbh_submit_urb        usbh_ehci_submit_urb
++#define usbh_kill_urb          usbh_ehci_kill_urb
++#define USBH_IRQHandler        usbh_ehci_irq_handler
++
++int usbh_ehci_kill_urb(struct usbh_urb *urb);
++#endif
++
+ #define EHCI_TUNE_CERR    3 /* 0-3 qtd retries; 0 == don't stop */
+ #define EHCI_TUNE_RL_HS   4 /* nak throttle; see 4.9 */
+ #define EHCI_TUNE_RL_TT   0
+@@ -137,8 +149,6 @@
+     n->hw.hlp = head->hw.hlp;
+     usb_ehci_qh_qtd_flush(n);
+ 
+-    usb_dcache_flush((uintptr_t)n->urb->transfer_buffer, USB_ALIGN_UP(n->urb->transfer_buffer_length, CONFIG_USB_ALIGN_SIZE));
+-
+     head->hw.hlp = QH_HLP_QH(n);
+ #if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
+     usb_dcache_clean((uintptr_t)&head->hw, CONFIG_USB_EHCI_ALIGN_SIZE);
+@@ -154,6 +164,9 @@
+     }
+ 
+     if (tmp) {
++#if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
++        usb_dcache_invalidate((uintptr_t)&n->hw, CONFIG_USB_EHCI_ALIGN_SIZE);
++#endif
+         tmp->hw.hlp = n->hw.hlp;
+ #if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
+         usb_dcache_clean((uintptr_t)&tmp->hw, CONFIG_USB_EHCI_ALIGN_SIZE);
+@@ -621,7 +634,30 @@
+ 
+     qh = (struct ehci_qh_hw *)urb->hcpriv;
+ 
++    if (qh->killed == 1U) {
++        qh->killed = 2U;
++        return;
++    }
++
+     qh->remove_in_iaad = 0;
++    qh->killed = 0;
++
++#ifdef CONFIG_USB_DCACHE_ENABLE
++    if (urb->transfer_buffer && (urb->ep->bEndpointAddress & 0x80) && urb->errorcode == 0) {
++        switch (USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes)) {
++            case USB_ENDPOINT_TYPE_CONTROL:
++                usb_dcache_invalidate((uintptr_t)urb->transfer_buffer, USB_ALIGN_UP(urb->actual_length - 8, CONFIG_USB_ALIGN_SIZE));
++                break;
++            case USB_ENDPOINT_TYPE_BULK:
++            case USB_ENDPOINT_TYPE_INTERRUPT:
++                usb_dcache_invalidate((uintptr_t)urb->transfer_buffer, USB_ALIGN_UP(urb->actual_length, CONFIG_USB_ALIGN_SIZE));
++                break;
++
++            default:
++                break;
++        }
++    }
++#endif
+ 
+     if (urb->timeout) {
+         usb_osal_sem_give(qh->waitsem);
+@@ -751,21 +787,14 @@
+     return 0;
+ }
+ 
+-__WEAK void usb_hc_low_level_init(struct usbh_bus *bus)
+-{
+-    (void)bus;
+-}
++extern void usb_hc_low_level_init(struct usbh_bus *bus);
++extern void usb_hc_low_level_deinit(struct usbh_bus *bus);
+ 
+ __WEAK void usb_hc_low_level2_init(struct usbh_bus *bus)
+ {
+     (void)bus;
+ }
+ 
+-__WEAK void usb_hc_low_level_deinit(struct usbh_bus *bus)
+-{
+-    (void)bus;
+-}
+-
+ int usb_hc_init(struct usbh_bus *bus)
+ {
+     struct ehci_qh_hw *qh;
+@@ -799,6 +828,7 @@
+     for (uint8_t index = 0; index < CONFIG_USB_EHCI_QH_NUM; index++) {
+         qh = &ehci_qh_pool[bus->hcd.hcd_id][index];
+         qh->waitsem = usb_osal_sem_create(0);
++        USB_ASSERT(qh->waitsem != NULL);
+     }
+ 
+     memset(&g_async_qh_head[bus->hcd.hcd_id], 0, sizeof(struct ehci_qh_hw));
+@@ -1241,6 +1271,18 @@
+ 
+     usb_osal_leave_critical_section(flags);
+ 
++    if (urb->setup) {
++        usb_dcache_clean((uintptr_t)urb->setup, USB_ALIGN_UP(sizeof(struct usb_setup_packet), CONFIG_USB_ALIGN_SIZE));
++    }
++
++    if (urb->transfer_buffer) {
++        if ((urb->setup && urb->setup->bmRequestType & 0x80) || (urb->ep->bEndpointAddress & 0x80)) {
++            usb_dcache_invalidate((uintptr_t)urb->transfer_buffer, USB_ALIGN_UP(urb->transfer_buffer_length, CONFIG_USB_ALIGN_SIZE));
++        } else {
++            usb_dcache_clean((uintptr_t)urb->transfer_buffer, USB_ALIGN_UP(urb->transfer_buffer_length, CONFIG_USB_ALIGN_SIZE));
++        }
++    }
++
+     switch (USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes)) {
+         case USB_ENDPOINT_TYPE_CONTROL:
+             qh = ehci_control_urb_init(bus, urb, urb->setup, urb->transfer_buffer, urb->transfer_buffer_length);
+@@ -1307,10 +1349,17 @@
+ #endif
+ 
+     flags = usb_osal_enter_critical_section();
++    if (!urb->hcpriv) {
++        usb_osal_leave_critical_section(flags);
++        return -USB_ERR_INVAL;
++    }
+ 
+     EHCI_HCOR->usbcmd &= ~(EHCI_USBCMD_PSEN | EHCI_USBCMD_ASEN);
+ 
+     if ((USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes) == USB_ENDPOINT_TYPE_CONTROL) || (USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes) == USB_ENDPOINT_TYPE_BULK)) {
++#if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
++        usb_dcache_invalidate((uintptr_t)&g_async_qh_head[bus->hcd.hcd_id].hw, CONFIG_USB_EHCI_ALIGN_SIZE);
++#endif
+         qh = EHCI_ADDR2QH(g_async_qh_head[bus->hcd.hcd_id].hw.hlp);
+         while ((qh != &g_async_qh_head[bus->hcd.hcd_id]) && qh) {
+             if (qh->urb == urb) {
+@@ -1320,6 +1369,9 @@
+             qh = EHCI_ADDR2QH(qh->hw.hlp);
+         }
+     } else if (USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes) == USB_ENDPOINT_TYPE_INTERRUPT) {
++#if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
++        usb_dcache_invalidate((uintptr_t)&g_periodic_qh_head[bus->hcd.hcd_id].hw, CONFIG_USB_EHCI_ALIGN_SIZE);
++#endif
+         qh = EHCI_ADDR2QH(g_periodic_qh_head[bus->hcd.hcd_id].hw.hlp);
+         while (qh) {
+             if (qh->urb == urb) {
+@@ -1339,36 +1391,37 @@
+     EHCI_HCOR->usbcmd |= (EHCI_USBCMD_PSEN | EHCI_USBCMD_ASEN);
+ 
+     qh = (struct ehci_qh_hw *)urb->hcpriv;
+-    qh->remove_in_iaad = 0;
++    qh->killed = 1U;
+     urb->errorcode = -USB_ERR_SHUTDOWN;
+ 
+-    if (urb->timeout) {
+-        usb_osal_sem_give(qh->waitsem);
+-    } else {
+-        ehci_qh_free(bus, qh);
+-    }
+-
+     if (remove_in_iaad) {
+-        volatile uint32_t timeout = 0;
+-        EHCI_HCOR->usbsts = EHCI_USBSTS_IAA;
++        qh->remove_in_iaad = 1;
+         EHCI_HCOR->usbcmd |= EHCI_USBCMD_IAAD;
+-        while (!(EHCI_HCOR->usbsts & EHCI_USBSTS_IAA)) {
++        usb_osal_leave_critical_section(flags);
++
++        volatile uint32_t timeout = 0;
++        while (qh->killed != 2) {
+             timeout++;
+-            if (timeout > 200000) {
+-                USB_LOG_ERR("iaad timeout\r\n");
+-                usb_osal_leave_critical_section(flags);
++            if (timeout > 200000U) {
++                qh->remove_in_iaad = 0;
++                qh->killed = 0;
+                 return -USB_ERR_TIMEOUT;
+             }
+         }
+-        EHCI_HCOR->usbsts = EHCI_USBSTS_IAA;
++    } else {
++        usb_osal_leave_critical_section(flags);
++    }
++
++    if (urb->timeout) {
++        usb_osal_sem_give(qh->waitsem);
++    } else {
++        ehci_qh_free(bus, qh);
+     }
+ 
+     if (urb->complete) {
+         urb->complete(urb->arg, urb->errorcode);
+     }
+ 
+-    usb_osal_leave_critical_section(flags);
+-
+     return 0;
+ }
+ 
+@@ -1376,6 +1429,9 @@
+ {
+     struct ehci_qh_hw *qh;
+ 
++#if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
++    usb_dcache_invalidate((uintptr_t)&g_async_qh_head[bus->hcd.hcd_id].hw, CONFIG_USB_EHCI_ALIGN_SIZE);
++#endif
+     qh = EHCI_ADDR2QH(g_async_qh_head[bus->hcd.hcd_id].hw.hlp);
+     while ((qh != &g_async_qh_head[bus->hcd.hcd_id]) && qh) {
+         if (qh->urb) {
+@@ -1389,6 +1445,9 @@
+ {
+     struct ehci_qh_hw *qh;
+ 
++#if defined(CONFIG_USB_EHCI_DESC_DCACHE_ENABLE)
++    usb_dcache_invalidate((uintptr_t)&g_periodic_qh_head[bus->hcd.hcd_id].hw, CONFIG_USB_EHCI_ALIGN_SIZE);
++#endif
+     qh = EHCI_ADDR2QH(g_periodic_qh_head[bus->hcd.hcd_id].hw.hlp);
+     while (qh) {
+         if (qh->urb) {
+@@ -1454,4 +1513,18 @@
+ 
+     if (usbsts & EHCI_USBSTS_FATAL) {
+     }
+-}
+\ No newline at end of file
++}
++
++#if defined(CONFIG_USBHOST_MULT_HC)
++struct usbh_hc_driver ehci_hc_driver = {
++    .driver_name = "ehci_hcd",
++    .driver_desc = "EHCI Host Controller",
++    .init = usb_hc_init,
++    .deinit = usb_hc_deinit,
++    .get_frame_number = usbh_get_frame_number,
++    .roothub_control = usbh_roothub_control,
++    .submit_urb = usbh_submit_urb,
++    .kill_urb = usbh_kill_urb,
++    .irq_handler = USBH_IRQHandler,
++};
++#endif
+--- a/port/musb/usb_hc_musb.c
++++ b/port/musb/usb_hc_musb.c
+@@ -16,6 +16,15 @@
+ 
+ #define USB_BASE (bus->hcd.reg_base)
+ 
++#if defined(CONFIG_USB_MUSB_SIFLI) && (defined(SF32LB52X) || defined(SF32LB56X))
++#define MUSB_SIFLI_EP_MAP
++/* Host channel/slot layout: IN pool = ch1..ch4, OUT pool = ch5..ch7
++ * (ch0 is reserved for EP0). */
++#define MUSB_IN_SLOT_NUM  (4)
++#define MUSB_OUT_SLOT_NUM (3)
++#define MUSB_EP_SLOT_NUM  (MUSB_IN_SLOT_NUM + MUSB_OUT_SLOT_NUM)
++#endif
++
+ #if defined(CONFIG_USB_MUSB_SUNXI)
+ #define MUSB_FADDR_OFFSET 0x98
+ #define MUSB_POWER_OFFSET 0x40
+@@ -169,6 +178,9 @@
+     volatile bool port_pec;
+     volatile bool port_pe;
+     struct musb_pipe pipe_pool[CONFIG_USB_MUSB_PIPE_NUM];
++#ifdef MUSB_SIFLI_EP_MAP
++    uint8_t sifli_ep_map[MUSB_EP_SLOT_NUM]; /* slot layout: 0-3 = IN (ch1..ch4), 4-6 = OUT (ch5..ch7) */
++#endif
+ } g_musb_hcd[CONFIG_USBHOST_MAX_BUS];
+ 
+ /* get current active ep */
+@@ -188,14 +200,14 @@
+     uint8_t ep_idx = ep & 0x7f;
+     if (ep_idx == 0) {
+         if ((HWREGB(USB_TXCSRL_BASE(ep_idx)) & (USB_CSRL0_RXRDY | USB_CSRL0_TXRDY)) != 0)
+-            HWREGB(USB_RXCSRL_BASE(ep_idx)) |= USB_CSRH0_FLUSH;
++            HWREGB(USB_TXCSRH_BASE(ep_idx)) |= USB_CSRH0_FLUSH;
+     } else {
+         if (ep & 0x80) {
+-            if (HWREGB(USB_TXCSRL_BASE(ep_idx)) & USB_TXCSRL1_TXRDY)
+-                HWREGB(USB_TXCSRL_BASE(ep_idx)) |= USB_TXCSRL1_FLUSH;
+-        } else {
+             if (HWREGB(USB_RXCSRL_BASE(ep_idx)) & USB_RXCSRL1_RXRDY)
+                 HWREGB(USB_RXCSRL_BASE(ep_idx)) |= USB_RXCSRL1_FLUSH;
++        } else {
++            if (HWREGB(USB_TXCSRL_BASE(ep_idx)) & USB_TXCSRL1_TXRDY)
++                HWREGB(USB_TXCSRL_BASE(ep_idx)) |= USB_TXCSRL1_FLUSH;
+         }
+     }
+ }
+@@ -493,18 +505,15 @@
+ static int usbh_reset_port(struct usbh_bus *bus, const uint8_t port)
+ {
+     g_musb_hcd[bus->hcd.hcd_id].port_pe = 0;
+-    HWREGB(USB_BASE + MUSB_POWER_OFFSET) |= USB_POWER_RESET;
+ 
+ #ifdef CONFIG_USB_MUSB_SIFLI
+-    extern void musb_reset_prev(void);
+-    musb_reset_prev();
+-#endif
+-    usb_osal_msleep(20);
++    extern void musb_sifli_reset_port(struct usbh_bus *bus);
++    musb_sifli_reset_port(bus);
++#else
++    HWREGB(USB_BASE + MUSB_POWER_OFFSET) |= USB_POWER_RESET;
++    usb_osal_msleep(200);
+     HWREGB(USB_BASE + MUSB_POWER_OFFSET) &= ~(USB_POWER_RESET);
+     usb_osal_msleep(20);
+-#ifdef CONFIG_USB_MUSB_SIFLI
+-    extern void musb_reset_post(void);
+-    musb_reset_post();
+ #endif
+     g_musb_hcd[bus->hcd.hcd_id].port_pe = 1;
+     return 0;
+@@ -542,11 +551,67 @@
+     return -1;
+ }
+ 
++#ifdef MUSB_SIFLI_EP_MAP
++static int sifli_ep_map_take_slot(struct musb_hcd *hcd, uint8_t map_base, uint8_t ch_base, uint8_t ep_num)
++{
++    uint8_t slot_cnt = (map_base == 0U) ? MUSB_IN_SLOT_NUM : MUSB_OUT_SLOT_NUM;
++
++    for (uint8_t i = 0; i < slot_cnt; i++) {
++        uint8_t *slot = &hcd->sifli_ep_map[map_base + i];
++
++        if (*slot == 0xFF) {
++            *slot = ep_num;
++            return ch_base + i;
++        }
++    }
++
++    return -USB_ERR_RANGE;
++}
++
++static int sifli_ep_map_alloc(struct usbh_bus *bus, uint8_t ep_num, bool is_in)
++{
++    if (ep_num == 0U) {
++        return ep_num;
++    }
++
++    struct musb_hcd *hcd = &g_musb_hcd[bus->hcd.hcd_id];
++    uint8_t map_base = is_in ? 0 : MUSB_IN_SLOT_NUM;
++    uint8_t ch_base = is_in ? 1 : (1 + MUSB_IN_SLOT_NUM);
++    uint8_t slot_cnt = is_in ? MUSB_IN_SLOT_NUM : MUSB_OUT_SLOT_NUM;
++
++    for (uint8_t i = 0; i < slot_cnt; i++) {
++        if (hcd->sifli_ep_map[map_base + i] == ep_num) {
++            return ch_base + i;
++        }
++    }
++
++    return sifli_ep_map_take_slot(hcd, map_base, ch_base, ep_num);
++}
++
++static void sifli_ep_map_free(struct usbh_bus *bus, uint8_t chidx)
++{
++    if (chidx < 1 || chidx > MUSB_EP_SLOT_NUM) {
++        return;
++    }
++
++    struct musb_hcd *hcd = &g_musb_hcd[bus->hcd.hcd_id];
++    uint8_t idx = chidx - 1;
++
++    hcd->sifli_ep_map[idx] = 0xFF;
++}
++#endif
++
+ static void musb_pipe_free(struct musb_pipe *pipe)
+ {
+     uintptr_t flags;
+ 
+     flags = usb_osal_enter_critical_section();
++#ifdef MUSB_SIFLI_EP_MAP
++    if (pipe->urb && pipe->urb->ep && pipe->urb->hport && pipe->urb->hport->bus &&
++        (USB_GET_ENDPOINT_TYPE(pipe->urb->ep->bmAttributes) != USB_ENDPOINT_TYPE_CONTROL)) {
++        sifli_ep_map_free(pipe->urb->hport->bus, pipe->chidx);
++    }
++#endif
+     if (pipe->urb) {
+         pipe->urb->hcpriv = NULL;
+         pipe->urb = NULL;
+@@ -556,15 +621,8 @@
+     usb_osal_leave_critical_section(flags);
+ }
+ 
+-__WEAK void usb_hc_low_level_init(struct usbh_bus *bus)
+-{
+-    (void)bus;
+-}
+-
+-__WEAK void usb_hc_low_level_deinit(struct usbh_bus *bus)
+-{
+-    (void)bus;
+-}
++extern void usb_hc_low_level_init(struct usbh_bus *bus);
++extern void usb_hc_low_level_deinit(struct usbh_bus *bus);
+ 
+ int usb_hc_init(struct usbh_bus *bus)
+ {
+@@ -577,8 +635,15 @@
+ 
+     memset(&g_musb_hcd[bus->hcd.hcd_id], 0, sizeof(struct musb_hcd));
+ 
++#ifdef MUSB_SIFLI_EP_MAP
++    for (uint8_t i = 0; i < MUSB_EP_SLOT_NUM; i++) {
++        g_musb_hcd[bus->hcd.hcd_id].sifli_ep_map[i] = 0xFF;
++    }
++#endif
++
+     for (uint8_t i = 0; i < CONFIG_USB_MUSB_PIPE_NUM; i++) {
+         g_musb_hcd[bus->hcd.hcd_id].pipe_pool[i].waitsem = usb_osal_sem_create(0);
++        USB_ASSERT(g_musb_hcd[bus->hcd.hcd_id].pipe_pool[i].waitsem != NULL);
+     }
+ 
+     cfg_num = usbh_get_musb_fifo_cfg(&cfg);
+@@ -769,10 +834,44 @@
+     if (USB_GET_ENDPOINT_TYPE(urb->ep->bmAttributes) == USB_ENDPOINT_TYPE_CONTROL) {
+         chidx = 0;
+     } else {
++#ifdef MUSB_SIFLI_EP_MAP
++        bool in = (urb->ep->bEndpointAddress & 0x80) ? true : false;
++        uint8_t ep_num = (urb->ep->bEndpointAddress & 0x0f);
++        size_t alloc_flags;
++
++        alloc_flags = usb_osal_enter_critical_section();
++        chidx = sifli_ep_map_alloc(bus, ep_num, in);
++        USB_LOG_DBG("sifli_ep_map_alloc: ep_num=%d, in=%d, chidx=%d\r\n", ep_num, in, chidx);
++        if (chidx >= 0) {
++            if (g_musb_hcd[bus->hcd.hcd_id].pipe_pool[chidx].inuse) {
++                struct usbh_urb *owner = g_musb_hcd[bus->hcd.hcd_id].pipe_pool[chidx].urb;
++
++                USB_LOG_ERR("MUSB busy req=0x%02x %s ch=%d owner=0x%02x %s\r\n",
++                            urb->ep->bEndpointAddress,
++                            in ? "IN" : "OUT",
++                            chidx,
++                            owner && owner->ep ? owner->ep->bEndpointAddress : 0,
++                            owner && owner->ep && (owner->ep->bEndpointAddress & 0x80) ? "IN" : "OUT");
++                chidx = -USB_ERR_BUSY;
++            } else {
++                g_musb_hcd[bus->hcd.hcd_id].pipe_pool[chidx].inuse = true;
++            }
++        } else {
++            USB_LOG_ERR("MUSB map fail ep=0x%02x %s ret=%d\r\n",
++                        urb->ep->bEndpointAddress,
++                        in ? "IN" : "OUT",
++                        chidx);
++        }
++        usb_osal_leave_critical_section(alloc_flags);
++        if (chidx < 0) {
++            return chidx;
++        }
++#else
+         chidx = musb_pipe_alloc(bus);
+         if (chidx == -1) {
+             return -USB_ERR_NOMEM;
+         }
++#endif
+     }
+ 
+     flags = usb_osal_enter_critical_section();
+@@ -846,6 +945,11 @@
+     flags = usb_osal_enter_critical_section();
+ 
+     pipe = (struct musb_pipe *)urb->hcpriv;
++    if (!pipe) {
++        usb_osal_leave_critical_section(flags);
++        return -USB_ERR_INVAL;
++    }
++
+     urb->errorcode = -USB_ERR_SHUTDOWN;
+ 
+     if (urb->ep->bEndpointAddress & 0x80) {
+@@ -858,6 +962,8 @@
+ 
+     musb_fifo_flush(bus, urb->ep->bEndpointAddress);
+ 
++    usb_osal_leave_critical_section(flags);
++
+     if (urb->timeout) {
+         usb_osal_sem_give(pipe->waitsem);
+     } else {
+@@ -868,7 +974,6 @@
+         urb->complete(urb->arg, urb->errorcode);
+     }
+ 
+-    usb_osal_leave_critical_section(flags);
+     return 0;
+ }
+ 
+--- a/port/musb/usb_dc_musb.c
++++ b/port/musb/usb_dc_musb.c
+@@ -177,6 +177,13 @@
+ 
+ static volatile uint8_t usb_ep0_state = USB_EP0_STATE_SETUP;
+ 
++static uint8_t musb_get_active_ep(void);
++static void musb_set_active_ep(uint8_t ep_index);
++
++#ifdef CONFIG_USB_MUSB_SUNXI
++uint32_t usb_sunxi_rx_overflows;
++#endif
++
+ /* get current active ep */
+ static uint8_t musb_get_active_ep(void)
+ {
+@@ -301,13 +308,8 @@
+     return (offset + fifo_used);
+ }
+ 
+-__WEAK void usb_dc_low_level_init(void)
+-{
+-}
+-
+-__WEAK void usb_dc_low_level_deinit(void)
+-{
+-}
++extern void usb_dc_low_level_init(uint8_t busid);
++extern void usb_dc_low_level_deinit(uint8_t busid);
+ 
+ int usb_dc_init(uint8_t busid)
+ {
+@@ -315,7 +317,7 @@
+     uint8_t cfg_num;
+     struct musb_fifo_cfg *cfg;
+ 
+-    usb_dc_low_level_init();
++    usb_dc_low_level_init(busid);
+ 
+ #ifdef CONFIG_USB_HS
+     HWREGB(USB_BASE + MUSB_POWER_OFFSET) |= USB_POWER_HSENAB;
+@@ -357,7 +359,7 @@
+ 
+     HWREGB(USB_BASE + MUSB_POWER_OFFSET) &= ~USB_POWER_SOFTCONN;
+ 
+-    usb_dc_low_level_deinit();
++    usb_dc_low_level_deinit(busid);
+     return 0;
+ }
+ 
+@@ -792,8 +794,8 @@
+     }
+ 
+     is = HWREGB(USB_BASE + MUSB_IS_OFFSET);
+-    txis = HWREGH(USB_BASE + MUSB_TXIS_OFFSET);
+-    rxis = HWREGH(USB_BASE + MUSB_RXIS_OFFSET);
++    txis = HWREGH(USB_BASE + MUSB_TXIS_OFFSET) & HWREGH(USB_BASE + MUSB_TXIE_OFFSET);
++    rxis = HWREGH(USB_BASE + MUSB_RXIS_OFFSET) & HWREGH(USB_BASE + MUSB_RXIE_OFFSET);
+ 
+     HWREGB(USB_BASE + MUSB_IS_OFFSET) = is;
+ 
+@@ -875,6 +877,23 @@
+             if (HWREGB(USB_RXCSRL_BASE(ep_idx)) & USB_RXCSRL1_RXRDY) {
+                 read_count = HWREGH(USB_RXCOUNT_BASE(ep_idx));
+ 
++                if (g_musb_udc.out_ep[ep_idx].xfer_len == 0 || g_musb_udc.out_ep[ep_idx].xfer_buf == NULL) {
++                    HWREGH(USB_BASE + MUSB_RXIE_OFFSET) &= ~(1U << ep_idx);
++                    rxis &= ~(1U << ep_idx);
++                    ep_idx++;
++                    continue;
++                }
++                if (read_count > g_musb_udc.out_ep[ep_idx].xfer_len) {
++                    HWREGH(USB_BASE + MUSB_RXIE_OFFSET) &= ~(1U << ep_idx);
++#ifdef CONFIG_USB_MUSB_SUNXI
++                    usb_sunxi_rx_overflows++;
++#endif
++                    usbd_ep_set_stall(0, ep_idx);
++                    rxis &= ~(1U << ep_idx);
++                    ep_idx++;
++                    continue;
++                }
++
+                 musb_read_packet(ep_idx, g_musb_udc.out_ep[ep_idx].xfer_buf, read_count);
+                 HWREGB(USB_RXCSRL_BASE(ep_idx)) &= ~(USB_RXCSRL1_RXRDY);
+ 
+@@ -883,6 +902,7 @@
+                 g_musb_udc.out_ep[ep_idx].xfer_len -= read_count;
+ 
+                 if ((read_count < g_musb_udc.out_ep[ep_idx].ep_mps) || (g_musb_udc.out_ep[ep_idx].xfer_len == 0)) {
++                    g_musb_udc.out_ep[ep_idx].xfer_len = 0;
+                     HWREGH(USB_BASE + MUSB_RXIE_OFFSET) &= ~(1 << ep_idx);
+                     usbd_event_ep_out_complete_handler(0, ep_idx, g_musb_udc.out_ep[ep_idx].actual_xfer_len);
+                 } else {
+--- a/class/serial/usbh_cdc_acm.c
++++ b/class/serial/usbh_cdc_acm.c
+@@ -108,7 +108,7 @@
+     setup->wLength = 7;
+ 
+     ret = usbh_control_transfer(serial->hport, setup, serial->iobuffer);
+-    if (ret < 0) {
++    if (ret < sizeof(struct cdc_line_coding)) {
+         return ret;
+     }
+     memcpy(line_coding, serial->iobuffer, sizeof(struct cdc_line_coding));
+--- a/class/hid/usbh_hid.c
++++ b/class/hid/usbh_hid.c
+@@ -103,10 +103,10 @@
+     setup->wLength = 1;
+ 
+     ret = usbh_control_transfer(hid_class->hport, setup, g_hid_buf[hid_class->minor]);
+-    if (ret < 8) {
++    if (ret < 1) {
+         return ret;
+     }
+-    memcpy(buffer, g_hid_buf[hid_class->minor], MIN((uint32_t)ret - 8, 1));
++    *buffer = g_hid_buf[hid_class->minor][0];
+     return ret;
+ }
+ 
+@@ -122,7 +122,7 @@
+     setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+     setup->bRequest = HID_REQUEST_SET_PROTOCOL;
+     setup->wValue = protocol;
+-    setup->wIndex = 0;
++    setup->wIndex = hid_class->intf;
+     setup->wLength = 0;
+ 
+     return usbh_control_transfer(hid_class->hport, setup, NULL);
+@@ -145,10 +145,10 @@
+     setup->wLength = 1;
+ 
+     ret = usbh_control_transfer(hid_class->hport, setup, g_hid_buf[hid_class->minor]);
+-    if (ret < 8) {
++    if (ret < 1) {
+         return ret;
+     }
+-    memcpy(protocol, g_hid_buf[hid_class->minor], MIN((uint32_t)ret - 8, 1));
++    *protocol = g_hid_buf[hid_class->minor][0];
+     return ret;
+ }
+ 
+@@ -164,7 +164,7 @@
+     setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+     setup->bRequest = HID_REQUEST_SET_REPORT;
+     setup->wValue = (uint16_t)(((uint32_t)report_type << 8U) | (uint32_t)report_id);
+-    setup->wIndex = 0;
++    setup->wIndex = hid_class->intf;
+     setup->wLength = buflen;
+ 
+     return usbh_control_transfer(hid_class->hport, setup, buffer);
+@@ -182,7 +182,7 @@
+     setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+     setup->bRequest = HID_REQUEST_GET_REPORT;
+     setup->wValue = (uint16_t)(((uint32_t)report_type << 8U) | (uint32_t)report_id);
+-    setup->wIndex = 0;
++    setup->wIndex = hid_class->intf;
+     setup->wLength = buflen;
+ 
+     return usbh_control_transfer(hid_class->hport, setup, buffer);
+@@ -194,6 +194,7 @@
+     uint8_t cur_iface = 0xff;
+     uint8_t *p;
+     bool found = false;
++    uint32_t desc_len = 0;
+ 
+     struct usbh_hid *hid_class = usbh_hid_class_alloc();
+     if (hid_class == NULL) {
+@@ -234,7 +235,12 @@
+                 break;
+         }
+         /* skip to next descriptor */
++        desc_len += p[DESC_bLength];
+         p += p[DESC_bLength];
++
++        if (desc_len > hport->config.config_desc.wTotalLength) {
++            return -USB_ERR_INVAL;
++        }
+     }
+ 
+     if (found == false) {
+@@ -318,6 +324,10 @@
+         if (itemsize == 3) /* HID spec: 6.2.2.2 - Short Items */
+             itemsize = 4;
+ 
++        if ((itemsize + i + 1) > report_size) {
++            goto err;
++        }
++
+         itemval = hid_get_itemval(report_data, i, itemsize);
+ 
+         USB_LOG_DBG("itemtype 0x%02x, itemtag 0x%02x, itemsize %d, itemval 0x%08x\r\n",
+@@ -440,7 +450,7 @@
+     const uint8_t *src;
+     uint32_t bits_len = item->attribute.report_size * item->attribute.report_count;
+ 
+-    if(bits_len == 0) {
++    if (bits_len == 0) {
+         return -1;
+     }
+ 
+--- a/class/hub/usbh_hub.c
++++ b/class/hub/usbh_hub.c
+@@ -71,7 +71,7 @@
+     setup->wLength = USB_SIZEOF_HUB_DESC;
+ 
+     ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+-    if (ret < 0) {
++    if (ret < USB_SIZEOF_HUB_DESC) {
+         return ret;
+     }
+     memcpy(buffer, g_hub_buf[hub->bus->busid], USB_SIZEOF_HUB_DESC);
+@@ -93,7 +93,7 @@
+     setup->wLength = USB_SIZEOF_HUB_SS_DESC;
+ 
+     ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+-    if (ret < 0) {
++    if (ret < USB_SIZEOF_HUB_SS_DESC) {
+         return ret;
+     }
+     memcpy(buffer, g_hub_buf[hub->bus->busid], USB_SIZEOF_HUB_SS_DESC);
+@@ -115,7 +115,7 @@
+     setup->wLength = 4;
+ 
+     ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+-    if (ret < 0) {
++    if (ret < 4) {
+         return ret;
+     }
+     memcpy(port_status, g_hub_buf[hub->bus->busid], 4);
+@@ -647,15 +647,9 @@
+                     USB_LOG_INFO("New %s device on Bus %u, Hub %u, Port %u connected\r\n", speed_table[speed], hub->bus->busid, hub->index, port + 1);
+ 
+                     if (usbh_enumerate(child) < 0) {
+-                        /** release child sources */
+-                        usbh_hubport_release(child);
+                         USB_LOG_ERR("Port %u enumerate fail\r\n", child->port);
+                     }
+                 } else {
+-                    child = &hub->child[port];
+-                    /** release child sources */
+-                    usbh_hubport_release(child);
+-
+                     /** some USB 3.0 ip may failed to enable USB 2.0 port for USB 3.0 device */
+                     USB_LOG_WRN("Failed to enable port %u\r\n", port + 1);
+ 
+@@ -704,7 +698,7 @@
+         usbh_hubport_release(hport);
+     }
+     usb_hc_deinit(bus);
+-    usb_osal_mq_delete(bus->hub_mq);
++    /* the queue is deleted by usbh_hub_deinitialize(): deleting it here too freed it twice */
+     usb_osal_sem_give(bus->hub_sem);
+     usb_osal_thread_delete(NULL);
+ }
+@@ -731,21 +725,21 @@
+ 
+     bus->hub_mq = usb_osal_mq_create(7);
+     if (bus->hub_mq == NULL) {
+-        USB_LOG_ERR("Failed to create hub mq\r\n");
+-        return -1;
++        return -USB_ERR_NOMEM;
+     }
+ 
+     bus->hub_sem = usb_osal_sem_create(0);
+     if (bus->hub_sem == NULL) {
+-        USB_LOG_ERR("Failed to create hub sem\r\n");
+-        return -1;
++        usb_osal_mq_delete(bus->hub_mq);
++        return -USB_ERR_NOMEM;
+     }
+ 
+     snprintf(thread_name, 32, "usbh_hub%u", bus->busid);
+     bus->hub_thread = usb_osal_thread_create(thread_name, CONFIG_USBHOST_PSC_STACKSIZE, CONFIG_USBHOST_PSC_PRIO, usbh_hub_thread, bus);
+     if (bus->hub_thread == NULL) {
+-        USB_LOG_ERR("Failed to create hub thread\r\n");
+-        return -1;
++        usb_osal_mq_delete(bus->hub_mq);
++        usb_osal_sem_delete(bus->hub_sem);
++        return -USB_ERR_NOMEM;
+     }
+     return 0;
+ }
+@@ -759,6 +753,7 @@
+     usb_osal_mq_send(bus->hub_mq, (uintptr_t)NULL);
+     usb_osal_sem_take(bus->hub_sem, USB_OSAL_WAITING_FOREVER);
+     usb_osal_sem_delete(bus->hub_sem);
++    usb_osal_mq_delete(bus->hub_mq);
+     bus->hub_mq = NULL;
+     bus->hub_sem = NULL;
+ 
+--- a/class/msc/usbh_msc.c
++++ b/class/msc/usbh_msc.c
+@@ -52,6 +52,7 @@
+ static int usbh_msc_get_maxlun(struct usbh_msc *msc_class, uint8_t *buffer)
+ {
+     struct usb_setup_packet *setup;
++    int ret;
+ 
+     if (!msc_class || !msc_class->hport) {
+         return -USB_ERR_INVAL;
+@@ -64,7 +65,12 @@
+     setup->wIndex = msc_class->intf;
+     setup->wLength = 1;
+ 
+-    return usbh_control_transfer(msc_class->hport, setup, buffer);
++    ret = usbh_control_transfer(msc_class->hport, setup, buffer);
++    if (ret < 1) {
++        return ret;
++    }
++
++    return ret;
+ }
+ 
+ static void usbh_msc_cbw_dump(struct CBW *cbw)
+@@ -403,12 +409,12 @@
+     memset(cbw, 0, USB_SIZEOF_MSC_CBW);
+     cbw->dSignature = MSC_CBW_Signature;
+ 
+-    cbw->dDataLength = (msc_class->blocksize * nsectors);
++    cbw->dDataLength = (msc_class->blocksize * (nsectors & 0xffff));
+     cbw->bCBLength = SCSICMD_WRITE10_SIZEOF;
+     cbw->CB[0] = SCSI_CMD_WRITE10;
+ 
+     SET_BE32(&cbw->CB[2], start_sector);
+-    SET_BE16(&cbw->CB[7], nsectors);
++    SET_BE16(&cbw->CB[7], nsectors & 0xffff);
+ 
+     return usbh_bulk_cbw_csw_xfer(msc_class, cbw, (struct CSW *)g_msc_cbw_csw[msc_class->sdchar - 'a'], (uint8_t *)buffer, CONFIG_USBHOST_MSC_TIMEOUT);
+ }
+@@ -422,13 +428,13 @@
+     memset(cbw, 0, USB_SIZEOF_MSC_CBW);
+     cbw->dSignature = MSC_CBW_Signature;
+ 
+-    cbw->dDataLength = (msc_class->blocksize * nsectors);
++    cbw->dDataLength = (msc_class->blocksize * (nsectors & 0xffff));
+     cbw->bmFlags = 0x80;
+     cbw->bCBLength = SCSICMD_READ10_SIZEOF;
+     cbw->CB[0] = SCSI_CMD_READ10;
+ 
+     SET_BE32(&cbw->CB[2], start_sector);
+-    SET_BE16(&cbw->CB[7], nsectors);
++    SET_BE16(&cbw->CB[7], nsectors & 0xffff);
+ 
+     return usbh_bulk_cbw_csw_xfer(msc_class, cbw, (struct CSW *)g_msc_cbw_csw[msc_class->sdchar - 'a'], (uint8_t *)buffer, CONFIG_USBHOST_MSC_TIMEOUT);
+ }
+--- a/class/msc/usbd_msc.h
++++ b/class/msc/usbd_msc.h
+@@ -25,6 +25,9 @@
+ void usbd_msc_set_readonly(uint8_t busid, bool readonly);
+ bool usbd_msc_get_popup(uint8_t busid);
+ 
++/* Cache-line aligned storage of at least CONFIG_USBDEV_MSC_MAX_BUFSIZE bytes. */
++uint8_t *usbd_msc_get_buffer(uint8_t busid);
++
+ void usbd_msc_polling(uint8_t busid);
+ 
+ #ifdef __cplusplus
+--- a/class/msc/usbd_msc.c
++++ b/class/msc/usbd_msc.c
+@@ -45,7 +45,7 @@
+     uint32_t scsi_blk_size[CONFIG_USBDEV_MSC_MAX_LUN];
+     uint32_t scsi_blk_nbr[CONFIG_USBDEV_MSC_MAX_LUN];
+ 
+-    USB_MEM_ALIGNX uint8_t block_buffer[CONFIG_USBDEV_MSC_MAX_BUFSIZE];
++    uint8_t *block_buffer;
+ 
+ #if defined(CONFIG_USBDEV_MSC_THREAD)
+     usb_osal_mq_t usbd_msc_mq;
+@@ -57,6 +57,15 @@
+ #endif
+ } g_usbd_msc[CONFIG_USBDEV_MAX_BUS];
+ 
++#ifndef CONFIG_USBDEV_MSC_EXTERNAL_BUFFER
++static USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t msc_buffers[CONFIG_USBDEV_MAX_BUS][CONFIG_USBDEV_MSC_MAX_BUFSIZE];
++
++__WEAK uint8_t *usbd_msc_get_buffer(uint8_t busid)
++{
++    return busid < CONFIG_USBDEV_MAX_BUS ? msc_buffers[busid] : NULL;
++}
++#endif
++
+ #ifdef CONFIG_USBDEV_MSC_THREAD
+ static void usbdev_msc_thread(CONFIG_USB_OSAL_THREAD_SET_ARGV);
+ #endif
+@@ -103,11 +112,13 @@
+ #if defined(CONFIG_USBDEV_MSC_THREAD)
+             g_usbd_msc[busid].usbd_msc_mq = usb_osal_mq_create(1);
+             if (g_usbd_msc[busid].usbd_msc_mq == NULL) {
+-                USB_LOG_ERR("No memory to alloc for g_usbd_msc[busid].usbd_msc_mq\r\n");
++                return;
+             }
+             g_usbd_msc[busid].usbd_msc_thread = usb_osal_thread_create("usbd_msc", CONFIG_USBDEV_MSC_STACKSIZE, CONFIG_USBDEV_MSC_PRIO, usbdev_msc_thread, (void *)(uint32_t)busid);
+             if (g_usbd_msc[busid].usbd_msc_thread == NULL) {
+-                USB_LOG_ERR("No memory to alloc for g_usbd_msc[busid].usbd_msc_thread\r\n");
++                usb_osal_mq_delete(g_usbd_msc[busid].usbd_msc_mq);
++                g_usbd_msc[busid].usbd_msc_mq = NULL;
++                return;
+             }
+ #elif defined(CONFIG_USBDEV_MSC_POLLING)
+             g_usbd_msc[busid].event = 0;
+@@ -115,11 +126,13 @@
+             break;
+         case USBD_EVENT_DEINIT:
+ #if defined(CONFIG_USBDEV_MSC_THREAD)
+-            if (g_usbd_msc[busid].usbd_msc_mq) {
+-                usb_osal_mq_delete(g_usbd_msc[busid].usbd_msc_mq);
+-            }
+             if (g_usbd_msc[busid].usbd_msc_thread) {
+                 usb_osal_thread_delete(g_usbd_msc[busid].usbd_msc_thread);
++                g_usbd_msc[busid].usbd_msc_thread = NULL;
++            }
++            if (g_usbd_msc[busid].usbd_msc_mq) {
++                usb_osal_mq_delete(g_usbd_msc[busid].usbd_msc_mq);
++                g_usbd_msc[busid].usbd_msc_mq = NULL;
+             }
+ #endif
+             break;
+@@ -504,6 +517,39 @@
+     return true;
+ }
+ 
++static bool SCSI_readCapacity16(uint8_t busid, uint8_t **data, uint32_t *len)
++{
++    uint8_t capacity16[32];
++    uint32_t last_lba;
++    uint32_t blk_size;
++
++    /* service action 0x10 = READ CAPACITY(16); other service actions unsupported */
++    if ((g_usbd_msc[busid].cbw.dDataLength == 0U) ||
++        ((g_usbd_msc[busid].cbw.CB[1] & 0x1fU) != 0x10U)) {
++        SCSI_SetSenseData(busid, SCSI_KCQIR_INVALIDCOMMAND);
++        return false;
++    }
++
++    last_lba = g_usbd_msc[busid].scsi_blk_nbr[g_usbd_msc[busid].cbw.bLUN] - 1U;
++    blk_size = g_usbd_msc[busid].scsi_blk_size[g_usbd_msc[busid].cbw.bLUN];
++
++    memset(capacity16, 0, sizeof(capacity16));
++    /* 8-byte LBA (project volume < 4G, upper 4 bytes stay 0) */
++    capacity16[4] = (uint8_t)((last_lba >> 24) & 0xff);
++    capacity16[5] = (uint8_t)((last_lba >> 16) & 0xff);
++    capacity16[6] = (uint8_t)((last_lba >> 8) & 0xff);
++    capacity16[7] = (uint8_t)(last_lba & 0xff);
++    /* 4-byte block length */
++    capacity16[8]  = (uint8_t)((blk_size >> 24) & 0xff);
++    capacity16[9]  = (uint8_t)((blk_size >> 16) & 0xff);
++    capacity16[10] = (uint8_t)((blk_size >> 8) & 0xff);
++    capacity16[11] = (uint8_t)(blk_size & 0xff);
++
++    memcpy(*data, (uint8_t *)capacity16, sizeof(capacity16));
++    *len = sizeof(capacity16);
++    return true;
++}
++
+ static bool SCSI_read10(uint8_t busid, uint8_t **data, uint32_t *len)
+ {
+     (void)data;
+@@ -727,6 +773,9 @@
+             case SCSI_CMD_READCAPACITY10:
+                 ret = SCSI_readCapacity10(busid, &buf2send, &len2send);
+                 break;
++            case SCSI_CMD_READCAPACITY16:
++                ret = SCSI_readCapacity16(busid, &buf2send, &len2send);
++                break;
+             case SCSI_CMD_READ10:
+                 ret = SCSI_read10(busid, NULL, 0);
+                 break;
+@@ -892,6 +941,15 @@
+ 
+ struct usbd_interface *usbd_msc_init_intf(uint8_t busid, struct usbd_interface *intf, const uint8_t out_ep, const uint8_t in_ep)
+ {
++    uint8_t *buffer;
++
++    if (busid >= CONFIG_USBDEV_MAX_BUS || intf == NULL) {
++        return NULL;
++    }
++    buffer = usbd_msc_get_buffer(busid);
++    if (buffer == NULL || ((uintptr_t)buffer & (CONFIG_USB_ALIGN_SIZE - 1U)) != 0U) {
++        return NULL;
++    }
+     intf->class_interface_handler = msc_storage_class_interface_request_handler;
+     intf->class_endpoint_handler = NULL;
+     intf->vendor_handler = NULL;
+@@ -906,6 +964,8 @@
+     usbd_add_endpoint(busid, &mass_ep_data[busid][MSD_IN_EP_IDX]);
+ 
+     memset((uint8_t *)&g_usbd_msc[busid], 0, sizeof(struct usbd_msc_priv));
++    g_usbd_msc[busid].block_buffer = buffer;
++    memset(buffer, 0, CONFIG_USBDEV_MSC_MAX_BUFSIZE);
+ 
+     usdb_msc_set_max_lun(busid);
+     for (uint8_t i = 0u; i <= g_usbd_msc[busid].max_lun; i++) {
+@@ -960,4 +1020,4 @@
+     (void)length;
+ 
+     return 0;
+-}
+\ No newline at end of file
++}
+--- a/class/cdc/usb_cdc.h
++++ b/class/cdc/usb_cdc.h
+@@ -275,6 +275,9 @@
+ #define CDC_ECM_NOTIFY_CODE_RESPONSE_AVAILABLE              0x01
+ #define CDC_ECM_NOTIFY_CODE_CONNECTION_SPEED_CHANGE         0x2A
+ 
++#define CDC_NCM_CONNECT_SPEED_UPSTREAM                      0x004C4B40U /* 5Mbps */
++#define CDC_NCM_CONNECT_SPEED_DOWNSTREAM                    0x004C4B40U /* 5Mbps */
++
+ #define CDC_NCM_NTH16_SIGNATURE             0x484D434E
+ #define CDC_NCM_NDP16_SIGNATURE_NCM0        0x304D434E
+ #define CDC_NCM_NDP16_SIGNATURE_NCM1        0x314D434E
+@@ -477,6 +480,89 @@
+     0x02,                                                  /* bmAttributes */                  \
+     WBVAL(wMaxPacketSize),                                 /* wMaxPacketSize */                \
+     0x00                                                   /* bInterval */
++
++/*Length of template descriptor: 84 bytes*/
++#define USB3_CDC_ACM_DESCRIPTOR_LEN (8 + 9 + 5 + 5 + 4 + 5 + 7 + 6 + 9 + 7 + 6 + 7 + 6)
++
++#define USB3_CDC_ACM_DESCRIPTOR_INIT(bFirstInterface, int_ep, out_ep, in_ep, wMaxPacketSize, bMaxBurst, maxstream, str_idx) \
++    /* Interface Associate */                                                                  \
++    0x08,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_INTERFACE_ASSOCIATION,             /* bDescriptorType */               \
++    bFirstInterface,                                       /* bFirstInterface */               \
++    0x02,                                                  /* bInterfaceCount */               \
++    USB_DEVICE_CLASS_CDC,                                  /* bFunctionClass */                \
++    CDC_ABSTRACT_CONTROL_MODEL,                            /* bFunctionSubClass */             \
++    CDC_COMMON_PROTOCOL_NONE,                              /* bFunctionProtocol */             \
++    0x00,                                                  /* iFunction */                     \
++    0x09,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_INTERFACE,                         /* bDescriptorType */               \
++    bFirstInterface,                                       /* bInterfaceNumber */              \
++    0x00,                                                  /* bAlternateSetting */             \
++    0x01,                                                  /* bNumEndpoints */                 \
++    USB_DEVICE_CLASS_CDC,                                  /* bInterfaceClass */               \
++    CDC_ABSTRACT_CONTROL_MODEL,                            /* bInterfaceSubClass */            \
++    CDC_COMMON_PROTOCOL_NONE,                              /* bInterfaceProtocol */            \
++    str_idx,                                               /* iInterface */                    \
++    0x05,                                                  /* bLength */                       \
++    CDC_CS_INTERFACE,                                      /* bDescriptorType */               \
++    CDC_FUNC_DESC_HEADER,                                  /* bDescriptorSubtype */            \
++    WBVAL(CDC_V1_10),                                      /* bcdCDC */                        \
++    0x05,                                                  /* bLength */                       \
++    CDC_CS_INTERFACE,                                      /* bDescriptorType */               \
++    CDC_FUNC_DESC_CALL_MANAGEMENT,                         /* bDescriptorSubtype */            \
++    0x00,                                                  /* bmCapabilities */                \
++    (uint8_t)(bFirstInterface + 1),                        /* bDataInterface */                \
++    0x04,                                                  /* bLength */                       \
++    CDC_CS_INTERFACE,                                      /* bDescriptorType */               \
++    CDC_FUNC_DESC_ABSTRACT_CONTROL_MANAGEMENT,             /* bDescriptorSubtype */            \
++    0x02,                                                  /* bmCapabilities */                \
++    0x05,                                                  /* bLength */                       \
++    CDC_CS_INTERFACE,                                      /* bDescriptorType */               \
++    CDC_FUNC_DESC_UNION,                                   /* bDescriptorSubtype */            \
++    bFirstInterface,                                       /* bMasterInterface */              \
++    (uint8_t)(bFirstInterface + 1),                        /* bSlaveInterface0 */              \
++    0x07,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT,                          /* bDescriptorType */               \
++    int_ep,                                                /* bEndpointAddress */              \
++    0x03,                                                  /* bmAttributes */                  \
++    0x08, 0x00,                                            /* wMaxPacketSize */                \
++    0x0a,                                                  /* bInterval */                     \
++    0x06,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION,                /* bDescriptorType */               \
++    0x00,                                                  /* bMaxBurst */                     \
++    0x00,                                                  /* bmAttributes */                  \
++    WBVAL(0x08),                                           /* wBytesPerInterval */             \
++    0x09,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_INTERFACE,                         /* bDescriptorType */               \
++    (uint8_t)(bFirstInterface + 1),                        /* bInterfaceNumber */              \
++    0x00,                                                  /* bAlternateSetting */             \
++    0x02,                                                  /* bNumEndpoints */                 \
++    CDC_DATA_INTERFACE_CLASS,                              /* bInterfaceClass */               \
++    0x00,                                                  /* bInterfaceSubClass */            \
++    0x00,                                                  /* bInterfaceProtocol */            \
++    0x00,                                                  /* iInterface */                    \
++    0x07,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT,                          /* bDescriptorType */               \
++    out_ep,                                                /* bEndpointAddress */              \
++    0x02,                                                  /* bmAttributes */                  \
++    WBVAL(wMaxPacketSize),                                 /* wMaxPacketSize */                \
++    0x00,                                                  /* bInterval */                     \
++    0x06,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION,                /* bDescriptorType */               \
++    bMaxBurst,                                             /* bMaxBurst */                     \
++    maxstream,                                             /* bmAttributes */                  \
++    WBVAL(0),                                              /* wBytesPerInterval */             \
++    0x07,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT,                          /* bDescriptorType */               \
++    in_ep,                                                 /* bEndpointAddress */              \
++    0x02,                                                  /* bmAttributes */                  \
++    WBVAL(wMaxPacketSize),                                 /* wMaxPacketSize */                \
++    0x00,                                                  /* bInterval */                     \
++    0x06,                                                  /* bLength */                       \
++    USB_DESCRIPTOR_TYPE_ENDPOINT_COMPANION,                /* bDescriptorType */               \
++    bMaxBurst,                                             /* bMaxBurst */                     \
++    maxstream,                                             /* bmAttributes */                  \
++    WBVAL(0)                                               /* wBytesPerInterval */             \
+ // clang-format on
+ 
+ /*Length of template descriptor: 66 bytes*/

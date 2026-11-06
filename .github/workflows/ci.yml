@@ -1,0 +1,22 @@
+# Host tests only: the cross build needs the Xuantie toolchain, which is not in this repository.
+# Build it locally with `cmake --preset riscv` as described in README.md.
+name: host-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+      - name: Configure
+        run: cmake --preset host
+      - name: Build
+        run: cmake --build build/host -j4
+      - name: Test
+        run: ctest --test-dir build/host --output-on-failure

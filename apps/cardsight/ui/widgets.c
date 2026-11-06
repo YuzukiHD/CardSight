@@ -1,0 +1,199 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#include "ui/ui_internal.h"
+
+/*
+ * Capacity is quoted in the decimal units the card is sold in: a 32 GB card holds
+ * 31.9e9 bytes and reads "32 GB", not "29.7 GiB".
+ */
+void capacity_text(uint64_t sectors, char *output, size_t size)
+{
+	uint64_t bytes = sectors * 512U;
+
+	if (bytes >= 1000000000000ULL) {
+		snprintf(output, size, "%llu TB",
+			(unsigned long long)((bytes + 500000000000ULL) / 1000000000000ULL));
+	} else if (bytes >= 1000000000ULL) {
+		snprintf(output, size, "%llu GB",
+			(unsigned long long)((bytes + 500000000ULL) / 1000000000ULL));
+	} else {
+		snprintf(output, size, "%llu MB",
+			(unsigned long long)((bytes + 500000ULL) / 1000000ULL));
+	}
+}
+
+const char *content_name(enum blk_partition_content content)
+{
+	return content == BLK_PARTITION_FAT32 ? "FAT32" : content == BLK_PARTITION_EXFAT ? "exFAT" : "ext4";
+}
+
+/* Each filesystem keeps one colour on every page: FAT32 blue, exFAT green, ext4 amber. */
+uint32_t fstype_color(const char *fstype)
+{
+	if (fstype[0] == 'F' || fstype[0] == 'f') return UI_ACCENT;
+	if (fstype[0] == 'e' && fstype[1] == 'x') return fstype[2] == 't' ? UI_WARNING : UI_SUCCESS;
+	return UI_MUTED;
+}
+
+void disable_scroll(lv_obj_t *object)
+{
+	lv_obj_set_scrollable(object, false);
+	lv_obj_set_scrollbar_mode(object, LV_SCROLLBAR_MODE_OFF);
+}
+
+void enable_vertical_scroll(lv_obj_t *object)
+{
+	lv_obj_set_scrollable(object, true);
+	lv_obj_set_scroll_dir(object, LV_DIR_VER);
+	lv_obj_set_scrollbar_mode(object, LV_SCROLLBAR_MODE_AUTO);
+	ui_style_scrollbar(object);
+}
+
+lv_obj_t *make_label(lv_obj_t *parent, const char *text, uint32_t color)
+{
+	lv_obj_t *label = lv_label_create(parent);
+
+	lv_label_set_text(label, text);
+	lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+	return label;
+}
+
+/* Transparent, inert layout container. */
+lv_obj_t *make_box(lv_obj_t *parent, int32_t width, int32_t height)
+{
+	lv_obj_t *box = lv_obj_create(parent);
+
+	lv_obj_set_size(box, width, height);
+	lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(box, 0, 0);
+	lv_obj_set_style_pad_all(box, 0, 0);
+	lv_obj_set_clickable(box, false);
+	disable_scroll(box);
+	return box;
+}
+
+lv_obj_t *make_card(lv_obj_t *parent, int32_t width, int32_t height, uint32_t color)
+{
+	lv_obj_t *card = make_box(parent, width, height);
+
+	ui_style_card(card, color, APP_CARD_RADIUS);
+	return card;
+}
+
+/* Small rounded tag whose background is the text colour tinted into the surface. */
+lv_obj_t *make_chip(lv_obj_t *parent, const char *text, uint32_t color)
+{
+	lv_obj_t *chip = make_box(parent, LV_SIZE_CONTENT, 24);
+	lv_obj_t *label = make_label(chip, text, color);
+
+	ui_style_card(chip, UI_SURFACE, 12);
+	lv_obj_set_style_bg_color(chip, ui_tint(color, 40), 0);
+	lv_obj_set_style_pad_hor(chip, 7, 0);
+	lv_obj_set_flex_flow(chip, LV_FLEX_FLOW_ROW);
+	lv_obj_set_flex_align(chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+	(void)label;
+	return chip;
+}
+
+lv_obj_t *make_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback, void *data)
+{
+	lv_obj_t *button = lv_button_create(parent);
+	lv_obj_t *label = lv_label_create(button);
+
+	lv_obj_set_height(button, APP_BUTTON_HEIGHT);
+	ui_style_button(button, UI_BUTTON_NORMAL);
+	lv_obj_set_style_radius(button, APP_BUTTON_HEIGHT / 2, 0);
+	disable_scroll(button);
+	lv_label_set_text(label, text);
+	lv_obj_set_width(label, lv_pct(94));
+	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
+	lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+	lv_obj_center(label);
+	if (callback != NULL) {
+		lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, data);
+	}
+	return button;
+}
+
+void start_event(lv_event_t *event)
+{
+	struct cardsight_request request = { 0 };
+
+	(void)event;
+	request.type = ui.model.running ? CARDSIGHT_REQUEST_STOP :
+		ui.mode == CARDSIGHT_PROXY ? CARDSIGHT_REQUEST_START_PROXY : CARDSIGHT_REQUEST_START_DIRECT;
+	request.selected = ui.selected;
+	send_request(&request);
+}
+
+/* Smallest edge inset that keeps a square content corner inside the rounded glass. */
+int32_t ui_margin(void)
+{
+	return (ui.screen_radius * 3 + 5) / 10 + 1;
+}
+
+/* Corner radius of anything that sits APP_BAR_MARGIN from the edge, concentric with the glass. */
+int32_t ui_bar_radius(void)
+{
+	return MIN(MAX(ui.screen_radius - APP_BAR_MARGIN, 8), APP_BAR_HEIGHT / 2);
+}
+
+/* Width of controls that sit clear of the corners, such as the docked action button. */
+int32_t ui_wide_width(void)
+{
+	return (int32_t)ui.width - 2 * APP_EDGE_PAD;
+}
+
+int32_t ui_page_width(void)
+{
+	return (int32_t)ui.width - 2 * ui_margin();
+}
+
+/* Content stops above the bottom bar, which always holds the tabs or the back button. */
+int32_t ui_page_height(void)
+{
+	return (int32_t)ui.height - ui_margin() - APP_BAR_MARGIN - APP_BAR_HEIGHT - APP_GAP;
+}
+
+/* Button that fills a bottom bar, with the corners following the glass. */
+lv_obj_t *make_bar_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback, int32_t width)
+{
+	lv_obj_t *button = make_button(parent, text, callback, NULL);
+
+	lv_obj_set_size(button, width, APP_BAR_HEIGHT);
+	lv_obj_set_style_radius(button, ui_bar_radius(), 0);
+	return button;
+}
+
+/*
+ * Vertical scroller inside the tile. It spans the full screen width and, when nothing is docked
+ * above or below, runs to the screen edge, so rows leave through the rounded glass instead of
+ * being cut off along an invisible line. `top` and `bottom` reserve room for docked controls.
+ */
+lv_obj_t *make_list(int32_t top, int32_t bottom)
+{
+	lv_obj_t *list = lv_obj_create(ui.content);
+	int32_t margin = ui_margin();
+	int32_t extra_top = top == 0 ? margin : 0;
+	int32_t extra_bottom = bottom == 0 ? APP_GAP : 0;
+
+	lv_obj_set_size(list, ui.width, ui_page_height() - top - bottom + extra_top + extra_bottom);
+	lv_obj_set_pos(list, -margin, top - extra_top);
+	lv_obj_set_style_bg_opa(list, LV_OPA_TRANSP, 0);
+	lv_obj_set_style_border_width(list, 0, 0);
+	lv_obj_set_style_pad_hor(list, APP_EDGE_PAD, 0);
+	lv_obj_set_style_pad_top(list, extra_top, 0);
+	lv_obj_set_style_pad_bottom(list, extra_bottom, 0);
+	lv_obj_set_style_pad_row(list, 6, 0);
+	lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+	enable_vertical_scroll(list);
+	/* The thumb sits on the screen edge, starting below the rounded corner. */
+	lv_obj_set_style_pad_top(list, ui.screen_radius, LV_PART_SCROLLBAR);
+	lv_obj_set_style_pad_bottom(list, 4, LV_PART_SCROLLBAR);
+	return list;
+}
+
+void set_disabled(lv_obj_t *object, bool disabled)
+{
+	if (disabled) lv_obj_add_state(object, LV_STATE_DISABLED);
+	else lv_obj_remove_state(object, LV_STATE_DISABLED);
+}

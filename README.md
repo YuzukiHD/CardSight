@@ -1,0 +1,123 @@
+# CardSight
+
+CardSight 是 Yuzuki CardSight（V861/V881，C907）板上的相机/存储应用：一块小屏幕上的分区管理、
+格式化与 USB 存储代理界面。本仓库把应用从 SyterOS 中抽出，配一套为这块板子新写的极简底层，
+以 **GPL-2.0-or-later** 开源。
+
+- 应用：`apps/cardsight/`（LVGL 界面、分区/格式化、exFAT 视图代理）
+- 底层：`src/`（启动、FreeRTOS 胶水、CCU/引脚、MMC/SD、块层、VFS、FatFs/lwext4、SPI 屏、触摸、USB MSC）
+- 板级描述：`board/`（全部是 C 数组/结构体，不使用设备树）
+- 第三方：`third_party/`（全部是 git submodule：FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit）
+
+## 板上验证状态
+
+在真实的 Yuzuki CardSight 上以 RAM/FEL 启动验证（镜像约 770 KiB）：
+
+- 内核：FreeRTOS V11.3.3 + 自写 RISC-V 启动/PLIC/CLINT；UART 控制台与 shell、
+  `INITCALL` 初始化链、newlib、与 SyterKit 相同格式的彩色时间戳日志。
+- 存储：SD 卡识别到 **SDR104 200 MHz、四位、CMD19 调谐**；MBR/GPT 解析、
+  FatFs（FAT/exFAT）与 lwext4（ext4）、格式化、VFS 挂载；存储代理可建立只读 exFAT 视图。
+  读入片上 SRAM 的实测为 **62 MiB/s**；读入 PSRAM 约 9.6 MiB/s（PSRAM 写入路径限制，
+  见 `docs/hardware.md`）。
+- 显示/触摸：ST7789 240×284 出图，颜色（红绿蓝白黑）与界面在实屏上确认正常；LVGL 9.6
+  刷新无错误；CST816D 轮询触摸初始化成功；`cardsight ui-test` PASS。关键修复：GPIO 输出
+  方向（DC/RST）、SPI 的 DHB/DDB/SDM 位、以及像素高字节在前的字节序。
+- USB：MUSB + CherryUSB MSC；`cardsight usb on` 导出代理视图（只读），Windows 枚举为
+  `VID_1D6B/PID_0105`，挂载 exFAT 卷并读到目录与文件（同一文件三次枚举读到的 SHA256 一致）；
+  `cardsight usb disk` 导出整盘（只读），Windows 读到真实 GPT 与 FAT32 分区并读出文件；
+  `cardsight usb-test` PASS。
+- 拔插：驱动有热插拔任务（插入识别并发布 mmcblk0，拔出撤下磁盘），应用检测到磁盘消失后
+  自动停止 USB 与存储代理。**真实拔卡/插回**（USB 导出运行中）已验证：USB 与代理安全停止，
+  插回后重新识别到 SDR104 200 MHz；`mmc soak 20` 另外跑 20 次移除/重新识别 0 失败。
+- 主机：`ctest` 存储代理矩阵 PASS（FAT32/exFAT/ext4/混合分区、GPT 布局、VFS）。
+
+板子的已知限制写在 [docs/hardware.md](docs/hardware.md)：SMHC 模块时钟 mux 2 不可用
+（所以最高档是 200 MHz 而不是 150/208）；PSRAM 写入约 10 MB/s；片上 SRAM 才是高速
+DMA 的目标。拔卡后若卡上还有未刷写的数据，代理会报 `flush failed`（数据无法写回），
+这是拔出时唯一无法避免的损失。
+
+## 构建
+
+需要 RISC-V 工具链（默认 `../toolchains/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0`，
+可用 `-DXUANTIE_TOOLCHAIN=...` 或环境变量覆盖）。
+
+```sh
+git submodule update --init --recursive   # 全部第三方组件都是 submodule
+cmake --preset riscv
+cmake --build build/riscv
+# 产物：build/riscv/images/cardsight.bin
+#       build/riscv/images/init_psram_efex.bin
+#       build/riscv/images/c907_boot_efex.bin   （由 SyterKit submodule 构建）
+```
+
+主机测试（无需硬件）：
+
+```sh
+cmake --preset host
+cmake --build build/host
+ctest --test-dir build/host --output-on-failure
+```
+
+发布源码包（不含构建产物与厂家预编译库，包含许可证）：
+
+```sh
+./scripts/release.sh 0.1.0     # 产物：dist/cardsight-0.1.0.tar.gz
+```
+
+## 烧写与启动（FEL）
+
+```sh
+xfel write 0x00100000 build/riscv/images/init_psram_efex.bin
+xfel exec  0x00100000          # E907 初始化 PSRAM，返回 FEL
+xfel write 0x12000000 build/riscv/images/cardsight.bin
+xfel write 0x00100000 build/riscv/images/c907_boot_efex.bin
+xfel exec  0x00100000          # E907 启动 C907（entry = 0x12000000）
+```
+
+串口：UART0，PH13/PH14，115200 8N1。更完整的三步链、FEL 约束与 eFEX 说明见
+[docs/fel.md](docs/fel.md)。
+
+## 使用
+
+启动后是 `cardsight>` 命令行；应用同时把界面画在屏上（触摸操作）。
+
+| 命令 | 作用 |
+|---|---|
+| `help` | 全部命令 |
+| `blk` / `blkread <dev> <sector>` / `blkbench <dev> <sector> <MiB>` | 块设备列表、读扇区、顺序读测速 |
+| `mmc` | SD 卡信息（容量、模式、时钟、调谐状态） |
+| `mmc eject` / `insert` / `soak [n]` | 驱动热插拔路径（模拟移除、重新识别、批量 soak） |
+| `mount [blk target [fstype]]` / `umount` / `ls` / `cat` / `df` / `write` | VFS |
+| `display color <rgb565>` | 整屏填色（屏自检） |
+| `lvgl [reset]` | LVGL 刷新统计 |
+| `storageproxy start <disk> [mask]` / `stop` / `status` | exFAT 视图代理 |
+| `cardsight page <direct\|proxy\|disk\|info\|layout>` | 切换界面页 |
+| `cardsight ui-test` | 界面自检 |
+| `cardsight usb-test` | USB 只读生命周期自检 |
+| `cardsight usb on\|off` | 启动/停止 USB 大容量设备（导出代理视图，只读） |
+| `cardsight usb disk` | 导出整盘（只读），用于主机侧核对真实分区 |
+
+USB：`cardsight usb on` 之后把板子的 OTG 口接到主机；Windows 会识别为
+`CardSight SD Card` 并挂载 exFAT 卷（代理视图，只读）。`cardsight usb off` 停止。
+写卡只应在界面里对选定分区执行格式化/代理写入时发生。
+
+## 目录
+
+| 路径 | 说明 |
+|---|---|
+| `apps/cardsight/` | 应用（UI、存储代理、字体） |
+| `board/` | 板级常量数组与链接脚本 |
+| `include/` | 平台 API（`vfs.h`、`hal/*`、`usb/mass_storage.h`、`gui/lvgl_port.h`） |
+| `src/` | 平台实现；驱动按子系统拆分（SPI、显示、触摸、I2C，MMC 分 host/core/card） |
+| `tests/host/` | 主机测试（存储代理矩阵、VFS、分区布局、UI） |
+| `docs/` | 启动、硬件、移植、许可说明 |
+
+## 许可
+
+本项目以 GPL-2.0-or-later 发布；第三方组件的许可见 [THIRD_PARTY.md](THIRD_PARTY.md)
+与各自目录下的许可证文件。字体来自 Source Sans，按 SIL OFL 1.1 随附
+（`apps/cardsight/FONT_LICENSE.txt`）。
+
+> 注意：`third_party/SyterKit` 固定在一个包含本板支持（`boards/yuzuki-cardsight`）的提交上。
+> 首次公开发布前要先把这个提交推到 `.gitmodules` 里的公开仓库，否则外部无法初始化子模块。
+> 详见 [docs/licensing.md](docs/licensing.md)。
