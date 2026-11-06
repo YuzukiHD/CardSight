@@ -17,7 +17,7 @@
 #define REG_DRV	 0x14U
 #define REG_PULL 0x24U
 
-static int bank_offset(unsigned int port)
+static int bank_offset(uint32_t port)
 {
 	if (port == 11U) { /* PL */
 		return 0x540;

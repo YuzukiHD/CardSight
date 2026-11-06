@@ -45,7 +45,7 @@ void mutex_unlock(struct mutex *lock)
 
 /* ---- message queue ---- */
 
-int msg_queue_init(struct message_queue *queue, unsigned int item_size, unsigned int capacity)
+int msg_queue_init(struct message_queue *queue, uint32_t item_size, uint32_t capacity)
 {
 	if (queue == NULL || item_size == 0U || capacity == 0U) {
 		return -EINVAL;
@@ -72,7 +72,7 @@ int msg_queue_get(struct message_queue *queue, void *item, int timeout_ms)
 
 /* ---- semaphore ---- */
 
-void sema_init_limit(struct semaphore *semaphore, unsigned int initial, unsigned int limit)
+void sema_init_limit(struct semaphore *semaphore, uint32_t initial, uint32_t limit)
 {
 	if (semaphore != NULL) {
 		semaphore->handle = xSemaphoreCreateCounting(limit, initial);
@@ -96,7 +96,7 @@ void up(struct semaphore *semaphore)
 
 /* ---- delays ---- */
 
-void msleep(unsigned int milliseconds)
+void msleep(uint32_t milliseconds)
 {
 	if (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
 		vTaskDelay(pdMS_TO_TICKS(milliseconds));

@@ -58,12 +58,12 @@ struct vfs_volume_info {
 
 struct vfs_fs {
 	const char *name;
-	unsigned int flags;
-	int (*mount)(struct block_device *bdev, unsigned int flags, void **priv);
+	uint32_t flags;
+	int (*mount)(struct block_device *bdev, uint32_t flags, void **priv);
 	int (*umount)(void *priv);
 	int (*sync)(void *priv);
-	int (*format)(struct block_device *bdev, const char *label, unsigned int arg);
-	int (*open)(void *priv, const char *path, unsigned int flags, void **file);
+	int (*format)(struct block_device *bdev, const char *label, uint32_t arg);
+	int (*open)(void *priv, const char *path, uint32_t flags, void **file);
 	int (*read)(void *file, void *buffer, size_t length);
 	int (*write)(void *file, const void *buffer, size_t length);
 	int64_t (*seek)(void *file, int64_t offset, int whence);
@@ -87,11 +87,11 @@ int vfs_register(const struct vfs_fs *fs);
 int vfs_unregister(const struct vfs_fs *fs);
 
 int vfs_mount(const char *blk, const char *target, const char *fstype);
-int vfs_mount_ex(const char *blk, const char *target, const char *fstype, unsigned int flags);
+int vfs_mount_ex(const char *blk, const char *target, const char *fstype, uint32_t flags);
 int vfs_umount(const char *target);
 
 /** Make a new file system on an unmounted block device; the old contents are lost. */
-int vfs_format(const char *blk, const char *fstype, const char *label, unsigned int arg);
+int vfs_format(const char *blk, const char *fstype, const char *label, uint32_t arg);
 /**
  * Observe vfs_format(): the callback gets the highest reported sector and the device size, from
  * the thread that formats. This is an approximate position indicator.
@@ -103,7 +103,7 @@ void vfs_format_report(struct block_device *bdev, uint64_t done, uint64_t total)
 /** Probe an unmounted block device by mounting it briefly, then unmounting it. */
 int vfs_probe(const char *blk, struct vfs_volume_info *info);
 
-int vfs_open(const char *path, unsigned int flags);
+int vfs_open(const char *path, uint32_t flags);
 int vfs_read(int descriptor, void *buffer, size_t length);
 int vfs_write(int descriptor, const void *buffer, size_t length);
 int64_t vfs_lseek(int descriptor, int64_t offset, int whence);
@@ -132,10 +132,10 @@ struct vfs_mount_info {
 	char target[VFS_NAME_MAX + 1];
 	char blk[VFS_BLK_NAME];
 	const char *fstype;
-	unsigned int open_count;
+	uint32_t open_count;
 };
 /** The @p index-th mount, 0 or -ENOENT after the last one. */
-int vfs_mount_get(unsigned int index, struct vfs_mount_info *info);
+int vfs_mount_get(uint32_t index, struct vfs_mount_info *info);
 
 /* ---- the platform lock and the file system types ---- */
 

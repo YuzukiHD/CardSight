@@ -61,7 +61,7 @@ static const char *gpt_type_name(const uint8_t type[16])
 		{ gpt_linux_swap, "Linux swap" },
 	};
 
-	for (unsigned int index = 0U; index < ARRAY_SIZE(names); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(names); index++) {
 		if (memcmp(type, names[index].guid, 16U) == 0) {
 			return names[index].name;
 		}
@@ -87,7 +87,7 @@ static uint64_t read_le64(const uint8_t *bytes)
 {
 	uint64_t value = 0U;
 
-	for (unsigned int index = 0U; index < 8U; index++) {
+	for (uint32_t index = 0U; index < 8U; index++) {
 		value |= (uint64_t)bytes[index] << (index * 8U);
 	}
 	return value;
@@ -114,14 +114,14 @@ static bool read_table(struct block_device *source, struct layout_entry entries[
 	bool *gpt, char gpt_header_text[16])
 {
 	uint8_t *table = layout_table;
-	unsigned int found = 0U;
+	uint32_t found = 0U;
 
 	if (bdev_read(source, 0U, table, 1U) != 0 || table[510] != 0x55U || table[511] != 0xaaU) {
 		return false;
 	}
 	*gpt = table[450] == 0xeeU;
 	if (!*gpt) {
-		for (unsigned int slot = 0U; slot < 4U; slot++) {
+		for (uint32_t slot = 0U; slot < 4U; slot++) {
 			const uint8_t *entry = table + 446U + slot * 16U;
 
 			if (entry[4] == 0U) {
@@ -180,7 +180,7 @@ static bool read_table(struct block_device *source, struct layout_entry entries[
 
 static const struct proxy_partition *exposed_partition(uint64_t start)
 {
-	for (unsigned int index = 0U; index < PROXY_PARTITIONS; index++) {
+	for (uint32_t index = 0U; index < PROXY_PARTITIONS; index++) {
 		const struct proxy_partition *part = &proxy.partitions[index];
 
 		if (part->present && part->start_sector == start) {
@@ -235,7 +235,7 @@ int proxy_layout_add_file(void)
 			"#   start        end          sectors      size        type                              exposed  filesystem\r\n",
 			PROXY_DISK_NAME, view, proxy.read_only ? "read only" : "writable");
 	}
-	for (unsigned int index = 0U; index < ARRAY_SIZE(entries); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(entries); index++) {
 		const struct layout_entry *entry = &entries[index];
 		const struct proxy_partition *part;
 		char kind[64];

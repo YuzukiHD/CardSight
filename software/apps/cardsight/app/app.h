@@ -21,7 +21,7 @@ struct cardsight_file_list {
 	char path[VFS_PATH_MAX];
 	size_t count;
 	size_t total;
-	unsigned int partition;
+	uint32_t partition;
 	int error;
 	bool truncated;
 	bool valid;
@@ -39,10 +39,10 @@ enum cardsight_request_type {
 
 struct cardsight_request {
 	enum cardsight_request_type type;
-	unsigned int partition;
+	uint32_t partition;
 	enum blk_partition_content content;
 	enum blk_partition_table_type table;
-	unsigned int count;
+	uint32_t count;
 	bool full;
 	uint32_t selected;
 	char path[VFS_PATH_MAX];

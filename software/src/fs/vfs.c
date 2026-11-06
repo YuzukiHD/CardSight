@@ -37,7 +37,7 @@ struct vfs_mount {
 	struct block_device *bdev;
 	const struct vfs_fs *fs;
 	void *priv;
-	unsigned int open_count;
+	uint32_t open_count;
 };
 
 struct vfs_file {
@@ -48,7 +48,7 @@ struct vfs_file {
 struct vfs_dir {
 	struct vfs_mount *mount; /* NULL: the list of mount points */
 	void *handle;
-	unsigned int index;
+	uint32_t index;
 };
 
 static const struct vfs_fs *fs_types[CONFIG_VFS_MAX_FS_TYPES];
@@ -58,7 +58,7 @@ static char cwd[VFS_PATH_MAX] = "/";
 
 /* Sorted by target length, longest first: the deepest mount wins. */
 static struct vfs_mount *mounts_by_target[CONFIG_VFS_MAX_MOUNTS];
-static unsigned int mount_count;
+static uint32_t mount_count;
 
 /* Weak defaults: the host tests and the target provide the real lock. */
 __attribute__((weak)) void vfs_os_lock(void) {}
@@ -67,15 +67,15 @@ __attribute__((weak)) void vfs_os_unlock(void) {}
 static void mount_table_update(void)
 {
 	mount_count = 0U;
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
 		if (mounts[index].used) {
 			mounts_by_target[mount_count++] = &mounts[index];
 		}
 	}
 	/* insertion sort, longest first */
-	for (unsigned int index = 1U; index < mount_count; index++) {
+	for (uint32_t index = 1U; index < mount_count; index++) {
 		struct vfs_mount *entry = mounts_by_target[index];
-		unsigned int position = index;
+		uint32_t position = index;
 
 		while (position > 0U &&
 		       strlen(mounts_by_target[position - 1U]->target) < strlen(entry->target)) {
@@ -94,7 +94,7 @@ int vfs_register(const struct vfs_fs *fs)
 		return -EINVAL;
 	}
 	vfs_os_lock();
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FS_TYPES; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES; index++) {
 		if (fs_types[index] == fs) {
 			result = 0;
 			break;
@@ -114,9 +114,9 @@ int vfs_unregister(const struct vfs_fs *fs)
 	int result = -ENOENT;
 
 	vfs_os_lock();
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FS_TYPES; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES; index++) {
 		if (fs_types[index] == fs) {
-			for (unsigned int move = index; move + 1U < CONFIG_VFS_MAX_FS_TYPES; move++) {
+			for (uint32_t move = index; move + 1U < CONFIG_VFS_MAX_FS_TYPES; move++) {
 				fs_types[move] = fs_types[move + 1U];
 			}
 			fs_types[CONFIG_VFS_MAX_FS_TYPES - 1U] = NULL;
@@ -130,7 +130,7 @@ int vfs_unregister(const struct vfs_fs *fs)
 
 static const struct vfs_fs *fs_lookup(const char *name)
 {
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
 		if (strcmp(fs_types[index]->name, name) == 0) {
 			return fs_types[index];
 		}
@@ -204,7 +204,7 @@ static int normalize(const char *path, char absolute[VFS_PATH_MAX])
 
 static struct vfs_mount *mount_find_path(const char *absolute, const char **relative)
 {
-	for (unsigned int index = 0U; index < mount_count; index++) {
+	for (uint32_t index = 0U; index < mount_count; index++) {
 		struct vfs_mount *mount = mounts_by_target[index];
 		size_t length = strlen(mount->target);
 
@@ -225,7 +225,7 @@ static struct vfs_mount *mount_find_path(const char *absolute, const char **rela
 
 static struct vfs_mount *mount_find_target(const char *target)
 {
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
 		if (mounts[index].used && strcmp(mounts[index].target, target) == 0) {
 			return &mounts[index];
 		}
@@ -251,7 +251,7 @@ static int resolve(const char *path, struct vfs_mount **mount, char relative[VFS
 
 /* ---- mounting ---- */
 
-int vfs_mount_ex(const char *blk_name, const char *target, const char *fstype, unsigned int flags)
+int vfs_mount_ex(const char *blk_name, const char *target, const char *fstype, uint32_t flags)
 {
 	char absolute[VFS_PATH_MAX];
 	struct vfs_mount *mount = NULL;
@@ -291,7 +291,7 @@ int vfs_mount_ex(const char *blk_name, const char *target, const char *fstype, u
 		result = bdev_claim_mount(bdev);
 		claimed = result == 0;
 	}
-	for (unsigned int index = 0U; result == 0 && mount == NULL && index < CONFIG_VFS_MAX_MOUNTS; index++) {
+	for (uint32_t index = 0U; result == 0 && mount == NULL && index < CONFIG_VFS_MAX_MOUNTS; index++) {
 		if (!mounts[index].used) {
 			mount = &mounts[index];
 		}
@@ -303,7 +303,7 @@ int vfs_mount_ex(const char *blk_name, const char *target, const char *fstype, u
 		result = fs->mount(bdev, flags, &private_data);
 	} else if (result == 0) {
 		result = -EINVAL;
-		for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
+		for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
 			if ((fs_types[index]->flags & VFS_FS_NODEV) == 0U &&
 			    fs_types[index]->mount(bdev, flags, &private_data) == 0) {
 				fs = fs_types[index];
@@ -391,7 +391,7 @@ void vfs_format_report(struct block_device *bdev, uint64_t done, uint64_t total)
 	format_progress(format_progress_context, done < total ? done : total, total);
 }
 
-int vfs_format(const char *blk_name, const char *fstype, const char *label, unsigned int arg)
+int vfs_format(const char *blk_name, const char *fstype, const char *label, uint32_t arg)
 {
 	const struct vfs_fs *fs;
 	struct block_device *bdev;
@@ -448,7 +448,7 @@ int vfs_probe(const char *blk_name, struct vfs_volume_info *info)
 	} else if ((result = bdev_claim_mount(bdev)) != 0) {
 		/* -EBUSY when one of them is already mounted */
 	} else {
-		for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
+		for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
 			const struct vfs_fs *fs = fs_types[index];
 			void *private_data = NULL;
 
@@ -491,7 +491,7 @@ static struct vfs_file *file_get(int descriptor)
 	return &files[descriptor - VFS_FD_BASE];
 }
 
-int vfs_open(const char *path, unsigned int flags)
+int vfs_open(const char *path, uint32_t flags)
 {
 	char relative[VFS_PATH_MAX];
 	struct vfs_mount *mount;
@@ -505,7 +505,7 @@ int vfs_open(const char *path, unsigned int flags)
 		result = mount->fs->open(mount->priv, relative, flags, &handle);
 	}
 	if (result == 0) {
-		for (unsigned int index = 0U; index < CONFIG_VFS_MAX_FILES; index++) {
+		for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FILES; index++) {
 			if (files[index].mount == NULL) {
 				file = &files[index];
 				break;
@@ -670,12 +670,12 @@ int vfs_sync_mount(const char *target)
 	return result;
 }
 
-int vfs_mount_get(unsigned int index, struct vfs_mount_info *info)
+int vfs_mount_get(uint32_t index, struct vfs_mount_info *info)
 {
 	int result = -ENOENT;
 
 	vfs_os_lock();
-	for (unsigned int slot = 0U, seen = 0U; slot < CONFIG_VFS_MAX_MOUNTS; slot++) {
+	for (uint32_t slot = 0U, seen = 0U; slot < CONFIG_VFS_MAX_MOUNTS; slot++) {
 		if (!mounts[slot].used || seen++ != index) {
 			continue;
 		}
@@ -696,7 +696,7 @@ int vfs_sync(void)
 	int result = 0;
 
 	vfs_os_lock();
-	for (unsigned int index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
+	for (uint32_t index = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
 		if (mounts[index].used && mounts[index].fs->sync != NULL) {
 			int one = mounts[index].fs->sync(mounts[index].priv);
 
@@ -882,7 +882,7 @@ int vfs_readdir(struct vfs_dir *dir, struct vfs_dirent *entry)
 	if (dir->mount != NULL) {
 		result = dir->mount->fs->readdir(dir->handle, entry);
 	} else {
-		for (unsigned int index = 0U, seen = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
+		for (uint32_t index = 0U, seen = 0U; index < CONFIG_VFS_MAX_MOUNTS; index++) {
 			if (!mounts[index].used || seen++ != dir->index) {
 				continue;
 			}

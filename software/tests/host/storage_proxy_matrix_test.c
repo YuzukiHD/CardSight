@@ -18,8 +18,8 @@
 #define PARTITION_MIB 48U
 
 static uint8_t *disk_data;
-static unsigned int failures;
-static unsigned int checks;
+static uint32_t failures;
+static uint32_t checks;
 
 #define CHECK(condition)                                                               \
 	do {                                                                             \
@@ -161,14 +161,14 @@ static void build_card(struct gendisk **disk_out, const struct mix *mix)
 			BLK_PARTITION_FAT32, BLK_PARTITION_FAT32, BLK_PARTITION_FAT32,
 		};
 
-		for (unsigned int index = 0U; index < 3U; index++) {
+		for (uint32_t index = 0U; index < 3U; index++) {
 			layout[index].sectors = partition_sizes[index] * 2048U;
 			layout[index].content = contents[index];
 			snprintf(layout[index].label, sizeof(layout[index].label), "CARD%u", index + 1U);
 		}
 		CHECK(blk_write_partition_layout(disk, BLK_PARTITION_TABLE_MBR, layout, 3U) == 0);
 	}
-	for (unsigned int partition = 1U; partition <= 3U; partition++) {
+	for (uint32_t partition = 1U; partition <= 3U; partition++) {
 		char device[24];
 		char mount[16];
 		char path[64];
@@ -190,9 +190,9 @@ static const size_t sizes[] = {
 	65535U, 65536U, 65537U, 100000U, 262144U, 1048576U + 1U,
 };
 
-static void workload_sizes(const char *view_dir, const char *source_dir, unsigned int partition)
+static void workload_sizes(const char *view_dir, const char *source_dir, uint32_t partition)
 {
-	for (unsigned int index = 0U; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
+	for (uint32_t index = 0U; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
 		char name[96];
 		char source[96];
 		uint32_t seed = partition * 100U + index;
@@ -204,11 +204,11 @@ static void workload_sizes(const char *view_dir, const char *source_dir, unsigne
 	}
 }
 
-static void workload_chunks(const char *view_dir, unsigned int partition)
+static void workload_chunks(const char *view_dir, uint32_t partition)
 {
 	static const size_t chunks[] = { 1U, 100U, 512U, 777U, 4096U, 16384U, 65536U, 200000U };
 
-	for (unsigned int index = 0U; index < sizeof(chunks) / sizeof(chunks[0]); index++) {
+	for (uint32_t index = 0U; index < sizeof(chunks) / sizeof(chunks[0]); index++) {
 		char name[96];
 		uint32_t seed = partition * 1000U + index;
 
@@ -220,23 +220,23 @@ static void workload_chunks(const char *view_dir, unsigned int partition)
 }
 
 /* Enough names to push entry groups across every sector edge of the directory. */
-static void workload_many_files(const char *view_dir, unsigned int partition)
+static void workload_many_files(const char *view_dir, uint32_t partition)
 {
 	char path[128];
 
-	for (unsigned int index = 0U; index < 40U; index++) {
+	for (uint32_t index = 0U; index < 40U; index++) {
 		snprintf(path, sizeof(path), "%s/many-%02u-%s.txt", view_dir, index,
 			index % 3U == 0U ? "short" : index % 3U == 1U ? "a-considerably-longer-file-name" : "mid-length");
 		CHECK(write_pattern(path, 100U + index * 37U, partition * 50U + index, 512U) == 0);
 	}
-	for (unsigned int index = 0U; index < 40U; index++) {
+	for (uint32_t index = 0U; index < 40U; index++) {
 		snprintf(path, sizeof(path), "%s/many-%02u-%s.txt", view_dir, index,
 			index % 3U == 0U ? "short" : index % 3U == 1U ? "a-considerably-longer-file-name" : "mid-length");
 		CHECK(verify_pattern(path, 100U + index * 37U, partition * 50U + index) == 0);
 	}
 }
 
-static void workload_directories(const char *view_dir, unsigned int partition)
+static void workload_directories(const char *view_dir, uint32_t partition)
 {
 	char path[128];
 	char moved[128];
@@ -254,7 +254,7 @@ static void workload_directories(const char *view_dir, unsigned int partition)
 	CHECK(vfs_rmdir(path) == 0);
 }
 
-static void workload_overwrite_truncate(const char *view_dir, unsigned int partition)
+static void workload_overwrite_truncate(const char *view_dir, uint32_t partition)
 {
 	char path[128];
 
@@ -279,7 +279,7 @@ static void check_windows_order(const char *mount);
 static void check_sources(const struct mix *mix, bool expect_work)
 {
 	/* The same files, read from the partitions the proxy mirrors into. */
-	for (unsigned int partition = 1U; partition <= 3U; partition++) {
+	for (uint32_t partition = 1U; partition <= 3U; partition++) {
 		char device[24];
 		char mount[16];
 		char path[96];
@@ -290,7 +290,7 @@ static void check_sources(const struct mix *mix, bool expect_work)
 		snprintf(path, sizeof(path), "%s/seed-%u.bin", mount, partition);
 		CHECK(verify_pattern(path, 70000U + partition, partition) == 0);
 		if (expect_work) {
-			for (unsigned int index = 0U; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
+			for (uint32_t index = 0U; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
 				snprintf(path, sizeof(path), "%s/size-%u.bin", mount, index);
 				CHECK(verify_pattern(path, sizes[index], partition * 100U + index) == 0);
 			}
@@ -343,13 +343,13 @@ static void workload_valid_length(void)
 		if (bdev_read(view, number, window, 1U) != 0 || bdev_read(view, number + 1U, window + 512U, 1U) != 0) {
 			break;
 		}
-		for (unsigned int slot = 0U; slot < 16U && !patched; slot++) {
+		for (uint32_t slot = 0U; slot < 16U && !patched; slot++) {
 			uint8_t *entry = window + slot * 32U;
 
 			if (entry[0] == 0x85U && entry[32] == 0xc0U && entry[64] == 0xc1U &&
 				memcmp(entry + 66U, name, sizeof(name)) == 0) {
 				uint64_t rounded = 32768U;
-				unsigned int stream_offset = slot * 32U + 32U;
+				uint32_t stream_offset = slot * 32U + 32U;
 
 				/* DataLength is at byte 24 of the stream extension entry. A host writes whole sectors. */
 				memcpy(window + stream_offset + 24U, &rounded, sizeof(rounded));
@@ -409,7 +409,7 @@ static bool view_open(struct view_layout *layout, const char *directory_name)
 		if (bdev_read(layout->view, cluster_sector(layout, layout->root_cluster) + number, chain, 1U) != 0) {
 			return false;
 		}
-		for (unsigned int slot = 0U; slot < 16U; slot++) {
+		for (uint32_t slot = 0U; slot < 16U; slot++) {
 			const uint8_t *entry = chain + slot * 32U;
 
 			if (entry[0] == 0x81U) {
@@ -448,8 +448,8 @@ static uint16_t name_hash(const char *name)
 static bool view_put_entry(const struct view_layout *layout, const char *name, uint32_t first_cluster, uint64_t size)
 {
 	const size_t name_length = strlen(name);
-	const unsigned int names = (unsigned int)((name_length + 14U) / 15U);
-	const unsigned int total = 2U + names;
+	const uint32_t names = (uint32_t)((name_length + 14U) / 15U);
+	const uint32_t total = 2U + names;
 	uint8_t group[19 * 32];
 	uint16_t sum = 0U;
 
@@ -469,15 +469,15 @@ static bool view_put_entry(const struct view_layout *layout, const char *name, u
 	memcpy(group + 32U + 8U, &size, sizeof(size)); /* valid data length */
 	memcpy(group + 32U + 20U, &first_cluster, sizeof(first_cluster));
 	memcpy(group + 32U + 24U, &size, sizeof(size)); /* data length */
-	for (unsigned int part = 0U; part < names; part++) {
+	for (uint32_t part = 0U; part < names; part++) {
 		group[(2U + part) * 32U] = 0xc1U;
-		for (unsigned int index = 0U; index < 15U; index++) {
+		for (uint32_t index = 0U; index < 15U; index++) {
 			size_t position = (size_t)part * 15U + index;
 
 			group[(2U + part) * 32U + 2U + index * 2U] = position < name_length ? (uint8_t)name[position] : 0U;
 		}
 	}
-	for (unsigned int index = 0U; index < total * 32U; index++) {
+	for (uint32_t index = 0U; index < total * 32U; index++) {
 		if (index != 2U && index != 3U) {
 			sum = (uint16_t)(((sum & 1U) ? 0x8000U : 0U) + (sum >> 1) + group[index]);
 		}
@@ -494,13 +494,13 @@ static bool view_put_entry(const struct view_layout *layout, const char *name, u
 				window + 512U, 1U) != 0)) {
 			return false;
 		}
-		for (unsigned int slot = 0U; slot < 16U; slot++) {
+		for (uint32_t slot = 0U; slot < 16U; slot++) {
 			uint8_t *entry = window + slot * 32U;
 			bool same = entry[0] == 0x85U && entry[32] == 0xc0U && entry[35] == name_length &&
 				memcmp(entry + 66U, group + 66U, name_length * 2U > 30U ? 30U : name_length * 2U) == 0;
 
 			free_run = true;
-			for (unsigned int index = 0U; index < total; index++) {
+			for (uint32_t index = 0U; index < total; index++) {
 				free_run = free_run && (window[(slot + index) * 32U] & 0x80U) == 0U;
 			}
 			if (same || free_run) {
@@ -600,7 +600,7 @@ static bool view_delete_entry(const struct view_layout *layout, const char *name
 				window + 512U, 1U) != 0)) {
 			return false;
 		}
-		for (unsigned int slot = 0U; slot < 16U; slot++) {
+		for (uint32_t slot = 0U; slot < 16U; slot++) {
 			uint8_t *entry = window + slot * 32U;
 
 			if (entry[0] == 0x85U && entry[32] == 0xc0U && entry[35] == name_length &&
@@ -611,7 +611,7 @@ static bool view_delete_entry(const struct view_layout *layout, const char *name
 					same = entry[66U + index * 2U] == (uint8_t)name[index];
 				}
 				if (same) {
-					for (unsigned int index = 0U; index <= entry[1]; index++) {
+					for (uint32_t index = 0U; index <= entry[1]; index++) {
 						window[(slot + index) * 32U] &= 0x7fU;
 					}
 					return bdev_write(layout->view, cluster_sector(layout, layout->directory_cluster) + number, window, 1U) == 0 &&
@@ -638,7 +638,7 @@ static void workload_windows_order(void)
 
 	CHECK(view_open(&layout, "partition1"));
 	base = layout.clusters + 2U - 4000U;
-	for (unsigned int index = 0U; index < sizeof(windows_files) / sizeof(windows_files[0]); index++) {
+	for (uint32_t index = 0U; index < sizeof(windows_files) / sizeof(windows_files[0]); index++) {
 		uint32_t first = base + windows_files[index].offset;
 		uint32_t clusters = (uint32_t)((windows_files[index].size + 32767U) / 32768U);
 
@@ -728,7 +728,7 @@ static void check_windows_order(const char *mount)
 	struct vfs_dirent entry;
 	int error = 0;
 
-	for (unsigned int index = 0U; index < sizeof(windows_files) / sizeof(windows_files[0]); index++) {
+	for (uint32_t index = 0U; index < sizeof(windows_files) / sizeof(windows_files[0]); index++) {
 		snprintf(path, sizeof(path), "%s/%s", mount, windows_files[index].name);
 		CHECK(verify_pattern(path, windows_files[index].size, windows_files[index].seed) == 0);
 	}
@@ -781,7 +781,7 @@ static void run_mix(const struct mix *mix)
 		CHECK(strstr(layout, "p1") != NULL && strstr(layout, "2048") != NULL);
 		CHECK(strstr(layout, "exposed") != NULL);
 	}
-	for (unsigned int partition = 1U; partition <= 3U; partition++) {
+	for (uint32_t partition = 1U; partition <= 3U; partition++) {
 		char view_dir[32];
 		char source_dir[32];
 
@@ -842,7 +842,7 @@ static void run_gpt_layout(void)
 	disk->capacity = CARD_SECTORS;
 	CHECK(add_disk(disk) == 0);
 	CHECK(blk_write_partition_layout(disk, BLK_PARTITION_TABLE_GPT, entries, 3U) == 0);
-	for (unsigned int partition = 1U; partition <= 3U; partition++) {
+	for (uint32_t partition = 1U; partition <= 3U; partition++) {
 		char device[24];
 
 		snprintf(device, sizeof(device), "mmcblk0p%u", partition);
@@ -921,7 +921,7 @@ int main(void)
 	CHECK(disk_data != NULL);
 	CHECK(vfs_ff_register() == 0);
 	CHECK(vfs_ext_register() == 0);
-	for (unsigned int index = 0U; index < sizeof(mixes) / sizeof(mixes[0]); index++) {
+	for (uint32_t index = 0U; index < sizeof(mixes) / sizeof(mixes[0]); index++) {
 		run_mix(&mixes[index]);
 	}
 	run_selection_and_read_only();

@@ -29,10 +29,10 @@ bool card_disk_present(void);
 int card_scan(void);
 
 /* Files.c: one directory of a partition, mounted temporarily unless the proxy already has it. */
-int card_list_files(unsigned int partition, const char *path);
+int card_list_files(uint32_t partition, const char *path);
 
 /* Format.c: one partition, quick (metadata only) or full (erase first). */
-int format_partition(unsigned int partition, enum blk_partition_content content, bool full);
+int format_partition(uint32_t partition, enum blk_partition_content content, bool full);
 
 /* Layout.c: write the table, then format the partitions it made. */
 int layout_apply(const struct cardsight_request *request);

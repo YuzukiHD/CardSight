@@ -27,7 +27,7 @@
 
 /* The slot as the application sees it; the header keeps the type opaque. */
 struct mmc_host {
-	unsigned int index;
+	uint32_t index;
 };
 
 /* Block transfers are serialised: the host's descriptor list and bounce buffer are shared. */
@@ -62,12 +62,12 @@ static void mmc_lock_release(void)
  */
 static bool card_present(void)
 {
-	unsigned int present = 0U;
+	uint32_t present = 0U;
 
 	if (card_absent_forced) {
 		return false;
 	}
-	for (unsigned int sample = 0U; sample < 5U; sample++) {
+	for (uint32_t sample = 0U; sample < 5U; sample++) {
 		if (sunxi_mmc_present()) {
 			present++;
 		}
@@ -181,7 +181,7 @@ static int mmc_probe_card(void)
 
 		format_capacity((uint64_t)card.info.sectors * 512U, capacity, sizeof(capacity));
 		pr_info("SD card: %s %s, %s, %u MHz, %u-bit%s\n", card.info.identity.product_name,
-			capacity, card.info.mode, (unsigned)(card.info.clock / 1000000U),
+			capacity, card.info.mode, (uint32_t)(card.info.clock / 1000000U),
 			card.info.bus_width, card.info.tuned ? ", tuned" : "");
 		result = mmc_add_disk();
 		if (result != 0) {
@@ -252,7 +252,7 @@ INITCALL(2, 45, mmc_blk_init);
 
 /* ---- the application API ---- */
 
-struct mmc_host *mmc_host_get(unsigned int index)
+struct mmc_host *mmc_host_get(uint32_t index)
 {
 	return index == 0U ? &host0 : NULL;
 }
@@ -286,7 +286,7 @@ static int command_mmc(int argc, char **argv)
 	if (argc >= 2 && strcmp(argv[1], "eject") == 0) {
 		/* drive the hotplug path by hand: the slot stays as it is */
 		card_absent_forced = true;
-		for (unsigned int waited = 0U; waited < 3000U && card_ready; waited += 50U) {
+		for (uint32_t waited = 0U; waited < 3000U && card_ready; waited += 50U) {
 			msleep(50U);
 		}
 		if (card_ready) {
@@ -298,7 +298,7 @@ static int command_mmc(int argc, char **argv)
 	}
 	if (argc >= 2 && strcmp(argv[1], "insert") == 0) {
 		card_absent_forced = false;
-		for (unsigned int waited = 0U; waited < 10000U && !card_ready; waited += 50U) {
+		for (uint32_t waited = 0U; waited < 10000U && !card_ready; waited += 50U) {
 			msleep(50U);
 		}
 		if (!card_ready) {
@@ -309,22 +309,22 @@ static int command_mmc(int argc, char **argv)
 		return 0;
 	}
 	if (argc >= 2 && strcmp(argv[1], "soak") == 0) {
-		unsigned int cycles = argc > 2 ? (unsigned int)strtoul(argv[2], NULL, 0) : 20U;
-		unsigned int failures = 0U;
+		uint32_t cycles = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 0) : 20U;
+		uint32_t failures = 0U;
 
 		if (cycles == 0U) {
 			return -EINVAL;
 		}
-		for (unsigned int cycle = 0U; cycle < cycles; cycle++) {
+		for (uint32_t cycle = 0U; cycle < cycles; cycle++) {
 			card_absent_forced = true;
-			for (unsigned int waited = 0U; waited < 4000U && card_ready; waited += 50U) {
+			for (uint32_t waited = 0U; waited < 4000U && card_ready; waited += 50U) {
 				msleep(50U);
 			}
 			if (card_ready) {
 				failures++;
 			}
 			card_absent_forced = false;
-			for (unsigned int waited = 0U; waited < 10000U && !card_ready; waited += 50U) {
+			for (uint32_t waited = 0U; waited < 10000U && !card_ready; waited += 50U) {
 				msleep(50U);
 			}
 			if (!card_ready) {
@@ -345,7 +345,7 @@ static int command_mmc(int argc, char **argv)
 		printf("%.5s v%u.%u, %s, %s %u MHz %u-bit%s, %s\n", card.info.identity.product_name,
 			card.info.identity.product_revision_major,
 			card.info.identity.product_revision_minor, capacity, card.info.mode,
-			(unsigned)(card.info.clock / 1000000U), card.info.bus_width,
+			(uint32_t)(card.info.clock / 1000000U), card.info.bus_width,
 			card.info.tuned ? " tuned" : "",
 			card.info.high_capacity ? "SDHC/SDXC" : "SDSC");
 	}
@@ -354,7 +354,7 @@ static int command_mmc(int argc, char **argv)
 		uint32_t bounce;
 
 		sunxi_mmc_dma_stats(&direct, &bounce);
-		printf("%u direct, %u bounce DMA transfers\n", (unsigned)direct, (unsigned)bounce);
+		printf("%u direct, %u bounce DMA transfers\n", (uint32_t)direct, (uint32_t)bounce);
 	}
 	return 0;
 }

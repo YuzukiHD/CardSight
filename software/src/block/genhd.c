@@ -280,7 +280,7 @@ static int command_blkread(int argc, char **argv)
 	result = bdev_read(bdev, number, sector, 1);
 	if (result == 0) {
 		printf("sector %llu:", (unsigned long long)number);
-		for (unsigned int index = 0U; index < 64U; index++) {
+		for (uint32_t index = 0U; index < 64U; index++) {
 			printf(" %02x", sector[index]);
 		}
 		printf("\n");
@@ -299,7 +299,7 @@ static int command_blkbench(int argc, char **argv)
 	struct block_device *bdev;
 	const uint32_t chunk_sectors = 512U;
 	uint64_t sector;
-	unsigned int mib;
+	uint32_t mib;
 	uint64_t total_sectors;
 	uint64_t done_sectors = 0U;
 	void *buffer;
@@ -315,7 +315,7 @@ static int command_blkbench(int argc, char **argv)
 		return -ENODEV;
 	}
 	sector = strtoul(argv[2], NULL, 0);
-	mib = (unsigned int)strtoul(argv[3], NULL, 0);
+	mib = (uint32_t)strtoul(argv[3], NULL, 0);
 	total_sectors = (uint64_t)mib * 2048U;
 	buffer = aligned_alloc(64U, chunk_sectors * 512U);
 	if (buffer == NULL) {
@@ -330,17 +330,17 @@ static int command_blkbench(int argc, char **argv)
 		if (result == 0) {
 			done_sectors += blocks;
 			if (done_sectors % (16U * 2048U) == 0U || done_sectors >= total_sectors) {
-				printf("  %u MiB\n", (unsigned)(done_sectors / 2048U));
+				printf("  %u MiB\n", (uint32_t)(done_sectors / 2048U));
 			}
 		}
 	}
 	elapsed = ktime_get_ms() - started;
 	if (result != 0) {
-		printf("read failed at %u MiB: %d\n", (unsigned)(done_sectors / 2048U), result);
+		printf("read failed at %u MiB: %d\n", (uint32_t)(done_sectors / 2048U), result);
 	} else {
 		uint64_t kib = done_sectors / 2U; /* 512 byte sectors to KiB */
 
-		printf("%u MiB in %llu ms, %llu KiB/s\n", (unsigned)(done_sectors / 2048U),
+		printf("%u MiB in %llu ms, %llu KiB/s\n", (uint32_t)(done_sectors / 2048U),
 			(unsigned long long)elapsed,
 			(unsigned long long)(elapsed != 0U ? kib * 1000U / elapsed : 0U));
 	}

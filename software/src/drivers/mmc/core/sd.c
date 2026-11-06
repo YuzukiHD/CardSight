@@ -110,7 +110,7 @@ static int sd_switch_to_1v8(void)
 static void sd_decode_cid(const uint32_t response[4], struct mmc_card_info *info)
 {
 	/* CID bytes 0..15 come from RESP3 down to RESP0, most significant byte first */
-	for (unsigned int index = 0U; index < 16U; index++) {
+	for (uint32_t index = 0U; index < 16U; index++) {
 		uint32_t word = response[3U - index / 4U];
 
 		info->cid[index] = (uint8_t)(word >> (24U - 8U * (index % 4U)));
@@ -119,7 +119,7 @@ static void sd_decode_cid(const uint32_t response[4], struct mmc_card_info *info
 	info->identity.oem_id[0] = (char)info->cid[1];
 	info->identity.oem_id[1] = (char)info->cid[2];
 	info->identity.oem_id[2] = '\0';
-	for (unsigned int index = 0U; index < 5U; index++) {
+	for (uint32_t index = 0U; index < 5U; index++) {
 		info->identity.product_name[index] = (char)info->cid[3U + index];
 	}
 	info->identity.product_name[5] = '\0';
@@ -227,7 +227,7 @@ static int sd_execute_tuning(void)
 		sunxi_mmc_set_quiet(false);
 		saved_tune_valid = false;
 		sunxi_mmc_tune_point(0U, 0U);
-		pr_warn("tuning found no window (widest %u, first error %d)\n", (unsigned)max_length,
+		pr_warn("tuning found no window (widest %u, first error %d)\n", (uint32_t)max_length,
 			first_error);
 		return -EIO;
 	}
@@ -252,8 +252,8 @@ static int sd_execute_tuning(void)
 	saved_tune_phase = best_phase;
 	saved_tune_delay = best_start + best_length / 2U;
 	saved_tune_valid = true;
-	pr_info("tuned: phase %u, delay %u (window %u)\n", (unsigned)best_phase,
-		(unsigned)saved_tune_delay, (unsigned)best_length);
+	pr_info("tuned: phase %u, delay %u (window %u)\n", (uint32_t)best_phase,
+		(uint32_t)saved_tune_delay, (uint32_t)best_length);
 	return 0;
 }
 
@@ -354,7 +354,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 	/* CMD8 tells an SD v2 card apart and checks the 2.7-3.6 V range */
 	result = sd_command(SD_CMD_SEND_IF_COND, 0x1aaU, MMC_RESP_R7, response);
 	if (result == 0 && (response[0] & 0xfffU) != 0x1aaU) {
-		pr_err("CMD8 answered 0x%08x\n", (unsigned)response[0]);
+		pr_err("CMD8 answered 0x%08x\n", (uint32_t)response[0]);
 		return -EIO;
 	}
 	/* ask a version 2 card whether it takes 1.8 V signalling (S18R); the answer is S18A */
@@ -372,7 +372,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 			break;
 		}
 		if (ktime_get_ms() > deadline) {
-			pr_err("ACMD41 timeout (OCR 0x%08x)\n", (unsigned)ocr);
+			pr_err("ACMD41 timeout (OCR 0x%08x)\n", (uint32_t)ocr);
 			return -ETIMEDOUT;
 		}
 		msleep(1U);
@@ -386,7 +386,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 		}
 	}
 
-	for (unsigned int attempt = 0U; attempt < 3U; attempt++) {
+	for (uint32_t attempt = 0U; attempt < 3U; attempt++) {
 		msleep(10U);
 		result = sd_command(SD_CMD_ALL_SEND_CID, 0U, MMC_RESP_R2, response);
 		if (result == 0) {
@@ -461,7 +461,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 			card->info.sw_groups[0] = (uint16_t)((uint16_t)status[12] << 8 | status[13]);
 			card->info.max_current = (uint16_t)((uint16_t)status[0] << 8 | status[1]);
 		}
-		for (unsigned int index = 0U; index < ARRAY_SIZE(modes); index++) {
+		for (uint32_t index = 0U; index < ARRAY_SIZE(modes); index++) {
 			/* the UHS modes need the 1.8 V signalling the switch above provides */
 			if ((card->info.sw_groups[0] & (1U << modes[index].support_bit)) == 0U ||
 			    (modes[index].function != 1U && !uhs)) {

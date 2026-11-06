@@ -31,7 +31,7 @@ int sunxi_mmc_host_init(const struct sunxi_mmc_config *config);
 
 /* Card clock and bus width; the controller restores them after a reset. */
 int sunxi_mmc_set_clock(uint32_t hz);
-void sunxi_mmc_set_width(unsigned int width);
+void sunxi_mmc_set_width(uint32_t width);
 
 /* The I/O supply of the card port, 1800 or 3300 mV. */
 void sunxi_mmc_set_voltage(uint32_t millivolt);

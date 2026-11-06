@@ -143,7 +143,7 @@
 
 static const struct sunxi_mmc_config *host_config;
 static uint32_t host_clock;
-static unsigned int host_width = 1U;
+static uint32_t host_width = 1U;
 static bool host_fast; /* SDR50/SDR104: the read FIFO needs a whole-block threshold */
 static bool host_quiet; /* a tuning scan expects the failed reads */
 static uint32_t dma_direct_count;
@@ -249,8 +249,8 @@ static int smhc_clock_switch(bool on, bool voltage)
 		SMHC_CMDR);
 	if (smhc_wait_clear(SMHC_CMDR, CMDR_START, 100U) != 0) {
 		pr_err("clock update (%s) stuck: cmdr %08x stas %08x gctrl %08x\n",
-			on ? "start" : "stop", (unsigned)smhc_read(SMHC_CMDR),
-			(unsigned)smhc_read(SMHC_STAS), (unsigned)smhc_read(SMHC_GCTRL));
+			on ? "start" : "stop", (uint32_t)smhc_read(SMHC_CMDR),
+			(uint32_t)smhc_read(SMHC_STAS), (uint32_t)smhc_read(SMHC_GCTRL));
 		return -ETIMEDOUT;
 	}
 	smhc_write(0xffffffffU, SMHC_RINTR);
@@ -273,8 +273,8 @@ int sunxi_mmc_set_clock(uint32_t clock)
 	smhc_write(clkcr, SMHC_CLKCR);
 	smhc_set_module_clock(clock);
 	smhc_write(clkcr, SMHC_CLKCR);
-	pr_debug("clock %u Hz: module 0x%08x clkcr 0x%08x\n", (unsigned)clock,
-		(unsigned)readl(SUNXI_CCU_BASE + host_config->clock_register), (unsigned)smhc_read(SMHC_CLKCR));
+	pr_debug("clock %u Hz: module 0x%08x clkcr 0x%08x\n", (uint32_t)clock,
+		(uint32_t)readl(SUNXI_CCU_BASE + host_config->clock_register), (uint32_t)smhc_read(SMHC_CLKCR));
 	result = smhc_clock_switch(true, false);
 	if (result != 0) {
 		return result;
@@ -297,7 +297,7 @@ int sunxi_mmc_set_clock(uint32_t clock)
 	return 0;
 }
 
-void sunxi_mmc_set_width(unsigned int width)
+void sunxi_mmc_set_width(uint32_t width)
 {
 	host_width = width;
 	smhc_write(width == 4U ? 1U : width == 8U ? 2U : 0U, SMHC_WIDTH);
@@ -308,7 +308,7 @@ void sunxi_mmc_set_voltage(uint32_t millivolt)
 	uint32_t want = millivolt == 3300U ? 1U : 0U;
 
 	writel(want, PAD_VOLTAGE_CONTROL);
-	for (unsigned int waited = 0U; waited < 100U; waited++) {
+	for (uint32_t waited = 0U; waited < 100U; waited++) {
 		if (((readl(PAD_VOLTAGE_STATUS) & PAD_VOLTAGE_MASK) != 0U) == (want != 0U)) {
 			break;
 		}
@@ -391,9 +391,9 @@ static int smhc_pio(uint8_t *buffer, uint32_t length, bool write, uint32_t timeo
 
 			if ((interrupts & INT_ERRORS) != 0U) {
 				if (!host_quiet) {
-					pr_debug("data (%u, %s): rint %08x stas %08x at %u\n", (unsigned)length,
-						write ? "write" : "read", (unsigned)interrupts,
-						(unsigned)smhc_read(SMHC_STAS), (unsigned)done);
+					pr_debug("data (%u, %s): rint %08x stas %08x at %u\n", (uint32_t)length,
+						write ? "write" : "read", (uint32_t)interrupts,
+						(uint32_t)smhc_read(SMHC_STAS), (uint32_t)done);
 				}
 				return -EIO;
 			}
@@ -503,7 +503,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 	uint32_t rint;
 	int result;
 
-	for (unsigned int word = 0U; word < 4U; word++) {
+	for (uint32_t word = 0U; word < 4U; word++) {
 		response[word] = 0U;
 	}
 	switch (response_kind) {
@@ -528,7 +528,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 	}
 	result = smhc_wait_card_idle(200U);
 	if (result != 0) {
-		pr_err("CMD%u: card busy %d\n", (unsigned)opcode, result);
+		pr_err("CMD%u: card busy %d\n", (uint32_t)opcode, result);
 		return result;
 	}
 	smhc_write(0xffffffffU, SMHC_RINTR);
@@ -601,8 +601,8 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 		if ((rint & INT_ERRORS) != 0U || (idst & IDST_ERRORS) != 0U) {
 			if (!host_quiet) {
 				pr_debug("CMD%u (%u x %u): rint %08x idst %08x stas %08x\n",
-					(unsigned)opcode, (unsigned)blocks, (unsigned)block_size,
-					(unsigned)rint, (unsigned)idst, (unsigned)smhc_read(SMHC_STAS));
+					(uint32_t)opcode, (uint32_t)blocks, (uint32_t)block_size,
+					(uint32_t)rint, (uint32_t)idst, (uint32_t)smhc_read(SMHC_STAS));
 			}
 			if (dma_buffer != NULL) {
 				smhc_dma_stop();
@@ -638,7 +638,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 			}
 		}
 	}
-	for (unsigned int word = 0U; word < 4U; word++) {
+	for (uint32_t word = 0U; word < 4U; word++) {
 		response[word] = smhc_read(SMHC_RESP0 + 4U * word);
 	}
 	return 0;
@@ -666,7 +666,7 @@ int sunxi_mmc_host_init(const struct sunxi_mmc_config *config)
 	host_config = config;
 	sunxi_pinctrl_set(&config->clock);
 	sunxi_pinctrl_set(&config->command);
-	for (unsigned int index = 0U; index < 4U; index++) {
+	for (uint32_t index = 0U; index < 4U; index++) {
 		sunxi_pinctrl_set(&config->data[index]);
 	}
 	sunxi_pinctrl_set(&config->card_detect);

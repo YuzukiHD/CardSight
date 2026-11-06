@@ -9,8 +9,8 @@
 #include <board/cardsight_board.h>
 
 /* clk/sunxi-ccu.c: assert the reset, switch the clock on, release the reset. */
-void sunxi_ccu_enable(uintptr_t gate_address, unsigned int gate_bit, uintptr_t reset_address,
-	unsigned int reset_bit);
+void sunxi_ccu_enable(uintptr_t gate_address, uint32_t gate_bit, uintptr_t reset_address,
+	uint32_t reset_bit);
 
 /* pinctrl/pinctrl-sunxi.c: set the pin's function (and pull/drive when they are not 0). */
 void sunxi_pinctrl_set(const struct sunxi_pin *pin);

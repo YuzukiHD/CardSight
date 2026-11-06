@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-void msleep(unsigned int milliseconds);
+void msleep(uint32_t milliseconds);
 
 /** Milliseconds since the scheduler started. */
 uint64_t ktime_get_ms(void);

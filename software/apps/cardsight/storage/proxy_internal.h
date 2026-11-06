@@ -130,7 +130,7 @@ struct proxy_run {
 	uint32_t clusters;
 	/* One bit per cluster whose data has been copied to its file in full; only runs up to 2048 clusters are tracked. */
 	uint8_t claimed[256];
-	unsigned int partition;
+	uint32_t partition;
 	char path[48];
 };
 
@@ -191,7 +191,7 @@ struct storage_proxy {
 	uint8_t directory_previous[PROXY_SECTOR_SIZE];
 	uint32_t split_parent;
 	uint64_t split_offset;
-	unsigned int split_slots;
+	uint32_t split_slots;
 	bool running;
 	/* The source card is gone: nothing may touch its volumes any more, only be torn down. */
 	volatile bool source_lost;
@@ -223,7 +223,7 @@ struct proxy_statistics {
 	uint32_t runs_renamed;
 	uint32_t runs_copied;
 	uint32_t sync_trace;
-	unsigned int stage;
+	uint32_t stage;
 	int last_sync_error;
 };
 
@@ -314,7 +314,7 @@ int proxy_layout_add_file(void);
 void proxy_rebuild_ranges(void);
 uint32_t proxy_store_string(const char *string);
 uint32_t proxy_add_node(uint32_t parent, const char *name, bool directory, enum proxy_source source, const char *source_data, uint64_t size);
-int proxy_mount_partition(unsigned int partition, uint32_t *root_node);
+int proxy_mount_partition(uint32_t partition, uint32_t *root_node);
 int proxy_scan_directory(uint32_t parent);
 uint32_t proxy_find_child(uint32_t parent, const char *name);
 uint32_t proxy_find_cluster(uint32_t cluster);
@@ -330,12 +330,12 @@ int proxy_compute_geometry(void);
 int proxy_allocate_clusters(void);
 uint32_t proxy_cluster_node(uint32_t cluster);
 uint32_t proxy_fat_entry(uint32_t cluster);
-void proxy_boot_record(unsigned int record, uint8_t sector[PROXY_SECTOR_SIZE]);
+void proxy_boot_record(uint32_t record, uint8_t sector[PROXY_SECTOR_SIZE]);
 uint32_t proxy_boot_checksum(void);
 void proxy_bitmap_freed(uint64_t byte_offset, const uint8_t *incoming, size_t length);
 
 /* proxy_directory.c */
-unsigned int proxy_object_entries(const struct proxy_node *node);
+uint32_t proxy_object_entries(const struct proxy_node *node);
 int proxy_read_directory(uint32_t node_index, uint64_t offset, uint8_t sector[PROXY_SECTOR_SIZE]);
 int proxy_write_directory(uint32_t parent, uint64_t offset, const uint8_t data[PROXY_SECTOR_SIZE]);
 

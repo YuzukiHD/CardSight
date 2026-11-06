@@ -9,6 +9,8 @@
 #ifndef CARDSIGHT_INIT_H
 #define CARDSIGHT_INIT_H
 
+#include <stdint.h>
+
 typedef int (*initcall_fn)(void);
 
 struct initcall {
@@ -24,6 +26,6 @@ struct initcall {
 		.priority = (_priority),                                                                  \
 	}
 
-void initcalls_run(unsigned int level);
+void initcalls_run(uint32_t level);
 
 #endif /* CARDSIGHT_INIT_H */

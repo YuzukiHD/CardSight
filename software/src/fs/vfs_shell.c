@@ -19,7 +19,7 @@ static int command_mount(int argc, char **argv)
 	int result;
 
 	if (argc < 3) {
-		for (unsigned int index = 0U;; index++) {
+		for (uint32_t index = 0U;; index++) {
 			struct vfs_mount_info info;
 
 			if (vfs_mount_get(index, &info) != 0) {

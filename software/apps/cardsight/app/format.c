@@ -86,7 +86,7 @@ static int wipe_partition(const char *device)
 }
 
 
-int format_partition(unsigned int partition, enum blk_partition_content content, bool full)
+int format_partition(uint32_t partition, enum blk_partition_content content, bool full)
 {
 	char device[VFS_BLK_NAME];
 	char label[BDEV_LABEL_LEN];

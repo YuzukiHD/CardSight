@@ -91,7 +91,7 @@ static void proxy_unique_name(uint32_t parent, const char *input, char *output, 
 		output[size - 1U] = '\0';
 		return;
 	}
-	for (unsigned int suffix = 1U; suffix < 10000U; suffix++) {
+	for (uint32_t suffix = 1U; suffix < 10000U; suffix++) {
 		int digits = snprintf(NULL, 0, "~%u", suffix);
 		size_t keep = strlen(base);
 
@@ -194,7 +194,7 @@ int proxy_add_message(uint32_t parent, const char *name, const char *message)
 }
 
 
-int proxy_mount_partition(unsigned int partition, uint32_t *root_node)
+int proxy_mount_partition(uint32_t partition, uint32_t *root_node)
 {
 	struct proxy_partition *part = &proxy.partitions[partition];
 	char name[16];

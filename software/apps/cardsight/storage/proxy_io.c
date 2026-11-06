@@ -76,12 +76,12 @@ static int proxy_read_sector(uint64_t sector_number, uint8_t sector[PROXY_SECTOR
 		return -EINVAL;
 	}
 	if (sector_number < PROXY_BOOT_SECTORS) {
-		unsigned int record = (unsigned int)(sector_number % 12U);
+		uint32_t record = (uint32_t)(sector_number % 12U);
 
 		if (record == 11U) {
 			uint32_t checksum = proxy_boot_checksum();
 
-			for (unsigned int index = 0U; index < PROXY_SECTOR_SIZE; index += 4U) {
+			for (uint32_t index = 0U; index < PROXY_SECTOR_SIZE; index += 4U) {
 				put_le32(sector + index, checksum);
 			}
 		} else {
@@ -97,7 +97,7 @@ static int proxy_read_sector(uint64_t sector_number, uint8_t sector[PROXY_SECTOR
 		uint32_t fat_sector = (uint32_t)(sector_number - PROXY_FAT_OFFSET);
 		uint32_t first = fat_sector * (PROXY_SECTOR_SIZE / 4U);
 
-		for (unsigned int index = 0U; index < PROXY_SECTOR_SIZE / 4U; index++) {
+		for (uint32_t index = 0U; index < PROXY_SECTOR_SIZE / 4U; index++) {
 			put_le32(sector + index * 4U, proxy_fat_entry(first + index));
 		}
 		return 0;
@@ -365,7 +365,7 @@ static int proxy_disk_write(struct gendisk *disk, uint64_t sector, const void *b
 	}
 	proxy_stats.sectors += count;
 	if (result != 0 && proxy_stats.write_errors++ < 8U) {
-		pr_warn("proxy: write at sector %llu count %u failed: %d\n", (unsigned long long)sector, (unsigned)count, result);
+		pr_warn("proxy: write at sector %llu count %u failed: %d\n", (unsigned long long)sector, (uint32_t)count, result);
 	}
 	mutex_unlock(&proxy.lock);
 	proxy_time_end(&proxy_stats.disk_write, begin);

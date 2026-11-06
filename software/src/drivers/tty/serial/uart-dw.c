@@ -25,7 +25,7 @@
 #define IER_ERBFI 0x01U
 
 static uintptr_t uart_base;
-static unsigned int uart_irq;
+static uint32_t uart_irq;
 static QueueHandle_t rx_queue;
 
 int sunxi_uart_init(const struct sunxi_uart_config *config)

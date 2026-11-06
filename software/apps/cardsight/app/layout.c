@@ -13,7 +13,7 @@ static bool layout_fits(const struct cardsight_request *request, uint64_t card_s
 		(request->table == BLK_PARTITION_TABLE_MBR && request->count > 4U)) {
 		return false;
 	}
-	for (unsigned int index = 0U; index < request->count; index++) {
+	for (uint32_t index = 0U; index < request->count; index++) {
 		needed += request->entries[index].sectors;
 	}
 	return needed <= card_sectors;
@@ -37,7 +37,7 @@ int layout_apply(const struct cardsight_request *request)
 	}
 	result = blk_write_partition_layout(bdev->bd_disk, request->table, request->entries, request->count);
 	bdev_close(bdev);
-	for (unsigned int index = 0U; result == 0 && index < request->count; index++) {
+	for (uint32_t index = 0U; result == 0 && index < request->count; index++) {
 		result = format_partition(index + 1U, request->entries[index].content, false);
 	}
 	return result;

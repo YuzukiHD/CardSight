@@ -52,9 +52,9 @@ void main(void)
 	cs_plic_init();
 
 	pr_info("CardSight on C907, %lu Hz timer, image %u KiB, heap %u KiB\n",
-		(unsigned long)SUNXI_TIMEBASE_HZ, (unsigned)((__image_end - __image_start) / 1024U),
-		(unsigned)((__heap_end - __heap_start) / 1024U));
-	pr_info("PSRAM %u MiB at 0x%08lx\n", (unsigned)(SUNXI_PSRAM_SIZE / (1024U * 1024U)),
+		(unsigned long)SUNXI_TIMEBASE_HZ, (uint32_t)((__image_end - __image_start) / 1024U),
+		(uint32_t)((__heap_end - __heap_start) / 1024U));
+	pr_info("PSRAM %u MiB at 0x%08lx\n", (uint32_t)(SUNXI_PSRAM_SIZE / (1024U * 1024U)),
 		(unsigned long)SUNXI_PSRAM_BASE);
 
 	initcalls_run(0);

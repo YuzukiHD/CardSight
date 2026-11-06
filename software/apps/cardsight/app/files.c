@@ -15,7 +15,7 @@
 /* One level of the view; the path is relative to the partition root. */
 static int mounted_target(const char *block, char *target, size_t size)
 {
-	for (unsigned int index = 0U;; index++) {
+	for (uint32_t index = 0U;; index++) {
 		struct vfs_mount_info info;
 		int result = vfs_mount_get(index, &info);
 
@@ -101,7 +101,7 @@ static int list_directory(const char *target, const char *path, struct cardsight
 	return error != 0 ? error : 0;
 }
 
-int card_list_files(unsigned int partition, const char *path)
+int card_list_files(uint32_t partition, const char *path)
 {
 	char block[VFS_BLK_NAME];
 	char target[VFS_NAME_MAX + 1];

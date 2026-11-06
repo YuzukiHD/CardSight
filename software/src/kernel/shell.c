@@ -72,8 +72,8 @@ static int command_heap(int argc, char **argv)
 {
 	(void)argc;
 	(void)argv;
-	printf("kernel heap: %u bytes free, %u bytes ever\n", (unsigned)xPortGetFreeHeapSize(),
-		(unsigned)xPortGetMinimumEverFreeHeapSize());
+	printf("kernel heap: %u bytes free, %u bytes ever\n", (uint32_t)xPortGetFreeHeapSize(),
+		(uint32_t)xPortGetMinimumEverFreeHeapSize());
 	return 0;
 }
 SHELL_CMD(heap, "show the kernel heap", command_heap);

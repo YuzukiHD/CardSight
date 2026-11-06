@@ -40,7 +40,7 @@ static uint32_t crc32_ieee(const uint8_t *data, size_t length)
 
 	while (length-- != 0U) {
 		crc ^= *data++;
-		for (unsigned int bit = 0U; bit < 8U; bit++) {
+		for (uint32_t bit = 0U; bit < 8U; bit++) {
 			crc = (crc >> 1) ^ (0xedb88320U & (uint32_t)-(int32_t)(crc & 1U));
 		}
 	}
@@ -59,11 +59,11 @@ static uint8_t mbr_type(enum blk_partition_content content)
 
 /* Start and length of every entry, in sectors; -ENOSPC when they do not fit. */
 static int layout_ranges(const struct gendisk *disk, const struct blk_partition_layout_entry *entries,
-	unsigned int count, uint64_t first_usable, uint64_t last_usable, uint64_t starts[], uint64_t lengths[])
+	uint32_t count, uint64_t first_usable, uint64_t last_usable, uint64_t starts[], uint64_t lengths[])
 {
 	uint64_t next = ALIGN_UP(first_usable, LAYOUT_ALIGN_SECTORS);
 
-	for (unsigned int index = 0U; index < count; index++) {
+	for (uint32_t index = 0U; index < count; index++) {
 		uint64_t length;
 
 		if (entries[index].sectors != 0U) {
@@ -91,7 +91,7 @@ static int layout_ranges(const struct gendisk *disk, const struct blk_partition_
 }
 
 static int write_mbr(struct gendisk *disk, const struct blk_partition_layout_entry *entries,
-	unsigned int count)
+	uint32_t count)
 {
 	uint64_t starts[4];
 	uint64_t lengths[4];
@@ -105,7 +105,7 @@ static int write_mbr(struct gendisk *disk, const struct blk_partition_layout_ent
 		return result;
 	}
 	memset(layout_sector, 0, sizeof(layout_sector));
-	for (unsigned int index = 0U; index < count; index++) {
+	for (uint32_t index = 0U; index < count; index++) {
 		uint8_t *entry = layout_sector + 446U + index * 16U;
 
 		entry[1] = entry[5] = 0xfeU;
@@ -119,7 +119,7 @@ static int write_mbr(struct gendisk *disk, const struct blk_partition_layout_ent
 	return bdev_write(disk->part0, 0U, layout_sector, 1U);
 }
 
-static void gpt_guid(const struct gendisk *disk, unsigned int index, uint8_t guid[16])
+static void gpt_guid(const struct gendisk *disk, uint32_t index, uint8_t guid[16])
 {
 	uint32_t hash = 2166136261U;
 	const char *name = disk->disk_name;
@@ -137,7 +137,7 @@ static void gpt_guid(const struct gendisk *disk, unsigned int index, uint8_t gui
 
 static void gpt_label(uint8_t *entry, const char *label)
 {
-	for (unsigned int index = 0U; index < 36U && label[index] != '\0'; index++) {
+	for (uint32_t index = 0U; index < 36U && label[index] != '\0'; index++) {
 		blk_put_le16(entry + 0x38U + index * 2U, (uint8_t)label[index]);
 	}
 }
@@ -167,7 +167,7 @@ static void gpt_header(struct gendisk *disk, uint8_t header[BLOCK_SECTOR_SIZE], 
 }
 
 static int write_gpt(struct gendisk *disk, const struct blk_partition_layout_entry *entries,
-	unsigned int count)
+	uint32_t count)
 {
 	uint64_t backup_header_lba = disk->capacity - 1U;
 	uint64_t backup_entries_lba = backup_header_lba - GPT_ENTRY_SECTORS;
@@ -186,7 +186,7 @@ static int write_gpt(struct gendisk *disk, const struct blk_partition_layout_ent
 		return result;
 	}
 	memset(layout_entries, 0, sizeof(layout_entries));
-	for (unsigned int index = 0U; index < count; index++) {
+	for (uint32_t index = 0U; index < count; index++) {
 		uint8_t *entry = layout_entries + index * GPT_ENTRY_SIZE;
 		uint8_t guid[16];
 
@@ -230,7 +230,7 @@ static int write_gpt(struct gendisk *disk, const struct blk_partition_layout_ent
 }
 
 int blk_write_partition_layout(struct gendisk *disk, enum blk_partition_table_type table,
-	const struct blk_partition_layout_entry *entries, unsigned int count)
+	const struct blk_partition_layout_entry *entries, uint32_t count)
 {
 	int result;
 

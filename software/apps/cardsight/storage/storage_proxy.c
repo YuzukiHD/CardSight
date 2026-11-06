@@ -49,7 +49,7 @@ void *proxy_calloc(size_t count, size_t size)
 
 static void proxy_unmount_sources(void)
 {
-	for (unsigned int partition = 0U; partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; partition < PROXY_PARTITIONS; partition++) {
 		if (proxy.partitions[partition].mounted) {
 			(void)vfs_umount(proxy.partitions[partition].mount);
 			proxy.partitions[partition].mounted = false;
@@ -62,7 +62,7 @@ static void proxy_release(void)
 {
 	(void)proxy_write_flush();
 	proxy_stage_close();
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		proxy_run_release(&proxy.runs[index]);
 	}
 	if (proxy.cached_fd >= 0) {
@@ -128,7 +128,7 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 	bdev_close(source_bdev);
 	proxy.read_only = false;
 	memset(proxy.partitions, 0, sizeof(proxy.partitions));
-	for (unsigned int partition = 0U; partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; partition < PROXY_PARTITIONS; partition++) {
 		struct proxy_partition *part = &proxy.partitions[partition];
 		struct block_device *partition_bdev;
 
@@ -180,7 +180,7 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 	proxy.nodes[0].directory = true;
 	proxy.nodes[0].scanned = true;
 	proxy.nodes[0].name_offset = proxy_store_string("");
-	for (unsigned int partition = 0U; partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; partition < PROXY_PARTITIONS; partition++) {
 		struct proxy_partition *part = &proxy.partitions[partition];
 
 		if (!part->selected) {
@@ -260,7 +260,7 @@ int storage_proxy_start(const char *source_disk)
 {
 	struct storage_proxy_config config = { .source_disk = source_disk };
 
-	for (unsigned int partition = 0U; source_disk != NULL && partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; source_disk != NULL && partition < PROXY_PARTITIONS; partition++) {
 		char device[VFS_BLK_NAME];
 		struct block_device *bdev;
 
@@ -327,7 +327,7 @@ int storage_proxy_scan(const char *source_disk, struct storage_proxy_partition_i
 		return -ENODEV;
 	}
 	bdev_close(source);
-	for (unsigned int index = 0U; index < PROXY_PARTITIONS && found < capacity; index++) {
+	for (uint32_t index = 0U; index < PROXY_PARTITIONS && found < capacity; index++) {
 		struct storage_proxy_partition_info *info = &partitions[found];
 		struct block_device *bdev;
 
@@ -363,7 +363,7 @@ size_t storage_proxy_entry_count(void)
 }
 
 
-int storage_proxy_partition_status(unsigned int partition)
+int storage_proxy_partition_status(uint32_t partition)
 {
 	return partition < PROXY_PARTITIONS ? proxy.partitions[partition].status : -EINVAL;
 }

@@ -11,7 +11,7 @@
 struct mmc_host;
 
 /** The host at @p index, or NULL when the board has none. */
-struct mmc_host *mmc_host_get(unsigned int index);
+struct mmc_host *mmc_host_get(uint32_t index);
 
 /** The card in @p host with a reference (put_device(&card->dev)), or NULL when the slot is empty. */
 struct mmc_card *mmc_host_card_get(struct mmc_host *host);

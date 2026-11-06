@@ -11,7 +11,7 @@ struct semaphore {
 	void *handle;
 };
 
-void sema_init_limit(struct semaphore *sem, unsigned int initial, unsigned int limit);
+void sema_init_limit(struct semaphore *sem, uint32_t initial, uint32_t limit);
 int down_timeout(struct semaphore *sem, int timeout_ms);
 void up(struct semaphore *sem);
 

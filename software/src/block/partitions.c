@@ -36,7 +36,7 @@ static void gpt_label(const uint8_t *entry, char label[BDEV_LABEL_LEN])
 	const uint8_t *utf16 = entry + 0x38U;
 
 	label[0] = '\0';
-	for (unsigned int index = 0U; index + 1U < BDEV_LABEL_LEN - 1U && index < 36U; index += 2U) {
+	for (uint32_t index = 0U; index + 1U < BDEV_LABEL_LEN - 1U && index < 36U; index += 2U) {
 		uint16_t character = blk_le16(utf16 + index);
 
 		if (character == 0U) {
@@ -61,7 +61,7 @@ static uint8_t gpt_part_type(const uint8_t *type)
 	return 0x00;
 }
 
-static int add_partition(struct gendisk *disk, unsigned int partno, uint64_t start, uint64_t sectors,
+static int add_partition(struct gendisk *disk, uint32_t partno, uint64_t start, uint64_t sectors,
 	uint8_t type, bool read_only, const char *label)
 {
 	struct block_device *bdev = calloc(1, sizeof(*bdev));
@@ -96,7 +96,7 @@ static int scan_mbr(struct gendisk *disk)
 {
 	int result = 0;
 
-	for (unsigned int slot = 0U; slot < 4U; slot++) {
+	for (uint32_t slot = 0U; slot < 4U; slot++) {
 		const uint8_t *entry = table_sector + MBR_TABLE_OFFSET + slot * 16U;
 		uint8_t type = entry[4];
 		uint64_t start = blk_le32(entry + 8U);
@@ -123,7 +123,7 @@ static int scan_gpt(struct gendisk *disk)
 	uint32_t count;
 	uint32_t entry_size;
 	uint64_t sectors_in_window;
-	unsigned int entries;
+	uint32_t entries;
 	int result;
 
 	if (disk->fops->read(disk, 1U, table_sector, 1U) != 0 || memcmp(table_sector, "EFI PART", 8U) != 0) {
@@ -146,7 +146,7 @@ static int scan_gpt(struct gendisk *disk)
 	if (entries > count) {
 		entries = count;
 	}
-	for (unsigned int index = 0U; index < entries; index++) {
+	for (uint32_t index = 0U; index < entries; index++) {
 		const uint8_t *entry = gpt_window + (size_t)index * entry_size;
 		uint8_t type[16];
 		uint64_t start;
@@ -185,7 +185,7 @@ int blk_scan_partitions(struct gendisk *disk)
 	if (table_sector[510] != 0x55U || table_sector[511] != 0xaaU) {
 		return -ENOENT;
 	}
-	for (unsigned int slot = 0U; slot < 4U; slot++) {
+	for (uint32_t slot = 0U; slot < 4U; slot++) {
 		if (table_sector[MBR_TABLE_OFFSET + slot * 16U + 4U] == 0xeeU) {
 			protective = true;
 		}

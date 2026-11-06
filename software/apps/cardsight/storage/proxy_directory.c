@@ -48,12 +48,12 @@ static size_t proxy_utf16(const char *input, uint16_t *output, size_t capacity)
 }
 
 
-unsigned int proxy_object_entries(const struct proxy_node *node)
+uint32_t proxy_object_entries(const struct proxy_node *node)
 {
 	uint16_t name[VFS_NAME_MAX + 1];
 	size_t length = proxy_utf16(proxy_string(node->name_offset), name, VFS_NAME_MAX);
 
-	return 2U + (unsigned int)((length + 14U) / 15U);
+	return 2U + (uint32_t)((length + 14U) / 15U);
 }
 
 
@@ -73,12 +73,12 @@ static uint16_t proxy_name_hash(const uint16_t *name, size_t length)
 }
 
 
-static void proxy_object_entry_raw(const struct proxy_node *node, unsigned int position,
+static void proxy_object_entry_raw(const struct proxy_node *node, uint32_t position,
 				   uint8_t entry[32])
 {
 	uint16_t name[VFS_NAME_MAX + 1];
 	size_t length = proxy_utf16(proxy_string(node->name_offset), name, VFS_NAME_MAX);
-	unsigned int entries = 2U + (unsigned int)((length + 14U) / 15U);
+	uint32_t entries = 2U + (uint32_t)((length + 14U) / 15U);
 	uint64_t data_length = node->directory ?
 		(uint64_t)node->cluster_count * PROXY_CLUSTER_SIZE : node->size;
 
@@ -100,7 +100,7 @@ static void proxy_object_entry_raw(const struct proxy_node *node, unsigned int p
 		size_t start = (size_t)(position - 2U) * 15U;
 
 		entry[0] = 0xc1U;
-		for (unsigned int character = 0U; character < 15U; character++) {
+		for (uint32_t character = 0U; character < 15U; character++) {
 			size_t name_index = start + character;
 
 			put_le16(entry + 2U + character * 2U,
@@ -114,11 +114,11 @@ static uint16_t proxy_object_checksum(const struct proxy_node *node)
 {
 	uint8_t entry[32];
 	uint16_t checksum = 0U;
-	unsigned int entries = proxy_object_entries(node);
+	uint32_t entries = proxy_object_entries(node);
 
-	for (unsigned int position = 0U; position < entries; position++) {
+	for (uint32_t position = 0U; position < entries; position++) {
 		proxy_object_entry_raw(node, position, entry);
-		for (unsigned int index = 0U; index < sizeof(entry); index++) {
+		for (uint32_t index = 0U; index < sizeof(entry); index++) {
 			if (position == 0U && (index == 2U || index == 3U)) {
 				continue;
 			}
@@ -130,7 +130,7 @@ static uint16_t proxy_object_checksum(const struct proxy_node *node)
 }
 
 
-static void proxy_object_entry(const struct proxy_node *node, unsigned int position,
+static void proxy_object_entry(const struct proxy_node *node, uint32_t position,
 			       uint8_t entry[32])
 {
 	proxy_object_entry_raw(node, position, entry);
@@ -140,7 +140,7 @@ static void proxy_object_entry(const struct proxy_node *node, unsigned int posit
 }
 
 
-static void proxy_root_system_entry(unsigned int position, uint8_t entry[32])
+static void proxy_root_system_entry(uint32_t position, uint8_t entry[32])
 {
 	static const uint16_t label[] = { 'C', 'A', 'R', 'D', 'S', 'I', 'G', 'H', 'T' };
 
@@ -148,7 +148,7 @@ static void proxy_root_system_entry(unsigned int position, uint8_t entry[32])
 	if (position == 0U) {
 		entry[0] = 0x83U;
 		entry[1] = sizeof(label) / sizeof(label[0]);
-		for (unsigned int index = 0U; index < sizeof(label) / sizeof(label[0]); index++) {
+		for (uint32_t index = 0U; index < sizeof(label) / sizeof(label[0]); index++) {
 			put_le16(entry + 2U + index * 2U, label[index]);
 		}
 	} else if (position == 1U) {
@@ -176,7 +176,7 @@ static bool proxy_directory_entry(const struct proxy_node *directory,
 	child = directory->first_child;
 	while (child != PROXY_INVALID_NODE) {
 		struct proxy_node *node = &proxy.nodes[child];
-		unsigned int entries = proxy_object_entries(node);
+		uint32_t entries = proxy_object_entries(node);
 
 		if (!node->retired && wanted >= node->directory_slot && wanted < node->directory_slot + entries) {
 			proxy_object_entry(node, wanted - node->directory_slot, entry);
@@ -204,7 +204,7 @@ int proxy_read_directory(uint32_t node_index,
 	directory = &proxy.nodes[node_index];
 
 	memset(sector, 0, PROXY_SECTOR_SIZE);
-	for (unsigned int slot = 0U; slot < PROXY_SECTOR_SIZE / 32U; slot++) {
+	for (uint32_t slot = 0U; slot < PROXY_SECTOR_SIZE / 32U; slot++) {
 		(void)proxy_directory_entry(directory, first_entry + slot, sector + slot * 32U);
 	}
 	return 0;
@@ -257,7 +257,7 @@ static int proxy_sync_entry_inner(uint32_t parent, const char *name, bool direct
 
 		if (source == PROXY_SOURCE_VFS) {
 			result = proxy_child_path(parent, name, path);
-			for (unsigned int attempt = 0U; result == 0 && attempt < 2U; attempt++) {
+			for (uint32_t attempt = 0U; result == 0 && attempt < 2U; attempt++) {
 				if (directory) {
 					result = vfs_mkdir(path);
 				} else {
@@ -381,23 +381,23 @@ static int proxy_sync_entry(uint32_t parent, const char *name, bool directory,
 
 
 
-static bool proxy_entry_name(const uint8_t *sector, unsigned int slot, unsigned int secondaries,
+static bool proxy_entry_name(const uint8_t *sector, uint32_t slot, uint32_t secondaries,
 	char name[VFS_NAME_MAX + 1])
 {
 	uint16_t characters[VFS_NAME_MAX];
-	unsigned int length = sector[(slot + 1U) * 32U + 3U];
-	unsigned int copied = 0U;
+	uint32_t length = sector[(slot + 1U) * 32U + 3U];
+	uint32_t copied = 0U;
 
 	if (length > VFS_NAME_MAX || slot + secondaries >= PROXY_WINDOW_SLOTS) {
 		return false;
 	}
-	for (unsigned int entry = 2U; entry <= secondaries && copied < length; entry++) {
+	for (uint32_t entry = 2U; entry <= secondaries && copied < length; entry++) {
 		const uint8_t *name_entry = sector + (slot + entry) * 32U;
 
 		if (name_entry[0] != 0xc1U) {
 			return false;
 		}
-		for (unsigned int character = 0U; character < 15U && copied < length; character++) {
+		for (uint32_t character = 0U; character < 15U && copied < length; character++) {
 			characters[copied++] = get_le16(name_entry + 2U + character * 2U);
 		}
 	}
@@ -406,11 +406,11 @@ static bool proxy_entry_name(const uint8_t *sector, unsigned int slot, unsigned 
 }
 
 
-static void proxy_mark_removed(uint32_t parent, const uint8_t *sector, unsigned int slot, uint32_t absolute_slot)
+static void proxy_mark_removed(uint32_t parent, const uint8_t *sector, uint32_t slot, uint32_t absolute_slot)
 {
 	uint32_t first_cluster;
 	uint32_t node_index;
-	unsigned int secondaries = sector[slot * 32U + 1U];
+	uint32_t secondaries = sector[slot * 32U + 1U];
 	char name[VFS_NAME_MAX + 1];
 
 	if (slot + 1U >= PROXY_WINDOW_SLOTS || sector[(slot + 1U) * 32U] != 0xc0U) {
@@ -434,9 +434,9 @@ static int proxy_write_directory_inner(uint32_t parent, uint64_t offset, const u
 	/* [kept head of a cut group][sector written][sector after]; only this write can complete a cut group. */
 	uint8_t *window = proxy.directory_window;
 	uint8_t *previous = proxy.directory_previous;
-	const unsigned int slots_per_sector = PROXY_SECTOR_SIZE / 32U;
-	unsigned int head_slots = 0U;
-	unsigned int window_slots;
+	const uint32_t slots_per_sector = PROXY_SECTOR_SIZE / 32U;
+	uint32_t head_slots = 0U;
+	uint32_t window_slots;
 	int result = proxy_write_flush();
 
 	if (result != 0) {
@@ -454,15 +454,15 @@ static int proxy_write_directory_inner(uint32_t parent, uint64_t offset, const u
 	memset(window + (size_t)head_slots * 32U, 0, sizeof(proxy.directory_window) - (size_t)head_slots * 32U);
 	memcpy(window + (size_t)head_slots * 32U, data, PROXY_SECTOR_SIZE);
 	window_slots = head_slots + slots_per_sector;
-	for (unsigned int slot = 0U; slot < window_slots; slot++) {
+	for (uint32_t slot = 0U; slot < window_slots; slot++) {
 		const uint8_t *entry = window + slot * 32U;
-		const unsigned int local = slot - head_slots;
+		const uint32_t local = slot - head_slots;
 
 		if (slot >= head_slots && previous[local * 32U] == 0x85U && entry[0] == 0x05U) {
 			proxy_mark_removed(parent, previous, local, (uint32_t)(offset / 32U) + local);
 		}
 		if (entry[0] == 0x85U) {
-			unsigned int secondaries = entry[1];
+			uint32_t secondaries = entry[1];
 			const uint8_t *stream;
 			char name[VFS_NAME_MAX + 1];
 

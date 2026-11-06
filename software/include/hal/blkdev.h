@@ -38,14 +38,14 @@ struct block_device_operations {
 struct block_device {
 	struct device dev; /* the name is the disk name or "<disk>p<N>" */
 	struct gendisk *bd_disk;
-	unsigned int partno; /* 0: the whole disk */
+	uint32_t partno; /* 0: the whole disk */
 	uint64_t start_sect; /* first sector in the disk */
 	uint64_t nr_sects;
 	uint8_t part_type; /* the type byte of the partition table, 0 for a disk or without one */
 	bool read_only;
 	char label[BDEV_LABEL_LEN];
-	unsigned int openers; /* bdev_open_by_name() without bdev_close() yet */
-	unsigned int mounts;  /* file systems mounted from it */
+	uint32_t openers; /* bdev_open_by_name() without bdev_close() yet */
+	uint32_t mounts;  /* file systems mounted from it */
 	struct block_device *next;
 };
 
@@ -55,10 +55,10 @@ struct gendisk {
 	const struct block_device_operations *fops;
 	uint64_t capacity; /* sectors of logical_block_size bytes */
 	uint32_t logical_block_size; /* 512 */
-	unsigned int flags;
+	uint32_t flags;
 	struct block_device *part0; /* the whole disk */
 	struct block_device *parts; /* the partitions, in partition number order */
-	unsigned int part_count;
+	uint32_t part_count;
 	struct gendisk *next; /* the registered disks */
 	bool registered;
 	bool dead; /* del_gendisk() ran: every access fails with -ENODEV */
@@ -125,6 +125,6 @@ struct blk_partition_layout_entry {
  * a partition is mounted.
  */
 int blk_write_partition_layout(struct gendisk *disk, enum blk_partition_table_type table,
-	const struct blk_partition_layout_entry *entries, unsigned int count);
+	const struct blk_partition_layout_entry *entries, uint32_t count);
 
 #endif /* CARDSIGHT_BLKDEV_H */

@@ -54,7 +54,7 @@ static const struct sunxi_spi_config *spi_config;
 
 static int spi_wait_clear(uint32_t offset, uint32_t bits)
 {
-	for (unsigned int spins = 0U; spins < 100000U; spins++) {
+	for (uint32_t spins = 0U; spins < 100000U; spins++) {
 		if ((readl(spi_config->base + offset) & bits) == 0U) {
 			return 0;
 		}
@@ -111,9 +111,9 @@ static int spi_send(const uint8_t *data, size_t length, uint64_t deadline)
 			}
 		}
 		if (cs_clint_ticks() > deadline) {
-			pr_err("%u bytes: wrote %u, fifo %08x int %08x tc %08x\n", (unsigned)length,
-				(unsigned)written, (unsigned)readl(base + SPI_FIFO_STA),
-				(unsigned)readl(base + SPI_INT_STA), (unsigned)readl(base + SPI_TC));
+			pr_err("%u bytes: wrote %u, fifo %08x int %08x tc %08x\n", (uint32_t)length,
+				(uint32_t)written, (uint32_t)readl(base + SPI_FIFO_STA),
+				(uint32_t)readl(base + SPI_INT_STA), (uint32_t)readl(base + SPI_TC));
 			return -ETIMEDOUT;
 		}
 	}

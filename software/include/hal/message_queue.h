@@ -13,7 +13,7 @@ struct message_queue {
 	void *handle;
 };
 
-int msg_queue_init(struct message_queue *queue, unsigned int item_size, unsigned int capacity);
+int msg_queue_init(struct message_queue *queue, uint32_t item_size, uint32_t capacity);
 int msg_queue_put(struct message_queue *queue, const void *item, int timeout_ms);
 int msg_queue_get(struct message_queue *queue, void *item, int timeout_ms);
 

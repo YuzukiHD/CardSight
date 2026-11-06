@@ -194,7 +194,7 @@ static int full_path(const struct fat_priv *priv, const char *relative, char *ou
 		}                                                                                 \
 	} while (0)
 
-static int fat_mount(struct block_device *bdev, unsigned int flags, void **priv)
+static int fat_mount(struct block_device *bdev, uint32_t flags, void **priv)
 {
 	struct fat_priv *fat = calloc(1, sizeof(*fat));
 	int slot;
@@ -242,7 +242,7 @@ static int fat_sync(void *private_data)
 }
 
 /* Select the FatFs open mode for the VFS flags. */
-static BYTE open_mode(unsigned int flags, bool read_only)
+static BYTE open_mode(uint32_t flags, bool read_only)
 {
 	BYTE mode = 0U;
 
@@ -266,7 +266,7 @@ static BYTE open_mode(unsigned int flags, bool read_only)
 	return mode;
 }
 
-static int fat_open(void *private_data, const char *path, unsigned int flags, void **file)
+static int fat_open(void *private_data, const char *path, uint32_t flags, void **file)
 {
 	struct fat_priv *fat = private_data;
 	struct fat_file *handle;
@@ -529,7 +529,7 @@ static int fat_volume_info(void *private_data, struct vfs_volume_info *info)
  * The device is a partition, so the volume gets no partition table of its own (FM_SFD). The label
  * is written with a short mount; the drive is taken and released around the whole call.
  */
-static int fat_format_flags(struct block_device *bdev, const char *label, unsigned int arg, BYTE format)
+static int fat_format_flags(struct block_device *bdev, const char *label, uint32_t arg, BYTE format)
 {
 	MKFS_PARM options = {
 		.fmt = format | FM_SFD,
@@ -573,17 +573,17 @@ static int fat_format_flags(struct block_device *bdev, const char *label, unsign
 	return result;
 }
 
-static int fat_format_fat(struct block_device *bdev, const char *label, unsigned int arg)
+static int fat_format_fat(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_FAT | FM_FAT32);
 }
 
-static int fat_format_fat32(struct block_device *bdev, const char *label, unsigned int arg)
+static int fat_format_fat32(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_FAT32);
 }
 
-static int fat_format_exfat(struct block_device *bdev, const char *label, unsigned int arg)
+static int fat_format_exfat(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_EXFAT);
 }

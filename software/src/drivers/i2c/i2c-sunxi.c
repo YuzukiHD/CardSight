@@ -43,7 +43,7 @@ static const struct sunxi_i2c_config *i2c_config;
 
 static int twi_wait(uint32_t expected)
 {
-	for (unsigned int spins = 0U; spins < 200000U; spins++) {
+	for (uint32_t spins = 0U; spins < 200000U; spins++) {
 		if ((readl(i2c_config->base + TWI_CTL) & CTL_INTFLG) != 0U) {
 			uint32_t status = readl(i2c_config->base + TWI_STATUS) & 0xffU;
 
@@ -65,7 +65,7 @@ static int twi_start(bool repeated)
 	if (!repeated) {
 		writel(0U, i2c_config->base + TWI_EFT);
 		writel(1U, i2c_config->base + TWI_SRST);
-		for (unsigned int spins = 0U; spins < 100000U; spins++) {
+		for (uint32_t spins = 0U; spins < 100000U; spins++) {
 			if ((readl(i2c_config->base + TWI_SRST) & 1U) == 0U &&
 			    (readl(i2c_config->base + TWI_STATUS) & 0xffU) == ST_IDLE) {
 				break;
@@ -88,7 +88,7 @@ static int twi_address(uint16_t address, bool read)
 static int twi_stop(void)
 {
 	writel(readl(i2c_config->base + TWI_CTL) | CTL_STP | CTL_INTFLG, i2c_config->base + TWI_CTL);
-	for (unsigned int spins = 0U; spins < 100000U; spins++) {
+	for (uint32_t spins = 0U; spins < 100000U; spins++) {
 		if ((readl(i2c_config->base + TWI_CTL) & CTL_STP) == 0U &&
 		    (readl(i2c_config->base + TWI_STATUS) & 0xffU) == ST_IDLE) {
 			cs_udelay(5U);

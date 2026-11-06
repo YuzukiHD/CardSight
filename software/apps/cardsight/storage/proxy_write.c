@@ -6,7 +6,7 @@
 
 static bool proxy_is_stage_path(const char *path)
 {
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		if (path == proxy.runs[index].path) {
 			return true;
 		}
@@ -281,9 +281,9 @@ static int proxy_pending_flush(uint32_t node_index)
 }
 
 
-static unsigned int proxy_path_partition(const char *path)
+static uint32_t proxy_path_partition(const char *path)
 {
-	for (unsigned int partition = 0U; partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; partition < PROXY_PARTITIONS; partition++) {
 		size_t length = strlen(proxy.partitions[partition].mount);
 
 		if (proxy.partitions[partition].mounted && length != 0U &&
@@ -341,7 +341,7 @@ void proxy_pending_drop(uint32_t cluster, uint16_t sector)
 
 static struct proxy_run *proxy_find_run(uint32_t cluster)
 {
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		struct proxy_run *run = &proxy.runs[index];
 
 		if (run->used && cluster >= run->first_cluster && cluster < run->first_cluster + run->clusters + PROXY_RUN_GAP) {
@@ -370,10 +370,10 @@ static struct proxy_run *proxy_new_run(uint32_t cluster)
 {
 	struct proxy_run *evict = NULL;
 
-	unsigned int partition = PROXY_PARTITIONS;
+	uint32_t partition = PROXY_PARTITIONS;
 	int descriptor;
 
-	for (unsigned int index = 0U; index < PROXY_PARTITIONS; index++) {
+	for (uint32_t index = 0U; index < PROXY_PARTITIONS; index++) {
 		if (proxy.partitions[index].mounted && proxy.partitions[index].writable) {
 			partition = index;
 			break;
@@ -383,7 +383,7 @@ static struct proxy_run *proxy_new_run(uint32_t cluster)
 		return NULL;
 	}
 	/* All slots busy: the oldest run with at most its tail cluster left is as good as claimed. */
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		if (!proxy.runs[index].used) {
 			evict = NULL;
 			break;
@@ -395,7 +395,7 @@ static struct proxy_run *proxy_new_run(uint32_t cluster)
 	if (evict != NULL) {
 		proxy_run_release(evict);
 	}
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		struct proxy_run *run = &proxy.runs[index];
 
 		if (run->used) {
@@ -608,7 +608,7 @@ static int proxy_claim_runs(uint32_t node_index)
 		return 0;
 	}
 	node_path = proxy_string(node->source_offset);
-	for (unsigned int index = 0U; index < PROXY_RUNS; index++) {
+	for (uint32_t index = 0U; index < PROXY_RUNS; index++) {
 		struct proxy_run *run = &proxy.runs[index];
 		uint32_t low;
 		uint32_t high;
@@ -764,7 +764,7 @@ int proxy_apply_deletes(void)
 			return result;
 		}
 	}
-	for (unsigned int partition = 0U; result == 0 && partition < PROXY_PARTITIONS; partition++) {
+	for (uint32_t partition = 0U; result == 0 && partition < PROXY_PARTITIONS; partition++) {
 		if (proxy.partitions[partition].mounted) {
 			result = vfs_sync_mount(proxy.partitions[partition].mount);
 		}

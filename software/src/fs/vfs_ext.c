@@ -208,7 +208,7 @@ static bool ext_superblock_sane(struct block_device *bdev)
 
 static struct ext_mount *ext_alloc_mount(struct block_device *bdev)
 {
-	for (unsigned int index = 0U; index < CONFIG_EXT_FS_MAX_MOUNTS; index++) {
+	for (uint32_t index = 0U; index < CONFIG_EXT_FS_MAX_MOUNTS; index++) {
 		struct ext_mount *mount = &ext_mounts[index];
 
 		if (!mount->mounted) {
@@ -238,7 +238,7 @@ static void ext_setup_blockdev(struct ext_mount *mount)
 	mount->ext_bdev.part_size = bdev_nr_sectors(mount->bdev) * EXT_SECTOR_SIZE;
 }
 
-static int ext_vfs_mount(struct block_device *bdev, unsigned int flags, void **private_data)
+static int ext_vfs_mount(struct block_device *bdev, uint32_t flags, void **private_data)
 {
 	struct ext_mount *mount;
 	int result;
@@ -314,7 +314,7 @@ static int ext_full_path(const struct ext_mount *mount, const char *path, char *
 	return written < 0 || (size_t)written >= size ? -ENAMETOOLONG : 0;
 }
 
-static int ext_vfs_open(void *private_data, const char *path, unsigned int flags, void **file_data)
+static int ext_vfs_open(void *private_data, const char *path, uint32_t flags, void **file_data)
 {
 	struct ext_mount *mount = private_data;
 	struct ext_file *file;
@@ -648,7 +648,7 @@ static int ext_vfs_volume_info(void *private_data, struct vfs_volume_info *info)
 /* A mount context is nearly nine kilobytes; the formatter gets one of its own, not the stack. */
 static struct ext_mount ext_format_mount;
 
-static int ext_vfs_format(struct block_device *bdev, const char *label, unsigned int argument)
+static int ext_vfs_format(struct block_device *bdev, const char *label, uint32_t argument)
 {
 	struct ext_mount *mount = &ext_format_mount;
 	struct ext4_mkfs_info info = { .label = label, .journal = argument != F_SET_EXT2 };

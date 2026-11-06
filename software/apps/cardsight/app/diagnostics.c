@@ -61,19 +61,19 @@ static void validate_tree(lv_obj_t *parent, const char *page, bool clipped, int 
 		lv_obj_get_coords(child, &child_area);
 		if (!scrollable && !area_contains(&parent_area, &child_area)) {
 			pr_err("UI test %s: child %u outside parent (%ld,%ld)-(%ld,%ld)\n", page,
-				(unsigned int)index, (long)child_area.x1, (long)child_area.y1,
+				(uint32_t)index, (long)child_area.x1, (long)child_area.y1,
 				(long)child_area.x2, (long)child_area.y2);
 			(*failures)++;
 		}
 		if (!clipped && !scrollable && !lv_obj_is_scrollable(child) && !corners_on_glass(child, &child_area)) {
 			pr_err("UI test %s: child %u leaves the rounded glass r=%ld (%ld,%ld)-(%ld,%ld)\n", page,
-				(unsigned int)index, (long)lv_obj_get_style_radius(child, LV_PART_MAIN), (long)child_area.x1, (long)child_area.y1,
+				(uint32_t)index, (long)lv_obj_get_style_radius(child, LV_PART_MAIN), (long)child_area.x1, (long)child_area.y1,
 				(long)child_area.x2, (long)child_area.y2);
 			(*failures)++;
 		}
 		if (lv_obj_is_clickable(child) &&
 			(lv_obj_get_width(child) < APP_TOUCH_MIN || lv_obj_get_height(child) < APP_TOUCH_MIN)) {
-			pr_err("UI test %s: clickable child %u is %ldx%ld\n", page, (unsigned int)index,
+			pr_err("UI test %s: clickable child %u is %ldx%ld\n", page, (uint32_t)index,
 				(long)lv_obj_get_width(child), (long)lv_obj_get_height(child));
 			(*failures)++;
 		}
@@ -88,7 +88,7 @@ static void validate_object_tree(lv_obj_t *parent, const char *page, int *failur
 
 static void validate_active_page(const char *name, int *failures)
 {
-	lv_obj_t *active = ui.tiles[(unsigned int)ui.mode];
+	lv_obj_t *active = ui.tiles[(uint32_t)ui.mode];
 
 	lv_obj_update_layout(ui.screen);
 	if (active == NULL || ui.bar == NULL) {
@@ -147,7 +147,7 @@ static void ui_selftest_callback(void *argument)
 	(void)argument;
 	saved_mode = ui.mode;
 	saved_layout = ui.layout_editor;
-	for (unsigned int index = 0U; index < ARRAY_SIZE(names); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(names); index++) {
 		show_page((enum cardsight_mode)index);
 		validate_active_page(names[index], &failures);
 	}

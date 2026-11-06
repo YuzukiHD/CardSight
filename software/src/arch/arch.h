@@ -10,9 +10,9 @@ typedef void (*cs_irq_handler_t)(void *argument);
 
 /* plic.c */
 void cs_plic_init(void);
-int cs_irq_connect(unsigned int source, cs_irq_handler_t handler, void *argument);
-void cs_irq_enable(unsigned int source);
-void cs_irq_disable(unsigned int source);
+int cs_irq_connect(uint32_t source, cs_irq_handler_t handler, void *argument);
+void cs_irq_enable(uint32_t source);
+void cs_irq_disable(uint32_t source);
 
 /* clint.c */
 void cs_clint_init(void);

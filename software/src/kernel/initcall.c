@@ -6,9 +6,9 @@
 extern const struct initcall __initcall_start[];
 extern const struct initcall __initcall_end[];
 
-void initcalls_run(unsigned int level)
+void initcalls_run(uint32_t level)
 {
-	for (unsigned int priority = 0U; priority < 256U; priority++) {
+	for (uint32_t priority = 0U; priority < 256U; priority++) {
 		for (const struct initcall *call = __initcall_start; call < __initcall_end; call++) {
 			if (call->level == level && call->priority == priority) {
 				(void)call->function();

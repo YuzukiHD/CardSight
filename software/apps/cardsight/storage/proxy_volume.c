@@ -31,8 +31,8 @@ static int proxy_build_upcase(void)
 {
 	uint16_t source = 0U;
 	uint16_t character;
-	unsigned int state = 0U;
-	unsigned int run = 0U;
+	uint32_t state = 0U;
+	uint32_t run = 0U;
 	uint32_t checksum = 0U;
 	size_t offset = 0U;
 
@@ -230,7 +230,7 @@ uint32_t proxy_fat_entry(uint32_t cluster)
 }
 
 
-void proxy_boot_record(unsigned int record, uint8_t sector[PROXY_SECTOR_SIZE])
+void proxy_boot_record(uint32_t record, uint8_t sector[PROXY_SECTOR_SIZE])
 {
 	memset(sector, 0, PROXY_SECTOR_SIZE);
 	if (record >= 1U && record <= 8U) {
@@ -278,9 +278,9 @@ uint32_t proxy_boot_checksum(void)
 	uint8_t sector[PROXY_SECTOR_SIZE];
 	uint32_t checksum = 0U;
 
-	for (unsigned int record = 0U; record < 11U; record++) {
+	for (uint32_t record = 0U; record < 11U; record++) {
 		proxy_boot_record(record, sector);
-		for (unsigned int index = 0U; index < PROXY_SECTOR_SIZE; index++) {
+		for (uint32_t index = 0U; index < PROXY_SECTOR_SIZE; index++) {
 			if (record == 0U && (index == 106U || index == 107U || index == 112U)) {
 				continue;
 			}
@@ -297,7 +297,7 @@ void proxy_bitmap_freed(uint64_t byte_offset, const uint8_t *incoming, size_t le
 	for (size_t index = 0U; index < length; index++) {
 		uint8_t freed = proxy.bitmap[byte_offset + index] & (uint8_t)~incoming[index];
 
-		for (unsigned int bit = 0U; freed != 0U && bit < 8U; bit++, freed >>= 1) {
+		for (uint32_t bit = 0U; freed != 0U && bit < 8U; bit++, freed >>= 1) {
 			uint32_t cluster;
 
 			if ((freed & 1U) == 0U) {
@@ -307,7 +307,7 @@ void proxy_bitmap_freed(uint64_t byte_offset, const uint8_t *incoming, size_t le
 			for (uint16_t sector = 0U; sector < PROXY_SECTORS_PER_CLUSTER; sector++) {
 				proxy_pending_drop(cluster, sector);
 			}
-			for (unsigned int run_index = 0U; run_index < PROXY_RUNS; run_index++) {
+			for (uint32_t run_index = 0U; run_index < PROXY_RUNS; run_index++) {
 				struct proxy_run *run = &proxy.runs[run_index];
 
 				if (run->used && cluster == run->first_cluster) {

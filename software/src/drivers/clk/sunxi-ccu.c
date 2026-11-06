@@ -5,8 +5,8 @@
 
 #include "drivers/drivers.h"
 
-void sunxi_ccu_enable(uintptr_t gate_address, unsigned int gate_bit, uintptr_t reset_address,
-	unsigned int reset_bit)
+void sunxi_ccu_enable(uintptr_t gate_address, uint32_t gate_bit, uintptr_t reset_address,
+	uint32_t reset_bit)
 {
 	if (reset_address != 0U) {
 		clrbits32(reset_address, 1U << reset_bit); /* assert */
