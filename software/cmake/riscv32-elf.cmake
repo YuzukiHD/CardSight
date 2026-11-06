@@ -25,9 +25,12 @@ set(CMAKE_RANLIB ${XUANTIE_TOOLCHAIN}/bin/riscv64-unknown-elf-ranlib CACHE FILEP
 set(CMAKE_C_COMPILER_TARGET riscv64-unknown-elf)
 set(CMAKE_ASM_COMPILER_TARGET riscv64-unknown-elf)
 
-set(CS_RISCV_ARCH "-march=rv32imafdc_zicsr_zifencei -mabi=ilp32d -mcmodel=medany -mno-relax")
+# The C907 has the vector unit. Only the hand-written RVV kernels (LVGL's blends) emit vector
+# instructions: -fno-tree-vectorize keeps the compiler from putting them anywhere else, so an
+# interrupt handler never touches the vector state of the task it interrupted.
+set(CS_RISCV_ARCH "-march=rv32imafdcv_zicsr_zifencei -mabi=ilp32d -mcmodel=medany -mno-relax")
 
-set(CMAKE_C_FLAGS_INIT "${CS_RISCV_ARCH} -O2 -g -ffreestanding -fno-common -ffunction-sections -fdata-sections")
+set(CMAKE_C_FLAGS_INIT "${CS_RISCV_ARCH} -O2 -g -ffreestanding -fno-common -ffunction-sections -fdata-sections -fno-tree-vectorize")
 set(CMAKE_ASM_FLAGS_INIT "${CS_RISCV_ARCH} -g")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-nostartfiles -Wl,--gc-sections -Wl,--build-id=none")
 set(CMAKE_EXECUTABLE_SUFFIX ".elf")

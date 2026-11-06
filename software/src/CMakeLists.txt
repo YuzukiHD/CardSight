@@ -150,7 +150,7 @@ set_source_files_properties(${CS_LWEXT4_SOURCES} ${CS_LVGL_SOURCES} ${CS_FONT_SO
     ${CS_USB_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
 # the T-Head cache maintenance instructions are an extension of their own
 set_source_files_properties(${CS_ROOT}/src/arch/cache.c
-    PROPERTIES COMPILE_OPTIONS "-march=rv32imafdc_zicsr_zifencei_xtheadcmo")
+    PROPERTIES COMPILE_OPTIONS "-march=rv32imafdcv_zicsr_zifencei_xtheadcmo")
 set_source_files_properties(
     ${CS_FATFS_DIR}/ff.c
     ${CS_FATFS_DIR}/ffunicode.c

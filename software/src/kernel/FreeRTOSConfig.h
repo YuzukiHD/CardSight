@@ -23,6 +23,10 @@
 #define configMAX_TASK_NAME_LEN	16
 #define configTICK_TYPE_WIDTH_IN_BITS TICK_TYPE_WIDTH_32_BITS
 
+/* The C907 has the FPU and the vector unit, so the port keeps their registers per task. */
+#define configENABLE_FPU 1
+#define configENABLE_VPU 1
+
 #define configUSE_MUTEXES		  1
 #define configUSE_RECURSIVE_MUTEXES	  1
 #define configUSE_COUNTING_SEMAPHORES	  1
