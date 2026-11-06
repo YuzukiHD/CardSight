@@ -60,7 +60,21 @@ static void lvgl_flush(lv_display_t *display, const lv_area_t *area, uint8_t *pi
 	uint32_t elapsed_us;
 	int result;
 
-	/* the buffer is in the panel's byte order, as set by the color format */
+	/* LVGL renders RGB888 (B, G, R); the panel takes 18 bits per pixel, R, G, B. */
+	{
+		uint8_t *pixel = pixels;
+
+		for (size_t index = 0U; index < (size_t)width * height; index++) {
+			uint8_t blue = pixel[0];
+			uint8_t green = pixel[1];
+			uint8_t red = pixel[2];
+
+			pixel[0] = (uint8_t)(red & 0xfcU);
+			pixel[1] = (uint8_t)(green & 0xfcU);
+			pixel[2] = (uint8_t)(blue & 0xfcU);
+			pixel += 3U;
+		}
+	}
 	result = sunxi_display_write((uint16_t)area->x1, (uint16_t)area->y1, width, height, width, pixels);
 	elapsed_us = (uint32_t)(ktime_get_us() - started_us);
 	port.flush_count++;
@@ -99,13 +113,13 @@ static int lvgl_open_devices(void)
 	uint16_t lines;
 	size_t buffer_size;
 
-	if (sunxi_display_get_info(&info) != 0 || info.bytes_per_pixel != sizeof(uint16_t)) {
+	if (sunxi_display_get_info(&info) != 0 || info.bytes_per_pixel != 3U) {
 		return -ENODEV;
 	}
 	port.width = info.width;
 	port.height = info.height;
 	lines = MIN(DRAW_LINES, info.height);
-	buffer_size = (size_t)info.width * lines * sizeof(uint16_t);
+	buffer_size = (size_t)info.width * lines * 3U;
 	port.draw_buffer = aligned_alloc(64U, (buffer_size + 63U) & ~(size_t)63U);
 	if (port.draw_buffer == NULL) {
 		return -ENOMEM;
@@ -116,8 +130,7 @@ static int lvgl_open_devices(void)
 	if (port.display == NULL) {
 		return -ENOMEM;
 	}
-	lv_display_set_color_format(port.display,
-		info.pixels_swapped ? LV_COLOR_FORMAT_RGB565_SWAPPED : LV_COLOR_FORMAT_RGB565);
+	lv_display_set_color_format(port.display, LV_COLOR_FORMAT_RGB888);
 	lv_display_set_buffers(port.display, port.draw_buffer, NULL, (uint32_t)buffer_size,
 		LV_DISPLAY_RENDER_MODE_PARTIAL);
 	lv_display_set_flush_cb(port.display, lvgl_flush);
@@ -141,7 +154,7 @@ static void lvgl_task(void *argument)
 
 	(void)argument;
 	/* the display and the touch controller come up from init calls; wait for them */
-	for (unsigned int tries = 0U; tries < TASK_CREATE_TRIES; tries++) {
+	for (uint32_t tries = 0U; tries < TASK_CREATE_TRIES; tries++) {
 		result = lvgl_open_devices();
 		if (result != -ENODEV) {
 			break;
@@ -218,9 +231,9 @@ static int command_lvgl(int argc, char **argv)
 		port.error = 0;
 		return 0;
 	}
-	printf("%u flushes, %llu pixels, %llu us, %u us max, error %d\n", (unsigned)port.flush_count,
+	printf("%u flushes, %llu pixels, %llu us, %u us max, error %d\n", (uint32_t)port.flush_count,
 		(unsigned long long)port.flush_pixels, (unsigned long long)port.flush_time_us,
-		(unsigned)port.flush_max_us, port.error);
+		(uint32_t)port.flush_max_us, port.error);
 	return 0;
 }
 SHELL_CMD(lvgl, "lvgl [reset]: the display flush statistics", command_lvgl);

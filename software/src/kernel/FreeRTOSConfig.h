@@ -38,7 +38,7 @@
 
 #define configSUPPORT_STATIC_ALLOCATION	 0
 #define configSUPPORT_DYNAMIC_ALLOCATION 1
-#define configTOTAL_HEAP_SIZE		 ((size_t)(2U * 1024U * 1024U))
+#define configTOTAL_HEAP_SIZE		 ((size_t)(3U * 1024U * 1024U))
 #define configAPPLICATION_ALLOCATED_HEAP 0
 
 #define configCHECK_FOR_STACK_OVERFLOW 2

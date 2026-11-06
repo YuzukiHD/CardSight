@@ -39,9 +39,9 @@ static int display_init(void)
 		.height = sunxi_panel0.height,
 		.fb_width = sunxi_panel0.width,
 		.fb_height = sunxi_panel0.height,
-		.stride = sunxi_panel0.width * 2U,
-		.bytes_per_pixel = 2U,
-		.pixels_swapped = true,
+		.stride = sunxi_panel0.width * 3U,
+		.bytes_per_pixel = 3U,
+		.pixels_swapped = false,
 	};
 	display_ready = true;
 	return 0;
@@ -78,9 +78,9 @@ int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t
 	if (result != 0) {
 		return result;
 	}
-	/* the buffer is big endian per pixel, as the panel takes it */
 	for (uint16_t row = 0U; row < height; row++) {
-		result = st7789_write_pixels(rows + (size_t)row * pitch * 2U, (size_t)width * 2U);
+		result = st7789_write_pixels(rows + (size_t)row * pitch * display_info.bytes_per_pixel,
+			(size_t)width * display_info.bytes_per_pixel);
 		if (result != 0) {
 			return result;
 		}
@@ -88,22 +88,28 @@ int sunxi_display_write(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t
 	return 0;
 }
 
-/* Fill the whole panel with one RGB565 colour. */
+/* Fill the whole panel with one RGB565 colour, written as RGB666. */
 static int display_fill(uint16_t color)
 {
-	uint16_t *line = malloc((size_t)display_info.width * sizeof(uint16_t));
+	size_t bytes = (size_t)display_info.width * display_info.bytes_per_pixel;
+	uint8_t *line = malloc(bytes);
 	int result;
 
 	if (line == NULL) {
 		return -ENOMEM;
 	}
-	/* the panel takes the high byte of each pixel first; the buffer is raw bytes */
-	for (unsigned int index = 0U; index < display_info.width; index++) {
-		line[index] = (uint16_t)((color >> 8) | (color << 8));
+	for (uint32_t index = 0U; index < display_info.width; index++) {
+		uint32_t red = ((color >> 11) & 0x1fU) * 255U / 31U;
+		uint32_t green = ((color >> 5) & 0x3fU) * 255U / 63U;
+		uint32_t blue = (color & 0x1fU) * 255U / 31U;
+
+		line[index * 3U] = (uint8_t)(red & 0xfcu);
+		line[index * 3U + 1U] = (uint8_t)(green & 0xfcu);
+		line[index * 3U + 2U] = (uint8_t)(blue & 0xfcu);
 	}
 	result = st7789_set_window(0U, 0U, display_info.width, display_info.height);
-	for (unsigned int row = 0U; result == 0 && row < display_info.height; row++) {
-		result = st7789_write_pixels(line, (size_t)display_info.width * sizeof(uint16_t));
+	for (uint32_t row = 0U; result == 0 && row < display_info.height; row++) {
+		result = st7789_write_pixels(line, bytes);
 	}
 	free(line);
 	return result;
@@ -122,13 +128,13 @@ static int command_display(int argc, char **argv)
 	if (argc == 2 && strcmp(argv[1], "test") == 0) {
 		static const uint16_t colors[] = { 0xf800U, 0x07e0U, 0x001fU, 0xffffU, 0x0000U };
 
-		for (unsigned int index = 0U; index < ARRAY_SIZE(colors); index++) {
+		for (uint32_t index = 0U; index < ARRAY_SIZE(colors); index++) {
 			result = display_fill(colors[index]);
 			if (result != 0) {
 				printf("failed: %d\n", result);
 				return result;
 			}
-			printf("colour %04x\n", (unsigned)colors[index]);
+			printf("colour %04x\n", (uint32_t)colors[index]);
 			msleep(700U);
 		}
 		printf("ok\n");

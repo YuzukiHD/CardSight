@@ -69,7 +69,7 @@ const struct sunxi_spi_config sunxi_spi1 = {
     .gate_address = SUNXI_CCU_BASE + 0x096cU,
     .gate_bit = 1U,
     .reset_bit = 17U,
-    .frequency = 60000000U,
+    .frequency = 75000000U,
     .clock = {.port = 3, .pin = 1, .function = 6, .drive = 3},
     .mosi = {.port = 3, .pin = 2, .function = 6, .drive = 3},
     .cs = {.port = 3, .pin = 3, .function = 6, .drive = 3},

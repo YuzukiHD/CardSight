@@ -43,7 +43,7 @@ struct panel_command {
 static const struct panel_command panel_init[] = {
 	{ ST7789_SLPOUT, 0U, 120U, { 0 } },
 	{ ST7789_MADCTL, 1U, 0U, { MADCTL_MIRROR_X | MADCTL_BGR } },
-	{ ST7789_COLMOD, 1U, 0U, { 0x05U } }, /* 16 bits per pixel */
+	{ ST7789_COLMOD, 1U, 0U, { 0x06U } }, /* 18 bits per pixel, RGB666 */
 	{ 0xb2U, 5U, 0U, { 0x0cU, 0x0cU, 0x00U, 0x33U, 0x33U } },
 	{ 0xb7U, 1U, 0U, { 0x05U } },
 	{ 0xbbU, 1U, 0U, { 0x21U } },
@@ -118,7 +118,7 @@ int st7789_probe(const struct sunxi_panel_config *config)
 	msleep(20U);
 	sunxi_gpio_set_output(&config->reset, 1);
 	msleep(120U);
-	for (unsigned int index = 0U; index < ARRAY_SIZE(panel_init); index++) {
+	for (uint32_t index = 0U; index < ARRAY_SIZE(panel_init); index++) {
 		const struct panel_command *step = &panel_init[index];
 
 		if (panel_command(step->command, step->parameters, step->count) != 0) {
@@ -128,7 +128,7 @@ int st7789_probe(const struct sunxi_panel_config *config)
 			msleep(step->delay_ms);
 		}
 	}
-	pr_info("ST7789 on SPI1 at %u MHz, %ux%u\n", (unsigned)(config->spi->frequency / 1000000U),
+	pr_info("ST7789 on SPI1 at %u MHz, %ux%u\n", (uint32_t)(config->spi->frequency / 1000000U),
 		config->width, config->height);
 	return 0;
 }
