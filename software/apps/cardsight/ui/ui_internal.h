@@ -45,6 +45,7 @@ struct cardsight_ui {
 	lv_obj_t *format_dialog;
 	lv_obj_t *settings_dialog;
 	lv_obj_t *error_dialog;
+	lv_obj_t *detecting_card;
 	lv_obj_t *tabbar;
 	lv_obj_t *tab_indicator;
 	lv_obj_t *tab_indicator_backdrop;

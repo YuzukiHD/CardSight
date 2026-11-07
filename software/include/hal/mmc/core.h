@@ -28,4 +28,7 @@ void mmc_last_error_clear(void);
 /** The last identification result: negative while a card in the slot cannot be brought up. */
 int mmc_probe_error(void);
 
+/** A card is in the slot but has not been identified yet. */
+bool mmc_slot_detecting(void);
+
 #endif /* CARDSIGHT_MMC_CORE_H */

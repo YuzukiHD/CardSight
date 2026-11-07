@@ -10,6 +10,10 @@ static void rate_text(uint32_t bytes_per_second, char output[16])
 
 static const char *direct_state(uint32_t *color)
 {
+	if (ui.model.card_detecting) {
+		*color = UI_WARNING;
+		return "正在识别卡";
+	}
 	if (!ui.model.card_present) {
 		*color = UI_MUTED;
 		return "未检测到卡";

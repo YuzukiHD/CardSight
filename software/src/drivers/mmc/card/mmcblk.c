@@ -139,6 +139,11 @@ int mmc_probe_error(void)
 	return probe_error;
 }
 
+bool mmc_slot_detecting(void)
+{
+	return !card_absent_forced && card_present() && !card_ready;
+}
+
 static int mmc_add_disk(void)
 {
 	card_disk = alloc_disk();

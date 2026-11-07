@@ -59,6 +59,7 @@ struct cardsight_state {
 	enum cardsight_request_type request;
 	enum blk_partition_table_type table;
 	bool card_present;
+	bool card_detecting;
 	bool card_writable;
 	bool card_info_valid;
 	bool proxy_active;

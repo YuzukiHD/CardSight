@@ -208,6 +208,20 @@ int main(void)
 		model.card_error[0] = '\0';
 		model.request = CARDSIGHT_REQUEST_SCAN;
 	}
+	/* a card is being identified */
+	{
+		model.card_detecting = true;
+		model.card_present = false;
+		cardsight_ui_refresh(NULL);
+		for (uint32_t step = 0U; step < 5U; step++) {
+			tick_ms += 10U;
+			lv_timer_handler();
+		}
+		lv_obj_invalidate(lv_screen_active());
+		lv_refr_now(display);
+		save_ppm("/tmp/ui-detecting.ppm");
+		model.card_detecting = false;
+	}
 	/* files: enter a directory, then come straight back */
 	{
 		ui.files_detail = true;

@@ -22,6 +22,7 @@ static void ui_clear_page_refs(void)
 	ui.format_dialog = NULL;
 	ui.settings_dialog = NULL;
 	ui.error_dialog = NULL;
+	ui.detecting_card = NULL;
 	ui.direct_status = NULL;
 	ui.direct_status_chip = NULL;
 	ui.rate_read = NULL;
@@ -256,6 +257,14 @@ void show_page(enum cardsight_mode mode)
 	ui_update_backdrop();
 }
 
+/* The identification happens before the block device exists, so the pages cannot tell. */
+void ui_update_detecting(void)
+{
+	if (ui.detecting_card != NULL) {
+		lv_obj_set_hidden(ui.detecting_card, !ui.model.card_detecting);
+	}
+}
+
 void ui_update_backdrop(void)
 {
 	/* Text-heavy pages get the frosted wallpaper; the home page stays sharp. */
@@ -281,7 +290,9 @@ void ui_update_header(void)
 	} else {
 		snprintf(title, sizeof(title), "%s", names[ui.mode]);
 	}
-	if (ui.model.card_present) {
+	if (ui.model.card_detecting) {
+		snprintf(status, sizeof(status), "识别中");
+	} else if (ui.model.card_present) {
 		capacity_text(ui.model.sectors, status, sizeof(status));
 	} else {
 		snprintf(status, sizeof(status), "无卡");
@@ -436,6 +447,7 @@ static void error_close_event(lv_event_t *event)
 	if (ui.error_dialog != NULL) {
 		lv_obj_delete_async(ui.error_dialog);
 		ui.error_dialog = NULL;
+	ui.detecting_card = NULL;
 	}
 }
 
@@ -716,12 +728,30 @@ void cardsight_ui_refresh(void *argument)
 	ui.content = ui.tiles[CARDSIGHT_INFO];
 	build_info();
 	build_bar();
+	{
+		/* A card is being identified: a small spinner over the current page. */
+		lv_obj_t *spinner;
+		lv_obj_t *label;
+
+		ui.detecting_card = make_glass_card(ui.shell, 0, 0, 170, 52, 26);
+		lv_obj_align(ui.detecting_card, LV_ALIGN_CENTER, 0, 0);
+		lv_obj_set_clickable(ui.detecting_card, false);
+		spinner = lv_spinner_create(ui.detecting_card);
+		lv_obj_set_size(spinner, 24, 24);
+		lv_spinner_set_anim_params(spinner, 900, 60);
+		lv_obj_align(spinner, LV_ALIGN_LEFT_MID, 16, 0);
+		lv_obj_set_style_arc_color(spinner, lv_color_hex(UI_ACCENT), LV_PART_INDICATOR);
+		label = make_label(ui.detecting_card, "正在识别卡", UI_TEXT);
+		lv_obj_align(label, LV_ALIGN_LEFT_MID, 52, 0);
+		lv_obj_set_hidden(ui.detecting_card, true);
+	}
 	ui.content = ui.tiles[(uint32_t)ui.mode];
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
 		lv_obj_set_hidden(ui.tiles[index], index != (uint32_t)ui.mode);
 	}
 	ui_update_tabs();
 	ui_update_header();
+	ui_update_detecting();
 	ui_update_backdrop();
 	lv_obj_update_layout(ui.screen);
 	ui_refresh_list_fades();
@@ -745,5 +775,6 @@ void cardsight_ui_runtime(void *argument)
 	ui_update_direct();
 	ui_update_proxy_controls();
 	ui_update_progress();
+	ui_update_detecting();
 	ui_error_check();
 }

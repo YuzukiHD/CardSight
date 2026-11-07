@@ -161,6 +161,18 @@ static void worker(void *argument)
 	app_post_refresh();
 	for (;;) {
 		{
+			bool detecting = mmc_slot_detecting();
+
+			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+			if (app.card_detecting != detecting) {
+				app.card_detecting = detecting;
+				mutex_unlock(&app_lock);
+				app_post_refresh_runtime();
+			} else {
+				mutex_unlock(&app_lock);
+			}
+		}
+		{
 			int probe = mmc_probe_error();
 
 			if (probe == 0) {
