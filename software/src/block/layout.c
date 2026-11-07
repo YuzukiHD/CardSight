@@ -24,6 +24,7 @@
 #define GPT_ENTRY_COUNT	     128U
 #define GPT_ENTRY_SIZE	     128U
 #define GPT_ENTRY_SECTORS    ((GPT_ENTRY_COUNT * GPT_ENTRY_SIZE + BLOCK_SECTOR_SIZE - 1U) / BLOCK_SECTOR_SIZE)
+#define ERASE_HEAD_SECTORS   1024U /* the first 512 KiB: boot code plus the table */
 #define GPT_HEADER_SIZE	     92U
 
 static uint8_t layout_sector[BLOCK_SECTOR_SIZE] __attribute__((aligned(64)));
@@ -230,12 +231,13 @@ static int write_gpt(struct gendisk *disk, const struct blk_partition_layout_ent
 }
 
 /*
- * Erase the partition table: zero the MBR, the primary GPT header and its entry array, and the
- * backup GPT copy at the end of the disk. The file data itself is left where it is.
+ * Erase the partition table and the boot area: zero the first 512 KiB (some cards carry a boot
+ * image in front of the table and the SoC would try to run it) and the backup GPT copy at the
+ * end of the disk. The file data itself is left where it is.
  */
 int blk_erase_partition_table(struct gendisk *disk)
 {
-	int result;
+	int result = 0;
 
 	if (disk == NULL || !disk->registered) {
 		return -ENODEV;
@@ -248,12 +250,18 @@ int blk_erase_partition_table(struct gendisk *disk)
 		result = -EBUSY;
 	} else {
 		memset(layout_entries, 0, GPT_ENTRY_SECTORS * BLOCK_SECTOR_SIZE);
-		result = bdev_write(disk->part0, 0U, layout_entries, 1U);
-		if (result == 0) {
-			result = bdev_write(disk->part0, 1U, layout_entries, 1U);
-		}
-		if (result == 0) {
-			result = bdev_write(disk->part0, 2U, layout_entries, GPT_ENTRY_SECTORS);
+		{
+			/* MBR, GPT, and any boot code the card carries at its front. */
+			uint64_t head = disk->capacity < ERASE_HEAD_SECTORS ? disk->capacity :
+				ERASE_HEAD_SECTORS;
+
+			for (uint64_t sector = 0U; result == 0 && sector < head;
+				sector += GPT_ENTRY_SECTORS) {
+				uint32_t chunk = head - sector < GPT_ENTRY_SECTORS ?
+					(uint32_t)(head - sector) : GPT_ENTRY_SECTORS;
+
+				result = bdev_write(disk->part0, sector, layout_entries, chunk);
+			}
 		}
 		if (result == 0 && disk->capacity > GPT_ENTRY_SECTORS + 3U) {
 			/* backup entry array and its header, at the end of the disk */
