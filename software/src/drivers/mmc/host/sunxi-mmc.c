@@ -258,6 +258,16 @@ static int smhc_clock_switch(bool on, bool voltage)
 	return 0;
 }
 
+/* A command still sitting in the engine blocks the clock stop; reset it and start over. */
+static void smhc_reset_engine(void)
+{
+	smhc_write(smhc_read(SMHC_GCTRL) | GCTRL_ALL_RST, SMHC_GCTRL);
+	(void)smhc_wait_clear(SMHC_GCTRL, GCTRL_ALL_RST, 100U);
+	smhc_write(0xffffffffU, SMHC_RINTR);
+	smhc_write(0xffffffffU, SMHC_IDST);
+	smhc_write(host_width == 4U ? 1U : host_width == 8U ? 2U : 0U, SMHC_WIDTH);
+}
+
 int sunxi_mmc_set_clock(uint32_t clock)
 {
 	uint32_t clkcr = smhc_read(SMHC_CLKCR) & ~(CLKCR_CARD_CLK_ON | CLKCR_DIV_MASK);
@@ -266,6 +276,11 @@ int sunxi_mmc_set_clock(uint32_t clock)
 	uint32_t sample = 0U;
 	int result = smhc_clock_switch(false, false);
 
+	if (result != 0) {
+		/* often a stale command (a failed tuning read) left in the command engine */
+		smhc_reset_engine();
+		result = smhc_clock_switch(false, false);
+	}
 	if (result != 0) {
 		return result;
 	}

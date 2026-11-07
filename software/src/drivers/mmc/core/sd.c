@@ -248,6 +248,8 @@ static int sd_execute_tuning(void)
 		sunxi_mmc_set_quiet(false);
 		saved_tune_valid = false;
 		sunxi_mmc_tune_point(0U, 0U);
+		/* the failed tuning reads can leave a command in the engine */
+		(void)sunxi_mmc_recover();
 		pr_warn("tuning found no window (widest %u, first error %d)\n", (uint32_t)max_length,
 			first_error);
 		return -EIO;
@@ -265,6 +267,7 @@ static int sd_execute_tuning(void)
 			sunxi_mmc_set_quiet(false);
 			saved_tune_valid = false;
 			sunxi_mmc_tune_point(0U, 0U);
+			(void)sunxi_mmc_recover();
 			pr_warn("tuning: the chosen point failed the verify reads\n");
 			return -EIO;
 		}
