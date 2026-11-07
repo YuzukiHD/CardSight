@@ -8,9 +8,7 @@
 #define LOG_MODULE "mmc"
 
 #include <errno.h>
-#include <stdarg.h>
 #include <stdbool.h>
-#include <stdio.h>
 #include <string.h>
 
 #include <hal/cache.h>
@@ -148,26 +146,6 @@ static uint32_t host_clock;
 static uint32_t host_width = 1U;
 static bool host_fast; /* SDR50/SDR104: the read FIFO needs a whole-block threshold */
 static bool host_quiet; /* a tuning scan expects the failed reads */
-static char card_error[48];
-
-static void note_error(const char *format, ...)
-{
-	va_list arguments;
-
-	va_start(arguments, format);
-	vsnprintf(card_error, sizeof(card_error), format, arguments);
-	va_end(arguments);
-}
-
-const char *sunxi_mmc_last_error(void)
-{
-	return card_error;
-}
-
-void sunxi_mmc_last_error_clear(void)
-{
-	card_error[0] = '\0';
-}
 static uint32_t dma_direct_count;
 static uint32_t dma_bounce_count;
 
@@ -550,7 +528,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 	}
 	result = smhc_wait_card_idle(200U);
 	if (result != 0) {
-		note_error("CMD%u Card Busy", (uint32_t)opcode);
+		mmc_note_error("CMD%u Card Busy", (uint32_t)opcode);
 		pr_err("CMD%u: card busy %d\n", (uint32_t)opcode, result);
 		return result;
 	}
@@ -613,7 +591,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 	if (buffer != NULL && dma_buffer == NULL) {
 		result = smhc_pio(buffer, length, write, 1000U + timeout_ms);
 		if (result != 0) {
-			note_error("CMD%u %s %s", (uint32_t)opcode, write ? "Write" : "Read",
+			mmc_note_error("CMD%u %s %s", (uint32_t)opcode, write ? "Write" : "Read",
 				result == -ETIMEDOUT ? "Timeout" : "Error");
 			return result;
 		}
@@ -637,15 +615,15 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 				const char *direction = write ? "Write" : "Read";
 
 				if ((rint & INT_RESP_TIMEOUT) != 0U) {
-					note_error("CMD%u Response Timeout", (uint32_t)opcode);
+					mmc_note_error("CMD%u Response Timeout", (uint32_t)opcode);
 				} else if ((rint & INT_DATA_TIMEOUT) != 0U) {
-					note_error("CMD%u %s Timeout", (uint32_t)opcode, direction);
+					mmc_note_error("CMD%u %s Timeout", (uint32_t)opcode, direction);
 				} else if ((rint & INT_RESP_CRC_ERR) != 0U) {
-					note_error("CMD%u Response CRC", (uint32_t)opcode);
+					mmc_note_error("CMD%u Response CRC", (uint32_t)opcode);
 				} else if ((rint & INT_DATA_CRC_ERR) != 0U) {
-					note_error("CMD%u %s CRC", (uint32_t)opcode, direction);
+					mmc_note_error("CMD%u %s CRC", (uint32_t)opcode, direction);
 				} else {
-					note_error("CMD%u Error %08x", (uint32_t)opcode, (uint32_t)(rint | idst));
+					mmc_note_error("CMD%u Error %08x", (uint32_t)opcode, (uint32_t)(rint | idst));
 				}
 			}
 			return (rint & (INT_RESP_TIMEOUT | INT_DATA_TIMEOUT)) != 0U ? -ETIMEDOUT : -EIO;
@@ -662,7 +640,7 @@ int sunxi_mmc_command(uint32_t opcode, uint32_t argument, enum mmc_response resp
 			if (dma_buffer != NULL) {
 				smhc_dma_stop();
 			}
-			note_error("CMD%u %s Timeout", (uint32_t)opcode,
+			mmc_note_error("CMD%u %s Timeout", (uint32_t)opcode,
 				buffer != NULL ? (write ? "Write" : "Read") : "Response");
 			return -ETIMEDOUT;
 		}

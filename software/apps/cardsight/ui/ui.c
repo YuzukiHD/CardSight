@@ -432,7 +432,7 @@ static const char *error_title(enum cardsight_request_type request)
 static void error_close_event(lv_event_t *event)
 {
 	(void)event;
-	ui.error_acknowledged = true;
+	ui.dismissed_error = ui.model.error;
 	if (ui.error_dialog != NULL) {
 		lv_obj_delete_async(ui.error_dialog);
 		ui.error_dialog = NULL;
@@ -493,7 +493,7 @@ static void error_open_async(void *argument)
 			lv_obj_set_pos(label, 14, y);
 			y += 24;
 		}
-		label = make_label(card, "请检查存储卡后重试", UI_MUTED);
+		label = make_label(card, "请检查后重试", UI_MUTED);
 		lv_obj_set_pos(label, 14, y);
 	}
 	button = make_bar_button(dialog, "返回", error_close_event,
@@ -505,10 +505,11 @@ static void error_open_async(void *argument)
 static void ui_error_check(void)
 {
 	if (ui.model.busy) {
-		ui.error_acknowledged = false;
+		ui.dismissed_error = 0; /* a new request earns a new sheet */
 		return;
 	}
-	if (ui.model.error == 0 || ui.error_acknowledged || ui.error_dialog != NULL) {
+	if (ui.model.error == 0 || ui.model.error == ui.dismissed_error ||
+		ui.error_dialog != NULL) {
 		return;
 	}
 	(void)lv_async_call(error_open_async, NULL);
@@ -542,7 +543,7 @@ static void build_banner(void)
 	if (!ui.model.busy) {
 		return;
 	}
-	ui.error_acknowledged = false;
+	ui.dismissed_error = 0;
 	ui.banner = lv_obj_create(ui.screen);
 	lv_obj_set_size(ui.banner, bar_width(), APP_BAR_HEIGHT);
 	lv_obj_set_pos(ui.banner, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);

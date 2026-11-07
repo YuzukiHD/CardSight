@@ -195,7 +195,7 @@ int main(void)
 		model.request = CARDSIGHT_REQUEST_SCAN;
 		snprintf(model.operation, sizeof(model.operation), "%s", "存储卡读写错误");
 		snprintf(model.card_error, sizeof(model.card_error), "%s", "CMD5 Read Timeout");
-		ui.error_acknowledged = false;
+		ui.dismissed_error = 0;
 		cardsight_ui_refresh(NULL);
 		for (uint32_t step = 0U; step < 5U; step++) {
 			tick_ms += 10U;

@@ -25,6 +25,11 @@ static void list_request(void)
 		.partition = ui.files_partition,
 	};
 
+	/* Pulling the card while the browser is open must not turn into "card not found"
+	 * errors; there is simply nothing to list. */
+	if (!ui.model.card_present) {
+		return;
+	}
 	snprintf(request.path, sizeof(request.path), "%s", ui.files_path);
 	send_request(&request);
 }

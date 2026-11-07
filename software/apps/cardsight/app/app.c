@@ -48,6 +48,37 @@ static const char *failure_text(int result)
 }
 
 
+/*
+ * A card whose volumes all fail to probe is inserted but unreadable: report the first failure
+ * with its device name so the sheet can say which partition it was.
+ */
+static int card_scan_check(char *detail, size_t size)
+{
+	int result = card_scan();
+
+	if (result != 0) {
+		return result;
+	}
+	mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+	if (app.partition_count > 0U) {
+		bool usable = false;
+
+		for (size_t index = 0U; index < app.partition_count; index++) {
+			if (app.partitions[index].status == 0) {
+				usable = true;
+				break;
+			}
+		}
+		if (!usable) {
+			result = app.partitions[0].status != 0 ? app.partitions[0].status : -EIO;
+			snprintf(detail, size, "%s %d", app.partitions[0].device,
+				app.partitions[0].status);
+		}
+	}
+	mutex_unlock(&app_lock);
+	return result;
+}
+
 void app_post_refresh_runtime(void)
 {
 	(void)lvgl_port_post(cardsight_ui_runtime, NULL);
@@ -103,19 +134,23 @@ static void worker(void *argument)
 	uint64_t previous_stats_ms = 0U;
 	bool last_configured = false;
 	bool last_present;
+	int last_probe_error = 0;
+	uint64_t probe_since_ms = 0U;
 
 	(void)argument;
 	{
+		char detail[48] = "";
 		int result;
 
 		mmc_last_error_clear();
-		result = card_scan();
+		result = card_scan_check(detail, sizeof(detail));
 		if (result != 0 && card_disk_present()) {
 			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 			app.error = result;
 			app.request = CARDSIGHT_REQUEST_SCAN;
-			strcpy(app.operation, failure_text(result));
-			snprintf(app.card_error, sizeof(app.card_error), "%s", mmc_last_error());
+			strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" : failure_text(result));
+			snprintf(app.card_error, sizeof(app.card_error), "%s",
+				detail[0] != '\0' ? detail : mmc_last_error());
 			mutex_unlock(&app_lock);
 		}
 	}
@@ -125,7 +160,48 @@ static void worker(void *argument)
 	}
 	app_post_refresh();
 	for (;;) {
+		{
+			int probe = mmc_probe_error();
+
+			if (probe == 0) {
+				probe_since_ms = 0U;
+				if (last_probe_error != 0) {
+					mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+					if (app.error == last_probe_error) {
+						app.error = 0;
+						app.card_error[0] = '\0';
+					}
+					mutex_unlock(&app_lock);
+					last_probe_error = 0;
+					app_post_refresh_final();
+				}
+			} else {
+				uint64_t now = ktime_get_ms();
+
+				if (probe != last_probe_error) {
+					last_probe_error = probe;
+					probe_since_ms = now;
+				} else if (probe_since_ms != 0U && now - probe_since_ms >= 10000U &&
+					app.error != probe) {
+					/* A card that answers late (a power-up fallback) must not flash the
+					 * sheet; ten seconds of failures is a real identification problem. */
+					mutex_lock_timeout(&app_lock, WAIT_FOREVER);
+					if (!app.busy) {
+						app.error = probe;
+						app.request = CARDSIGHT_REQUEST_SCAN;
+						strcpy(app.operation, "卡识别失败");
+						snprintf(app.card_error, sizeof(app.card_error), "%s",
+							mmc_last_error());
+						mutex_unlock(&app_lock);
+						app_post_refresh_final();
+					} else {
+						mutex_unlock(&app_lock);
+					}
+				}
+			}
+		}
 		if (msg_queue_get(&requests, &request, 200) == 0) {
+			char detail[48] = "";
 			int result = 0;
 
 			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
@@ -141,7 +217,7 @@ static void worker(void *argument)
 			mmc_last_error_clear();
 			app_post_refresh();
 			if (request.type == CARDSIGHT_REQUEST_SCAN) {
-				result = card_scan();
+				result = card_scan_check(detail, sizeof(detail));
 			} else if (request.type == CARDSIGHT_REQUEST_START_DIRECT) {
 				result = usb_mass_storage_start_device(CONFIG_STORAGE_PROXY_SOURCE_DISK);
 			} else if (request.type == CARDSIGHT_REQUEST_START_PROXY) {
@@ -170,9 +246,16 @@ static void worker(void *argument)
 			app.busy = false;
 			app.progress = -1;
 			app.error = result;
-			strcpy(app.operation, failure_text(result));
-			snprintf(app.card_error, sizeof(app.card_error), "%s",
-				result != 0 ? mmc_last_error() : "");
+			if (request.type == CARDSIGHT_REQUEST_FORMAT && result == -ENOSPC) {
+				/* FatFs aborts a filesystem that cannot fit; the partition is too small. */
+				strcpy(app.operation, "分区容量不足");
+				strcpy(app.card_error, "分区太小，无法建立该文件系统");
+			} else {
+				strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" :
+					failure_text(result));
+				snprintf(app.card_error, sizeof(app.card_error), "%s",
+					result != 0 ? (detail[0] != '\0' ? detail : mmc_last_error()) : "");
+			}
 			mutex_unlock(&app_lock);
 			app_post_refresh_final();
 		}
@@ -194,17 +277,20 @@ static void worker(void *argument)
 				mutex_unlock(&app_lock);
 			}
 			pr_info("card %s\n", last_present ? "inserted" : "removed");
-			{
+			if (last_present) {
+				/* Only a card that is really there is scanned; an empty slot is not
+				 * a failure and must not open the error sheet. */
+				char detail[48] = "";
 				int result;
 
 				mmc_last_error_clear();
-				result = card_scan();
+				result = card_scan_check(detail, sizeof(detail));
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.error = result;
 				app.request = CARDSIGHT_REQUEST_SCAN;
-				strcpy(app.operation, failure_text(result));
+				strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" : failure_text(result));
 				snprintf(app.card_error, sizeof(app.card_error), "%s",
-					result != 0 ? mmc_last_error() : "");
+					result != 0 ? (detail[0] != '\0' ? detail : mmc_last_error()) : "");
 				mutex_unlock(&app_lock);
 			}
 			app_post_refresh();

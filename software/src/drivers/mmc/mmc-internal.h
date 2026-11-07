@@ -62,9 +62,8 @@ int sunxi_mmc_recover(void);
 /* Data sample point of the card interface: a phase and a sampling delay. */
 void sunxi_mmc_tune_point(uint32_t phase, uint32_t delay);
 
-/* The last command-level failure, e.g. "CMD5 Read Timeout", for the error UI. */
-const char *sunxi_mmc_last_error(void);
-void sunxi_mmc_last_error_clear(void);
+/* Record the last card failure for the error UI, e.g. "CMD5 Read Timeout". */
+void mmc_note_error(const char *format, ...);
 
 /* The scan reads hundreds of blocks on purpose; the expected failures are not logged. */
 void sunxi_mmc_set_quiet(bool quiet);

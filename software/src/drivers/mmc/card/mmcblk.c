@@ -131,6 +131,14 @@ static const struct block_device_operations mmcblk_operations = {
 	.free_disk = mmcblk_free,
 };
 
+static int probe_error;	 /* the last identification result, 0 after a good probe */
+static uint64_t probe_log_ms;
+
+int mmc_probe_error(void)
+{
+	return probe_error;
+}
+
 static int mmc_add_disk(void)
 {
 	card_disk = alloc_disk();
@@ -166,9 +174,18 @@ static int mmc_probe_card(void)
 	int result = sd_identify(&card);
 
 	if (result != 0) {
-		pr_err("card identification failed: %d\n", result);
+		uint64_t now = ktime_get_ms();
+
+		/* A card that never answers is retried with a backoff; keep one summary in ten
+		 * seconds instead of five error lines twice a second. */
+		if (result != probe_error || now - probe_log_ms >= 10000U) {
+			pr_err("card identification failed: %d (%s)\n", result, mmc_last_error());
+			probe_log_ms = now;
+		}
+		probe_error = result;
 		return result;
 	}
+	probe_error = 0;
 	card_ready = true;
 	card.ready = true;
 	card.host = &host0;
@@ -214,6 +231,8 @@ static void mmc_remove_card(void)
  */
 static void mmc_hotplug_task(void *argument)
 {
+	uint32_t retry_ms = 500U;
+
 	(void)argument;
 	if (card_present() && !card_ready) {
 		(void)mmc_probe_card();
@@ -222,11 +241,19 @@ static void mmc_hotplug_task(void *argument)
 		bool now = card_present();
 
 		if (now && !card_ready) {
-			(void)mmc_probe_card();
-		} else if (!now && card_ready) {
-			mmc_remove_card();
+			if (mmc_probe_card() == 0) {
+				retry_ms = 500U;
+			} else {
+				retry_ms = MIN(retry_ms * 2U, 5000U);
+			}
+		} else {
+			if (!now) {
+				probe_error = 0;
+				mmc_remove_card();
+			}
+			retry_ms = 500U;
 		}
-		msleep(500U);
+		msleep(retry_ms);
 	}
 }
 

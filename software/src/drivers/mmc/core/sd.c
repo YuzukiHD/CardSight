@@ -8,7 +8,9 @@
 #define LOG_MODULE "mmc"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <hal/kernel.h>
@@ -348,12 +350,14 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 
 	result = sd_command(SD_CMD_GO_IDLE, 0U, MMC_RESP_NONE, response);
 	if (result != 0) {
+		mmc_note_error("CMD0 %s", result == -ETIMEDOUT ? "Timeout" : "Error");
 		pr_err("CMD0 failed: %d\n", result);
 		return result;
 	}
 	/* CMD8 tells an SD v2 card apart and checks the 2.7-3.6 V range */
 	result = sd_command(SD_CMD_SEND_IF_COND, 0x1aaU, MMC_RESP_R7, response);
 	if (result == 0 && (response[0] & 0xfffU) != 0x1aaU) {
+		mmc_note_error("CMD8 echo error");
 		pr_err("CMD8 answered 0x%08x\n", (uint32_t)response[0]);
 		return -EIO;
 	}
@@ -364,6 +368,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 		result = sd_app_command(SD_ACMD_SEND_OP_COND, 0x40ff8000U /* HCS, 3.3 V */ | uhs_request,
 			MMC_RESP_R3, response);
 		if (result != 0) {
+			mmc_note_error("ACMD41 %s", result == -ETIMEDOUT ? "Timeout" : "Error");
 			pr_err("ACMD41 -> %d\n", result);
 			return result;
 		}
@@ -372,6 +377,7 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 			break;
 		}
 		if (ktime_get_ms() > deadline) {
+			mmc_note_error("ACMD41 Timeout (OCR %08x)", (uint32_t)ocr);
 			pr_err("ACMD41 timeout (OCR 0x%08x)\n", (uint32_t)ocr);
 			return -ETIMEDOUT;
 		}
@@ -491,14 +497,25 @@ static int sd_identify_once(struct mmc_card *card, bool already_1v8)
 	return 0;
 }
 
+static char last_error[48];
+
+void mmc_note_error(const char *format, ...)
+{
+	va_list arguments;
+
+	va_start(arguments, format);
+	vsnprintf(last_error, sizeof(last_error), format, arguments);
+	va_end(arguments);
+}
+
 const char *mmc_last_error(void)
 {
-	return sunxi_mmc_last_error();
+	return last_error;
 }
 
 void mmc_last_error_clear(void)
 {
-	sunxi_mmc_last_error_clear();
+	last_error[0] = '\0';
 }
 
 int sd_identify(struct mmc_card *card)

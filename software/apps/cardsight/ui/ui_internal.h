@@ -71,7 +71,7 @@ struct cardsight_ui {
 	bool selection_initialized;
 	bool manage_detail;
 	bool files_detail;
-	bool error_acknowledged;
+	int dismissed_error;
 	bool format_dialog_open;
 	bool animations;
 	enum blk_partition_content format_content;

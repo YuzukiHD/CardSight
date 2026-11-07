@@ -25,4 +25,7 @@ int mmc_blk_init(void);
 const char *mmc_last_error(void);
 void mmc_last_error_clear(void);
 
+/** The last identification result: negative while a card in the slot cannot be brought up. */
+int mmc_probe_error(void);
+
 #endif /* CARDSIGHT_MMC_CORE_H */
