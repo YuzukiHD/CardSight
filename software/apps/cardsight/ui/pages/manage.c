@@ -163,84 +163,6 @@ static void build_layout_entry(lv_obj_t *list)
 	set_disabled(button, ui.model.running || ui.model.busy || !ui.model.card_writable);
 }
 
-static void erase_dialog_close(void)
-{
-	if (ui.erase_dialog != NULL) {
-		lv_obj_delete_async(ui.erase_dialog);
-		ui.erase_dialog = NULL;
-	}
-}
-
-static void erase_start_event(lv_event_t *event)
-{
-	struct cardsight_request request = { .type = CARDSIGHT_REQUEST_ERASE };
-
-	(void)event;
-	send_request(&request);
-	erase_dialog_close();
-	ui_schedule_rebuild();
-}
-
-static void erase_cancel_event(lv_event_t *event)
-{
-	(void)event;
-	erase_dialog_close();
-}
-
-/* Built outside the input event, like the settings sheet: creating this many objects while a
- * button is being released made LVGL walk a stale style list. */
-static void erase_dialog_open_async(void *argument)
-{
-	lv_obj_t *dialog;
-	lv_obj_t *label;
-	lv_obj_t *button;
-
-	(void)argument;
-	if (ui.erase_dialog != NULL) {
-		return;
-	}
-	dialog = lv_obj_create(ui.screen);
-	ui.erase_dialog = dialog;
-	lv_obj_set_size(dialog, ui.width, ui.height);
-	lv_obj_set_pos(dialog, 0, 0);
-	ui_style_card(dialog, UI_BACKGROUND, 0);
-	lv_obj_set_style_pad_all(dialog, 0, 0);
-	disable_scroll(dialog);
-	label = make_label(dialog, "擦除整卡", UI_DANGER);
-	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
-	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
-	label = make_label(dialog, "将删除分区表，所有分区都会消失。文件数据没有被覆盖，仍可能被恢复。",
-		UI_MUTED);
-	lv_obj_set_width(label, ui_page_width() - 8);
-	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_WRAP);
-	lv_obj_set_pos(label, ui_margin() + 4, ui_margin() + 34);
-	button = make_button(dialog, "擦除", erase_start_event, NULL);
-	lv_obj_set_size(button, ui_page_width(), APP_ROW_HEIGHT);
-	lv_obj_set_style_radius(button, APP_ROW_HEIGHT / 2, 0);
-	lv_obj_set_pos(button, ui_margin(), ui_margin() + 34 + 72);
-	ui_style_button(button, UI_BUTTON_DANGER);
-	set_disabled(button, ui.model.running || ui.model.busy || !ui.model.card_writable);
-	button = make_bar_button(dialog, "返回", erase_cancel_event,
-		(int32_t)ui.width - 2 * APP_BAR_MARGIN);
-	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
-}
-
-static void erase_dialog_event(lv_event_t *event)
-{
-	(void)event;
-	(void)lv_async_call(erase_dialog_open_async, NULL);
-}
-
-static void build_erase_entry(lv_obj_t *list)
-{
-	lv_obj_t *button = make_button(list, "擦除整卡", erase_dialog_event, NULL);
-
-	lv_obj_set_size(button, lv_pct(100), APP_ROW_HEIGHT);
-	lv_obj_set_style_radius(button, APP_ROW_HEIGHT / 2, 0);
-	ui_style_button(button, UI_BUTTON_DANGER);
-	set_disabled(button, ui.model.running || ui.model.busy || !ui.model.card_writable);
-}
-
 static void build_format_detail(void)
 {
 	static const enum blk_partition_content contents[] = { BLK_PARTITION_FAT32, BLK_PARTITION_EXFAT, BLK_PARTITION_EXT4 };
@@ -275,5 +197,4 @@ void build_manage(void)
 	list = make_list(MANAGE_BAR_HEIGHT + APP_GAP, 0);
 	build_partition_rows(list);
 	build_layout_entry(list);
-	build_erase_entry(list);
 }

@@ -20,22 +20,6 @@ static bool layout_fits(const struct cardsight_request *request, uint64_t card_s
 }
 
 
-int erase_card(void)
-{
-	struct block_device *bdev = bdev_open_by_name(CONFIG_STORAGE_PROXY_SOURCE_DISK);
-	int result;
-
-	if (bdev == NULL || !bdev_is_whole(bdev)) {
-		if (bdev != NULL) {
-			bdev_close(bdev);
-		}
-		return -ENODEV;
-	}
-	result = blk_erase_partition_table(bdev->bd_disk);
-	bdev_close(bdev);
-	return result;
-}
-
 int layout_apply(const struct cardsight_request *request)
 {
 	struct block_device *bdev = bdev_open_by_name(CONFIG_STORAGE_PROXY_SOURCE_DISK);
@@ -51,7 +35,13 @@ int layout_apply(const struct cardsight_request *request)
 		bdev_close(bdev);
 		return -ENOSPC;
 	}
-	result = blk_write_partition_layout(bdev->bd_disk, request->table, request->entries, request->count);
+	/* Clear the old table first: it removes a stale GPT backup and any table the new
+	 * one would not cover, so the card really starts from a clean one. */
+	result = blk_erase_partition_table(bdev->bd_disk);
+	if (result == 0) {
+		result = blk_write_partition_layout(bdev->bd_disk, request->table, request->entries,
+			request->count);
+	}
 	bdev_close(bdev);
 	for (uint32_t index = 0U; result == 0 && index < request->count; index++) {
 		result = format_partition(index + 1U, request->entries[index].content, false);

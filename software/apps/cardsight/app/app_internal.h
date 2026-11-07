@@ -37,7 +37,5 @@ int format_partition(uint32_t partition, enum blk_partition_content content, boo
 /* Layout.c: write the table, then format the partitions it made. */
 int layout_apply(const struct cardsight_request *request);
 
-/* Layout.c: erase the partition table, leaving the card without partitions. */
-int erase_card(void);
 
 #endif /* CARDSIGHT_APP_INTERNAL_H */

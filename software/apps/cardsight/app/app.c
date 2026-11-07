@@ -212,7 +212,6 @@ static void worker(void *argument)
 				request.type == CARDSIGHT_REQUEST_STOP ? "正在安全停止" :
 				request.type == CARDSIGHT_REQUEST_FORMAT ? "正在格式化" :
 				request.type == CARDSIGHT_REQUEST_LIST ? "正在读取目录" :
-				request.type == CARDSIGHT_REQUEST_ERASE ? "正在擦除" :
 				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在格式化" : "正在连接USB");
 			mutex_unlock(&app_lock);
 			mmc_last_error_clear();
@@ -238,11 +237,8 @@ static void worker(void *argument)
 				result = card_list_files(request.partition, request.path);
 			} else if (request.type == CARDSIGHT_REQUEST_LAYOUT) {
 				result = usb_mass_storage_running() ? -EBUSY : layout_apply(&request);
-			} else if (request.type == CARDSIGHT_REQUEST_ERASE) {
-				result = usb_mass_storage_running() ? -EBUSY : erase_card();
 			}
-			if (request.type == CARDSIGHT_REQUEST_FORMAT || request.type == CARDSIGHT_REQUEST_LAYOUT ||
-				request.type == CARDSIGHT_REQUEST_ERASE) {
+			if (request.type == CARDSIGHT_REQUEST_FORMAT || request.type == CARDSIGHT_REQUEST_LAYOUT) {
 				(void)card_scan();
 			}
 			mutex_lock_timeout(&app_lock, WAIT_FOREVER);

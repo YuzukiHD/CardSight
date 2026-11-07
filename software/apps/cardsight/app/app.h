@@ -35,7 +35,6 @@ enum cardsight_request_type {
 	CARDSIGHT_REQUEST_FORMAT,
 	CARDSIGHT_REQUEST_LAYOUT,
 	CARDSIGHT_REQUEST_LIST,
-	CARDSIGHT_REQUEST_ERASE,
 };
 
 struct cardsight_request {
