@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * FatFs as a VFS file system type: FAT12/16/32 and exFAT.
+/**
+ * @file vfs_fat.c
+ * @brief FatFs as a VFS file system type: FAT12/16/32 and exFAT.
  *
  * A mount takes one of the FF_VOLUMES drive numbers ("N:"); the disk layer moves data through a
  * 64-byte aligned bounce buffer per drive and direction, because the block layer only does DMA
@@ -23,14 +24,24 @@
 #include "diskio.h"
 
 
+/** @brief Sectors copied per bounce-buffer round trip. */
 #define BOUNCE_SECTORS 16
 
+/** @brief Device behind each FatFs drive number; NULL marks a free drive. */
 static struct block_device *drive[FF_VOLUMES];
+/** @brief Read bounce buffers, one per drive because a nested file system may re-enter. */
 static uint8_t bounce_read[FF_VOLUMES][BOUNCE_SECTORS * 512] __attribute__((aligned(64)));
+/** @brief Write bounce buffers, one per drive and direction. */
 static uint8_t bounce_write[FF_VOLUMES][BOUNCE_SECTORS * 512] __attribute__((aligned(64)));
 
 /* ---- the FatFs disk layer ---- */
 
+/**
+ * @brief Report the state of a FatFs drive.
+ *
+ * @param[in] pdrv Drive number.
+ * @return STA_NOINIT when the drive has no device, STA_PROTECT when it is read-only, else 0.
+ */
 DSTATUS disk_status(BYTE pdrv)
 {
 	struct block_device *bdev = pdrv < FF_VOLUMES ? drive[pdrv] : NULL;
@@ -41,11 +52,29 @@ DSTATUS disk_status(BYTE pdrv)
 	return bdev_read_only(bdev) ? STA_PROTECT : 0;
 }
 
+/**
+ * @brief Initialise a FatFs drive.
+ *
+ * @param[in] pdrv Drive number.
+ * @return The result of disk_status(); the device is already open in the block layer.
+ */
 DSTATUS disk_initialize(BYTE pdrv)
 {
 	return disk_status(pdrv);
 }
 
+/**
+ * @brief Read sectors for FatFs.
+ *
+ * @param[in]  pdrv   Drive number.
+ * @param[out] buffer Destination buffer.
+ * @param[in]  sector First sector.
+ * @param[in]  count  Number of sectors.
+ * @return RES_OK, RES_NOTRDY, or RES_ERROR.
+ *
+ * The block layer only DMAs into 64-byte aligned buffers, so an unaligned request is copied
+ * through the drive's read bounce buffer in chunks of BOUNCE_SECTORS.
+ */
 DRESULT disk_read(BYTE pdrv, BYTE *buffer, LBA_t sector, UINT count)
 {
 	struct block_device *bdev = pdrv < FF_VOLUMES ? drive[pdrv] : NULL;
@@ -53,6 +82,7 @@ DRESULT disk_read(BYTE pdrv, BYTE *buffer, LBA_t sector, UINT count)
 	if (bdev == NULL) {
 		return RES_NOTRDY;
 	}
+	/* an aligned buffer can go to the DMA-capable block layer directly */
 	if (((uintptr_t)buffer & 63U) == 0U) {
 		return bdev_read(bdev, sector, buffer, count) != 0 ? RES_ERROR : RES_OK;
 	}
@@ -70,6 +100,19 @@ DRESULT disk_read(BYTE pdrv, BYTE *buffer, LBA_t sector, UINT count)
 	return RES_OK;
 }
 
+/**
+ * @brief Write sectors for FatFs.
+ *
+ * @param[in] pdrv   Drive number.
+ * @param[in] buffer Source buffer.
+ * @param[in] sector First sector.
+ * @param[in] count  Number of sectors.
+ * @return RES_OK, RES_NOTRDY, or RES_ERROR.
+ *
+ * The write is reported to the format progress counter first. An aligned source goes straight
+ * to the block layer; anything else is copied through the drive's write bounce buffer, which is
+ * separate from the read one so a nested proxy read cannot overwrite data still to be written.
+ */
 DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
 {
 	struct block_device *bdev = pdrv < FF_VOLUMES ? drive[pdrv] : NULL;
@@ -78,6 +121,7 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
 		return RES_NOTRDY;
 	}
 	vfs_format_report_write(bdev, count);
+	/* the write direction has its own buffer: a proxy read cannot overwrite it */
 	if (((uintptr_t)buffer & 63U) == 0U) {
 		return bdev_write(bdev, sector, buffer, count) != 0 ? RES_ERROR : RES_OK;
 	}
@@ -95,6 +139,16 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buffer, LBA_t sector, UINT count)
 	return RES_OK;
 }
 
+/**
+ * @brief Answer the FatFs disk ioctls.
+ *
+ * @param[in] pdrv    Drive number.
+ * @param[in] command CTRL_SYNC, GET_SECTOR_COUNT, or GET_BLOCK_SIZE.
+ * @param[in,out] buffer Output for the two size commands; unused for CTRL_SYNC.
+ * @return RES_OK, RES_NOTRDY, or RES_PARERR for an unknown command.
+ *
+ * The erase block is reported as 128 sectors, the granularity f_mkfs() uses for alignment.
+ */
 DRESULT disk_ioctl(BYTE pdrv, BYTE command, void *buffer)
 {
 	struct block_device *bdev = pdrv < FF_VOLUMES ? drive[pdrv] : NULL;
@@ -118,22 +172,37 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE command, void *buffer)
 
 /* ---- the file system type ---- */
 
+/**
+ * @brief Per-mount state of the FatFs type.
+ */
 struct fat_priv {
-	FATFS fs;
-	BYTE drv;
-	bool read_only;
-	char root[4];
+	FATFS fs;		/**< Library volume object. */
+	BYTE drv;		/**< FatFs drive number. */
+	bool read_only;		/**< Volume was mounted or formatted read-only. */
+	char root[4];		/**< Drive name passed to every library call, "N:". */
 };
 
+/**
+ * @brief An open FAT file: the library object.
+ */
 struct fat_file {
-	FIL file;
+	FIL file;		/**< Library file object. */
 };
 
+/**
+ * @brief An open FAT directory: the library object and its reusable FILINFO.
+ */
 struct fat_dir {
-	DIR dir;
-	FILINFO info;
+	DIR dir;		/**< Library directory object. */
+	FILINFO info;		/**< Latest entry, reused by f_readdir(). */
 };
 
+/**
+ * @brief Translate a FatFs result into a negated errno.
+ *
+ * @param[in] result FatFs status.
+ * @return 0 for FR_OK, otherwise the matching negative errno; unknown errors become -EIO.
+ */
 static int err_of(FRESULT result)
 {
 	switch (result) {
@@ -161,6 +230,14 @@ static int err_of(FRESULT result)
 	}
 }
 
+/**
+ * @brief Bind a device to a free FatFs drive number.
+ *
+ * @param[in] bdev Device to bind.
+ * @return The drive number, or -EMFILE when all drives are taken.
+ *
+ * The drive number is what FatFs uses as its volume index; the VFS root name is built from it.
+ */
 static int drive_take(struct block_device *bdev)
 {
 	for (int index = 0; index < FF_VOLUMES; index++) {
@@ -173,6 +250,15 @@ static int drive_take(struct block_device *bdev)
 }
 
 /* "N:" + the path inside the file system */
+/**
+ * @brief Prefix a relative path with the mount's drive name.
+ *
+ * @param[in]  priv     Mount state; its @c root holds "N:".
+ * @param[in]  relative Path inside the file system.
+ * @param[out] output   Buffer receiving "N:" plus the path.
+ * @param[in]  size     Size of @p output in bytes.
+ * @return 0 on success, -ENAMETOOLONG when the result does not fit.
+ */
 static int full_path(const struct fat_priv *priv, const char *relative, char *output, size_t size)
 {
 	size_t length = strlen(relative);
@@ -185,6 +271,16 @@ static int full_path(const struct fat_priv *priv, const char *relative, char *ou
 	return 0;
 }
 
+/**
+ * @brief Declare a full "N:<path>" buffer and fill it, returning on failure.
+ *
+ * @param[in]  priv     Mount state.
+ * @param[in]  relative Path inside the file system.
+ * @param[out] variable Name of the array to declare and fill.
+ *
+ * The array has room for VFS_PATH_MAX plus the two-character drive prefix and the terminator.
+ * The statement returns the negative errno from full_path() when the path is too long.
+ */
 #define PATH(priv, relative, variable)                                                             \
 	char variable[VFS_PATH_MAX + 4];                                                          \
 	do {                                                                                      \
@@ -194,6 +290,18 @@ static int full_path(const struct fat_priv *priv, const char *relative, char *ou
 		}                                                                                 \
 	} while (0)
 
+/**
+ * @brief Mount a FAT, FAT32, or exFAT volume.
+ *
+ * @param[in]  bdev  Device holding the volume.
+ * @param[in]  flags VFS_MOUNT_* flags; VFS_MOUNT_READ_ONLY forces a read-only mount.
+ * @param[out] priv  Receives the allocated mount state.
+ * @return 0 on success, -ENOMEM, -EMFILE when no drive is free, or the mapped FatFs error.
+ *
+ * A drive number is taken first, the mount state records the read-only decision and its drive
+ * name, and f_mount() attaches the volume. On failure the drive is released and the state
+ * freed; the error is also logged with the device name.
+ */
 static int fat_mount(struct block_device *bdev, uint32_t flags, void **priv)
 {
 	struct fat_priv *fat = calloc(1, sizeof(*fat));
@@ -203,6 +311,7 @@ static int fat_mount(struct block_device *bdev, uint32_t flags, void **priv)
 	if (fat == NULL) {
 		return -ENOMEM;
 	}
+	/* a free drive number is the volume index FatFs uses */
 	slot = drive_take(bdev);
 	if (slot < 0) {
 		free(fat);
@@ -224,6 +333,15 @@ static int fat_mount(struct block_device *bdev, uint32_t flags, void **priv)
 	return 0;
 }
 
+/**
+ * @brief Unmount a FAT volume and release its drive.
+ *
+ * @param[in] private_data Mount state.
+ * @return 0, or the mapped FatFs error.
+ *
+ * The library is unmounted first; the drive is released and the state freed regardless, so a
+ * failing medium cannot pin the slot.
+ */
 static int fat_umount(void *private_data)
 {
 	struct fat_priv *fat = private_data;
@@ -234,6 +352,15 @@ static int fat_umount(void *private_data)
 	return result;
 }
 
+/**
+ * @brief Flush a FAT mount.
+ *
+ * @param[in] private_data Mount state; unused.
+ * @return Always 0.
+ *
+ * FatFs writes its cached window when a file is synced or closed, so the mount itself has
+ * nothing to flush.
+ */
 static int fat_sync(void *private_data)
 {
 	(void)private_data;
@@ -241,7 +368,16 @@ static int fat_sync(void *private_data)
 	return 0;
 }
 
-/* Select the FatFs open mode for the VFS flags. */
+/**
+ * @brief Select the FatFs open mode for the VFS flags.
+ *
+ * @param[in] flags     VFS_O_* flags.
+ * @param[in] read_only True when the mount is read-only, which drops every write mode.
+ * @return The FA_* mode word passed to f_open().
+ *
+ * A create request becomes FA_CREATE_NEW with VFS_O_EXCL, FA_CREATE_ALWAYS with VFS_O_TRUNC,
+ * and FA_OPEN_ALWAYS otherwise; without it the file must already exist.
+ */
 static BYTE open_mode(uint32_t flags, bool read_only)
 {
 	BYTE mode = 0U;
@@ -266,6 +402,15 @@ static BYTE open_mode(uint32_t flags, bool read_only)
 	return mode;
 }
 
+/**
+ * @brief Open a file on a FAT mount.
+ *
+ * @param[in]  private_data Mount state.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[in]  flags        VFS_O_* flags.
+ * @param[out] file         Receives the allocated file object.
+ * @return 0 on success, -EROFS, -ENOMEM, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_open(void *private_data, const char *path, uint32_t flags, void **file)
 {
 	struct fat_priv *fat = private_data;
@@ -289,6 +434,14 @@ static int fat_open(void *private_data, const char *path, uint32_t flags, void *
 	return 0;
 }
 
+/**
+ * @brief Read from a FAT file.
+ *
+ * @param[in]  file   File object.
+ * @param[out] buffer Destination buffer.
+ * @param[in]  length Maximum number of bytes to read.
+ * @return The number of bytes read, or a negative errno.
+ */
 static int fat_read(void *file, void *buffer, size_t length)
 {
 	struct fat_file *handle = file;
@@ -298,6 +451,14 @@ static int fat_read(void *file, void *buffer, size_t length)
 	return result != FR_OK ? err_of(result) : (int)got;
 }
 
+/**
+ * @brief Write to a FAT file.
+ *
+ * @param[in] file   File object.
+ * @param[in] buffer Source buffer.
+ * @param[in] length Number of bytes to write.
+ * @return The number of bytes written, or a negative errno.
+ */
 static int fat_write(void *file, const void *buffer, size_t length)
 {
 	struct fat_file *handle = file;
@@ -307,6 +468,14 @@ static int fat_write(void *file, const void *buffer, size_t length)
 	return result != FR_OK ? err_of(result) : (int)put;
 }
 
+/**
+ * @brief Move the position of a FAT file.
+ *
+ * @param[in] file   File object.
+ * @param[in] offset Relative or absolute offset; a negative value is applied as an FSIZE_t.
+ * @param[in] whence 0 from the start, 1 from the current position, 2 from the end.
+ * @return The new position, -EINVAL, or -EIO when the library seek fails.
+ */
 static int64_t fat_seek(void *file, int64_t offset, int whence)
 {
 	struct fat_file *handle = file;
@@ -327,6 +496,13 @@ static int64_t fat_seek(void *file, int64_t offset, int whence)
 	return (int64_t)f_tell(&handle->file);
 }
 
+/**
+ * @brief Resize a FAT file.
+ *
+ * @param[in] file File object.
+ * @param[in] size New size in bytes.
+ * @return 0, or -EIO when the seek or the truncate fails.
+ */
 static int fat_truncate(void *file, uint64_t size)
 {
 	struct fat_file *handle = file;
@@ -337,6 +513,12 @@ static int fat_truncate(void *file, uint64_t size)
 	return err_of(f_truncate(&handle->file));
 }
 
+/**
+ * @brief Flush a FAT file.
+ *
+ * @param[in] file File object.
+ * @return 0, or the mapped FatFs error.
+ */
 static int fat_flush(void *file)
 {
 	struct fat_file *handle = file;
@@ -344,6 +526,12 @@ static int fat_flush(void *file)
 	return err_of(f_sync(&handle->file));
 }
 
+/**
+ * @brief Close a FAT file and free its object.
+ *
+ * @param[in] file File object.
+ * @return 0, or the mapped FatFs error from the library close.
+ */
 static int fat_close(void *file)
 {
 	struct fat_file *handle = file;
@@ -353,6 +541,13 @@ static int fat_close(void *file)
 	return result;
 }
 
+/**
+ * @brief Report the size of an open FAT file.
+ *
+ * @param[in]  file File object.
+ * @param[out] st   Structure receiving the size.
+ * @return 0.
+ */
 static int fat_fstat(void *file, struct vfs_stat *st)
 {
 	struct fat_file *handle = file;
@@ -362,6 +557,14 @@ static int fat_fstat(void *file, struct vfs_stat *st)
 	return 0;
 }
 
+/**
+ * @brief Stat a path on a FAT mount.
+ *
+ * @param[in]  private_data Mount state.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[out] st           Structure receiving size, type, attributes and timestamp.
+ * @return 0, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_stat(void *private_data, const char *path, struct vfs_stat *st)
 {
 	struct fat_priv *fat = private_data;
@@ -382,6 +585,13 @@ static int fat_stat(void *private_data, const char *path, struct vfs_stat *st)
 	return 0;
 }
 
+/**
+ * @brief Create a directory on a FAT mount.
+ *
+ * @param[in] private_data Mount state.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_mkdir(void *private_data, const char *path)
 {
 	struct fat_priv *fat = private_data;
@@ -393,6 +603,13 @@ static int fat_mkdir(void *private_data, const char *path)
 	return err_of(f_mkdir(full));
 }
 
+/**
+ * @brief Remove a file on a FAT mount.
+ *
+ * @param[in] private_data Mount state.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_unlink(void *private_data, const char *path)
 {
 	struct fat_priv *fat = private_data;
@@ -404,6 +621,17 @@ static int fat_unlink(void *private_data, const char *path)
 	return err_of(f_unlink(full));
 }
 
+/**
+ * @brief Remove a directory on a FAT mount.
+ *
+ * @param[in] private_data Mount state.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENOTDIR when the path is a file, -ENAMETOOLONG, or the mapped FatFs
+ *         error.
+ *
+ * FatFs has one remove call for both types, so the entry is stat'ed first and a file is
+ * refused before anything is deleted.
+ */
 static int fat_rmdir(void *private_data, const char *path)
 {
 	struct fat_priv *fat = private_data;
@@ -419,6 +647,14 @@ static int fat_rmdir(void *private_data, const char *path)
 	return err_of(f_unlink(full));
 }
 
+/**
+ * @brief Rename an entry on a FAT mount.
+ *
+ * @param[in] private_data Mount state.
+ * @param[in] from         Existing path.
+ * @param[in] to           New path.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_rename(void *private_data, const char *from, const char *to)
 {
 	struct fat_priv *fat = private_data;
@@ -439,6 +675,14 @@ static int fat_rename(void *private_data, const char *from, const char *to)
 	return err_of(f_rename(full_from, full_to));
 }
 
+/**
+ * @brief Open a directory on a FAT mount.
+ *
+ * @param[in]  private_data Mount state.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[out] dir          Receives the allocated directory object.
+ * @return 0, -ENOMEM, -ENAMETOOLONG, or the mapped FatFs error.
+ */
 static int fat_opendir(void *private_data, const char *path, void **dir)
 {
 	struct fat_priv *fat = private_data;
@@ -459,6 +703,16 @@ static int fat_opendir(void *private_data, const char *path, void **dir)
 	return 0;
 }
 
+/**
+ * @brief Read the next entry of a FAT directory.
+ *
+ * @param[in]  dir   Directory object.
+ * @param[out] entry Entry receiving name, size, type, attributes and timestamp.
+ * @return 0 on success, -ENOENT at the end of the directory, or a negative errno.
+ *
+ * FatFs signals the end with an empty name; that becomes -ENOENT so vfs_readdir() has one
+ * convention for both file systems.
+ */
 static int fat_readdir(void *dir, struct vfs_dirent *entry)
 {
 	struct fat_dir *handle = dir;
@@ -480,6 +734,12 @@ static int fat_readdir(void *dir, struct vfs_dirent *entry)
 	return 0;
 }
 
+/**
+ * @brief Close a FAT directory and free its object.
+ *
+ * @param[in] dir Directory object.
+ * @return 0, or the mapped FatFs error from the library close.
+ */
 static int fat_closedir(void *dir)
 {
 	struct fat_dir *handle = dir;
@@ -489,6 +749,17 @@ static int fat_closedir(void *dir)
 	return result;
 }
 
+/**
+ * @brief Report the capacity of a FAT mount.
+ *
+ * @param[in]  private_data Mount state.
+ * @param[out] total        Receives the total size in bytes.
+ * @param[out] free_bytes   Receives the free space in bytes.
+ * @return 0, or -EIO when the free-cluster count cannot be read.
+ *
+ * The count comes from f_getfree(); the cluster size of the mounted volume turns both cluster
+ * counts into bytes.
+ */
 static int fat_statfs(void *private_data, uint64_t *total, uint64_t *free_bytes)
 {
 	struct fat_priv *fat = private_data;
@@ -496,6 +767,7 @@ static int fat_statfs(void *private_data, uint64_t *total, uint64_t *free_bytes)
 	FATFS *fs = &fat->fs;
 	uint64_t cluster_bytes;
 
+	/* the library scans the FAT itself when the cached free count is unknown */
 	if (err_of(f_getfree(fat->root, &free_clusters, &fs)) != 0) {
 		return -EIO;
 	}
@@ -505,6 +777,16 @@ static int fat_statfs(void *private_data, uint64_t *total, uint64_t *free_bytes)
 	return 0;
 }
 
+/**
+ * @brief Describe a FAT mount: label and exact FAT generation.
+ *
+ * @param[in]  private_data Mount state.
+ * @param[out] info         Volume information; @c label and @c fstype are filled.
+ * @return 0.
+ *
+ * The library reports FS_EXFAT, FS_FAT32, FS_FAT16, or FS_FAT12; anything else is reported as
+ * FAT12.
+ */
 static int fat_volume_info(void *private_data, struct vfs_volume_info *info)
 {
 	struct fat_priv *fat = private_data;
@@ -525,17 +807,25 @@ static int fat_volume_info(void *private_data, struct vfs_volume_info *info)
 	return 0;
 }
 
-/*
- * The device is a partition, so the volume gets no partition table of its own (FM_SFD). The label
- * is written with a short mount; the drive is taken and released around the whole call.
- */
-/*
- * How many sectors f_mkfs is going to write, from the same geometry rules it uses: the reserved
- * area, both FATs and the root directory. The estimate only drives the progress bar; a slightly
- * low value is clamped so the bar never passes 100% before the format really finishes.
+/**
+ * @brief Estimate how many sectors a format will write, for the progress bar.
+ *
+ * @param[in] bdev     Device being formatted.
+ * @param[in] au_bytes Allocation unit in bytes, or zero for the library's automatic choice.
+ * @param[in] format   FM_* format selection.
+ * @return The estimated sector count, or zero when no estimate is possible.
+ *
+ * The device is a partition, so the volume gets no partition table of its own (FM_SFD). The
+ * label is written with a short mount; the drive is taken and released around the whole call.
+ *
+ * The count follows the same geometry rules f_mkfs() uses: the reserved area, both FATs and the
+ * root directory, plus the exFAT allocation bitmap, up-case table and root directory. It only
+ * drives the progress bar; a slightly low value is clamped so the bar never passes 100% before
+ * the format really finishes.
  */
 static uint64_t fat_format_expected(struct block_device *bdev, uint32_t au_bytes, BYTE format)
 {
+	/** @brief Cluster sizes in 128K sector units, used by the automatic choice. */
 	static const uint16_t cst32[] = { 1, 2, 4, 8, 16, 32, 0 }; /* 128K sector units */
 	uint64_t sectors = bdev_nr_sectors(bdev);
 	uint64_t cluster;
@@ -577,6 +867,19 @@ static uint64_t fat_format_expected(struct block_device *bdev, uint32_t au_bytes
 	return 32U + 2U * fat_sectors + cluster;
 }
 
+/**
+ * @brief Format a device with one FatFs variant and, optionally, a label.
+ *
+ * @param[in] bdev  Device to format.
+ * @param[in] label Volume label, may be NULL or empty.
+ * @param[in] arg   Allocation unit in bytes, or zero for automatic.
+ * @param[in] format FM_* format selection; FM_SFD is added here.
+ * @return 0, -ENOMEM, -EMFILE when no drive is free, or the mapped FatFs error.
+ *
+ * f_mkfs() needs a work area, which is allocated from the heap. The drive is taken first and
+ * the expected write volume reported to the progress counter. A label is applied by mounting
+ * the fresh volume briefly and calling f_setlabel(); the drive is released on every path.
+ */
 static int fat_format_flags(struct block_device *bdev, const char *label, uint32_t arg, BYTE format)
 {
 	MKFS_PARM options = {
@@ -602,6 +905,7 @@ static int fat_format_flags(struct block_device *bdev, const char *label, uint32
 	}
 	root[0] = (char)('0' + slot);
 	vfs_format_expect(bdev, fat_format_expected(bdev, arg, format));
+	/* the estimate only feeds the progress bar */
 	result = err_of(f_mkfs(root, &options, work, work_size));
 	free(work);
 	if (result == 0 && label != NULL && label[0] != '\0') {
@@ -622,21 +926,46 @@ static int fat_format_flags(struct block_device *bdev, const char *label, uint32
 	return result;
 }
 
+/**
+ * @brief Format a device as FAT12/16 or FAT32.
+ *
+ * @param[in] bdev  Device to format.
+ * @param[in] label Volume label, may be NULL.
+ * @param[in] arg   Allocation unit in bytes, or zero for automatic.
+ * @return 0, or the error from fat_format_flags().
+ */
 static int fat_format_fat(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_FAT | FM_FAT32);
 }
 
+/**
+ * @brief Format a device as FAT32.
+ *
+ * @param[in] bdev  Device to format.
+ * @param[in] label Volume label, may be NULL.
+ * @param[in] arg   Allocation unit in bytes, or zero for automatic.
+ * @return 0, or the error from fat_format_flags().
+ */
 static int fat_format_fat32(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_FAT32);
 }
 
+/**
+ * @brief Format a device as exFAT.
+ *
+ * @param[in] bdev  Device to format.
+ * @param[in] label Volume label, may be NULL.
+ * @param[in] arg   Allocation unit in bytes, or zero for automatic.
+ * @return 0, or the error from fat_format_flags().
+ */
 static int fat_format_exfat(struct block_device *bdev, const char *label, uint32_t arg)
 {
 	return fat_format_flags(bdev, label, arg, FM_EXFAT);
 }
 
+/** @brief The "fat" VFS file system type. */
 static const struct vfs_fs fat_type = {
 	.name = "fat",
 	.flags = 0U,
@@ -665,9 +994,16 @@ static const struct vfs_fs fat_type = {
 };
 
 /* "fat32" and "exfat" pick the same library; it reads the type from the volume. */
+/** @brief "fat32": the same library, with the format hook pinned to FAT32. */
 static struct vfs_fs fat32_type;
+/** @brief "exfat": the same library, with the format hook pinned to exFAT. */
 static struct vfs_fs exfat_type;
 
+/**
+ * @brief Init call that registers the FAT file system types.
+ *
+ * @return 0 on success, or the negative errno from vfs_ff_register().
+ */
 static int fat_init(void)
 {
 	return vfs_ff_register();
@@ -675,6 +1011,15 @@ static int fat_init(void)
 /* before the scheduler: only the type table changes */
 INITCALL(1, 10, fat_init);
 
+/**
+ * @brief Register the FatFs-backed file system types.
+ *
+ * @return 0 on success, or the negative errno from vfs_register().
+ *
+ * The base "fat" type is registered first; "fat32" and "exfat" are copies of it that differ
+ * only in the name and the format hook, so the library still detects the volume's own type.
+ * A failure part-way leaves the types already registered in place.
+ */
 int vfs_ff_register(void)
 {
 	int result = vfs_register(&fat_type);

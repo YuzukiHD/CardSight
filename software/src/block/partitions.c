@@ -1,10 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * Partition tables: the MBR at sector 0 (four primary entries) and the GPT behind a protective
- * MBR (header at LBA 1, entry array where the header says). The partitions become block devices
- * "<disk>p<N>"; the GPT keeps its entry order.
+/**
+ * @file partitions.c
+ * @brief Partition tables: the MBR at sector 0 and the GPT behind a protective MBR.
+ *
+ * The MBR has four primary entries; the GPT sits behind a protective MBR (header at LBA 1,
+ * entry array where the header says). The partitions become block devices "<disk>p<N>"; the
+ * GPT keeps its entry order.
  */
 
+/** @brief Log module name used by the pr_*() helpers. */
 #define LOG_MODULE "block"
 
 #include <stdio.h>
@@ -16,21 +20,39 @@
 #include "block/block_internal.h"
 
 
+/** @brief Offset of the four 16-byte MBR entries inside sector 0. */
 #define MBR_TABLE_OFFSET 446U
+/** @brief Bytes of the GPT entry array read in one window. */
 #define GPT_ENTRIES_SCAN 4096U
+/** @brief Highest GPT entry count the scanner accepts. */
 #define GPT_MAX_ENTRIES	 128U
 
+/** @brief GPT type GUID of a basic data partition (FAT32). */
 static const uint8_t gpt_basic_data[16] = { 0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44,
 	0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99, 0xc7 };
+/** @brief GPT type GUID of a Linux filesystem partition. */
 static const uint8_t gpt_linux_filesystem[16] = { 0xaf, 0x3d, 0xc6, 0x0f, 0x83, 0x84, 0x72, 0x47,
 	0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d, 0xe4 };
+/** @brief GPT type GUID of an EFI system partition. */
 static const uint8_t gpt_efi_system[16] = { 0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11,
 	0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b };
 
 /* The table sector and the GPT entry window; the block lock is held while they are in use. */
+/** @brief One sector of scratch space for the table being scanned. */
 static uint8_t table_sector[BLOCK_SECTOR_SIZE] __attribute__((aligned(64)));
+/** @brief Window holding the GPT entry array. */
 static uint8_t gpt_window[GPT_ENTRIES_SCAN] __attribute__((aligned(64)));
 
+/**
+ * @brief Decode the UTF-16LE label of a GPT entry.
+ *
+ * @details Reads code units until a terminator, the 36-unit limit or the output buffer is
+ * full. Characters outside ASCII are replaced by '?', because the block device label field is
+ * a plain byte string.
+ *
+ * @param[in]  entry GPT entry, label at offset 0x38.
+ * @param[out] label Buffer of @c BDEV_LABEL_LEN bytes receiving a NUL-terminated label.
+ */
 static void gpt_label(const uint8_t *entry, char label[BDEV_LABEL_LEN])
 {
 	const uint8_t *utf16 = entry + 0x38U;
@@ -47,6 +69,13 @@ static void gpt_label(const uint8_t *entry, char label[BDEV_LABEL_LEN])
 	}
 }
 
+/**
+ * @brief Map a GPT type GUID to the MBR type byte the rest of the layer uses.
+ *
+ * @param[in] type 16-byte type GUID of the entry.
+ * @return 0x0c for a basic data partition, 0x83 for a Linux filesystem, 0xef for an EFI system
+ *         partition, or 0x00 for any other type.
+ */
 static uint8_t gpt_part_type(const uint8_t *type)
 {
 	if (memcmp(type, gpt_basic_data, 16U) == 0) {
@@ -61,6 +90,22 @@ static uint8_t gpt_part_type(const uint8_t *type)
 	return 0x00;
 }
 
+/**
+ * @brief Allocate one partition block device and append it to its disk.
+ *
+ * @details The device starts with one reference of its own, points at the disk and takes an
+ * extra reference on the disk so it outlives a removed disk. The name becomes "<disk>p<N>"
+ * and the entry is appended to keep the table's order.
+ *
+ * @param[in] disk      Disk the partition belongs to.
+ * @param[in] partno    Partition number, starting at 1.
+ * @param[in] start     First sector inside the disk.
+ * @param[in] sectors   Length in sectors.
+ * @param[in] type      Type byte reported to the UI.
+ * @param[in] read_only true when the entry must refuse writes.
+ * @param[in] label     Volume label, or NULL.
+ * @return 0 on success, or -ENOMEM when the record cannot be allocated.
+ */
 static int add_partition(struct gendisk *disk, uint32_t partno, uint64_t start, uint64_t sectors,
 	uint8_t type, bool read_only, const char *label)
 {
@@ -92,6 +137,16 @@ static int add_partition(struct gendisk *disk, uint32_t partno, uint64_t start, 
 	return 0;
 }
 
+/**
+ * @brief Register the primary entries of the MBR already in @c table_sector.
+ *
+ * @details Walks the four entries. Empty entries, extended-partition entries (0x05, 0x0f,
+ * 0x85) and entries with no start or length are skipped, and so is an entry that runs past the
+ * end of the disk; the chain is not followed, so only primary partitions appear.
+ *
+ * @param[in] disk Disk being scanned.
+ * @return 0 on success, or -ENOMEM from add_partition().
+ */
 static int scan_mbr(struct gendisk *disk)
 {
 	int result = 0;
@@ -102,6 +157,7 @@ static int scan_mbr(struct gendisk *disk)
 		uint64_t start = blk_le32(entry + 8U);
 		uint64_t sectors = blk_le32(entry + 12U);
 
+		/* unused, extended, or empty entries are not partitions of their own */
 		if (type == 0x00U || type == 0x05U || type == 0x0fU || type == 0x85U ||
 		    start == 0U || sectors == 0U) {
 			continue;
@@ -117,6 +173,18 @@ static int scan_mbr(struct gendisk *disk)
 	return 0;
 }
 
+/**
+ * @brief Register the entries of the GPT that follows the protective MBR.
+ *
+ * @details Reads LBA 1 and checks the "EFI PART" signature, then takes the entry array address,
+ * count and size from the header. The window is read in one transfer; the entry count is
+ * clamped to what fits and to the count in the header. Unused entries are skipped, an end
+ * beyond the disk is clamped, and the label and type GUID are decoded for each partition.
+ *
+ * @param[in] disk Disk being scanned.
+ * @return 0 on success, -ENOENT when there is no GPT header, -EINVAL for an implausible or
+ *         out-of-range header, -EIO on a read error, or -ENOMEM from add_partition().
+ */
 static int scan_gpt(struct gendisk *disk)
 {
 	uint64_t entries_lba;
@@ -126,6 +194,7 @@ static int scan_gpt(struct gendisk *disk)
 	uint32_t entries;
 	int result;
 
+	/* the header signature tells a real GPT from a stray 0xee type byte */
 	if (disk->fops->read(disk, 1U, table_sector, 1U) != 0 || memcmp(table_sector, "EFI PART", 8U) != 0) {
 		return -ENOENT;
 	}
@@ -153,6 +222,7 @@ static int scan_gpt(struct gendisk *disk)
 		uint64_t end;
 		char label[BDEV_LABEL_LEN];
 
+		/* an all-zero type GUID marks an unused slot */
 		memset(type, 0, sizeof(type));
 		if (memcmp(entry, type, 16U) == 0) {
 			continue;
@@ -175,6 +245,17 @@ static int scan_gpt(struct gendisk *disk)
 	return 0;
 }
 
+/**
+ * @brief Read the table of @p disk and register its partitions.
+ *
+ * @details Reads sector 0 once. No 0x55aa signature means no table. A type 0xee entry in any
+ * MBR slot is the protective marker a GPT leaves behind, so the scan continues with the GPT
+ * header; every other table is taken as an MBR.
+ *
+ * @param[in] disk Disk to scan.
+ * @return 0 on success, -EIO when sector 0 cannot be read, -ENOENT without a table, or another
+ *         negative errno from the table scanner.
+ */
 int blk_scan_partitions(struct gendisk *disk)
 {
 	bool protective = false;
@@ -185,6 +266,7 @@ int blk_scan_partitions(struct gendisk *disk)
 	if (table_sector[510] != 0x55U || table_sector[511] != 0xaaU) {
 		return -ENOENT;
 	}
+	/* any 0xee entry means the real table is a GPT further down the disk */
 	for (uint32_t slot = 0U; slot < 4U; slot++) {
 		if (table_sector[MBR_TABLE_OFFSET + slot * 16U + 4U] == 0xeeU) {
 			protective = true;
@@ -193,6 +275,15 @@ int blk_scan_partitions(struct gendisk *disk)
 	return protective ? scan_gpt(disk) : scan_mbr(disk);
 }
 
+/**
+ * @brief Release every partition of a disk.
+ *
+ * @details The list is detached first, so a concurrent scan cannot see a half-released list.
+ * Each record drops its parent link and its reference; the disk's reference taken by
+ * add_partition() is released by bdev_release() when the last one goes.
+ *
+ * @param[in] disk Disk whose partitions go away.
+ */
 void blk_drop_partitions(struct gendisk *disk)
 {
 	struct block_device *bdev = disk->parts;
@@ -208,6 +299,16 @@ void blk_drop_partitions(struct gendisk *disk)
 	}
 }
 
+/**
+ * @brief Drop and rescan the partitions of a registered disk.
+ *
+ * @details Takes the block lock, refuses a disk that is gone, one with a sector size other
+ * than 512 bytes, and one with a mounted partition. The partitions are dropped and the table
+ * read again; a disk without a table is a valid result, reported as success.
+ *
+ * @param[in] disk Disk to rescan.
+ * @return 0 on success, -ENODEV, -ENOTSUP or -EBUSY on refusal, or a read error.
+ */
 int blkdev_rescan_partitions(struct gendisk *disk)
 {
 	int result;

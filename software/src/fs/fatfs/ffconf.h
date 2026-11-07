@@ -1,3 +1,12 @@
+/**
+ * @file ffconf.h
+ * @brief FatFs configuration for CardSight.
+ *
+ * Read-write FAT12/16/32 and exFAT with UTF-8 long names, four drive slots for the VFS mounts,
+ * and fixed 512-byte sectors to match the block layer. The formatter support (f_mkfs, volume
+ * labels and expansion) is enabled because the VFS exposes formatting. There is no RTC, and
+ * FatFs is not re-entrant: the VFS lock serialises all access.
+ */
 /*---------------------------------------------------------------------------/
 /  Configurations of FatFs Module
 /---------------------------------------------------------------------------*/

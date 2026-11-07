@@ -1,3 +1,9 @@
+/**
+ * @file digits_32.c
+ * @brief Generated data: the 32 px CardSight digit font.
+ *
+ * Generated LVGL font data for the digits shown on the CardSight display.
+ */
 /*******************************************************************************
  * Size: 32 px
  * Bpp: 4

@@ -1,23 +1,44 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * The file browser: first the partitions of the card, then one directory at a time. The worker
- * lists the directory, so the UI never waits on the card; this page only renders the snapshot.
+/**
+ * @file files.c
+ * @brief File browser: partition picker followed by one directory at a time.
+ *
+ * The worker lists each directory, so the UI never waits on the card; this page
+ * only renders the snapshot and posts a new list request when the user opens a
+ * partition or a subdirectory.
  */
 
 #include "ui/ui_internal.h"
 
 #include <size.h>
 
+/** @brief Height of the directory header line above the list, in pixels. */
 #define FILES_HEADER_HEIGHT 28
+/** @brief Horizontal inset of row content from the row edge, in pixels. */
 #define FILES_ROW_INSET 14
+/** @brief Width of the file-size column on the right, in pixels. */
 #define FILES_SIZE_WIDTH 64
 
 /* Width of a row inside the scrolling list: the list has APP_EDGE_PAD on both sides. */
+/**
+ * @brief Return the usable row width inside the scrolling list.
+ *
+ * @details Subtracts the edge padding on both sides of the list.
+ *
+ * @return Width in pixels.
+ */
 static int32_t row_width(void)
 {
 	return (int32_t)ui.width - 2 * APP_EDGE_PAD;
 }
 
+/**
+ * @brief Ask the worker to list the current path on the current partition.
+ *
+ * @details Returns without sending when no card is present: pulling the card
+ *          while the browser is open must not turn into "card not found"
+ *          errors, there is simply nothing to list.
+ */
 static void list_request(void)
 {
 	struct cardsight_request request = {
@@ -34,12 +55,24 @@ static void list_request(void)
 	send_request(&request);
 }
 
+/**
+ * @brief Check whether the model holds the listing for the shown directory.
+ *
+ * @return True when the snapshot is valid and matches both the partition and
+ *         the path the page is showing.
+ */
 static bool list_matches(void)
 {
 	return ui.model.files.valid && ui.model.files.partition == ui.files_partition &&
 		strcmp(ui.model.files.path, ui.files_path) == 0;
 }
 
+/**
+ * @brief Map a listing error number to a user-facing message.
+ *
+ * @param[in] error Negative errno from the worker.
+ * @return Constant message describing the failure.
+ */
 static const char *list_error_text(int error)
 {
 	switch (error) {
@@ -53,6 +86,14 @@ static const char *list_error_text(int error)
 
 /* ---- the partition list ---- */
 
+/**
+ * @brief Open the root directory of the clicked partition.
+ *
+ * @details Records the partition, resets the path to "/", switches to the
+ *          detail view, and asks the worker for the listing.
+ *
+ * @param[in] event LVGL click event carrying the partition number.
+ */
 static void partition_event(lv_event_t *event)
 {
 	ui.files_partition = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
@@ -62,6 +103,16 @@ static void partition_event(lv_event_t *event)
 	ui_schedule_rebuild();
 }
 
+/**
+ * @brief Fill the partition list with one row per partition.
+ *
+ * @details Each row is a pill button with a colour dot, a title with the
+ *          partition number and filesystem, and a second line with the size and
+ *          a read-only marker. Rows for unreadable partitions are disabled and
+ *          never navigate. An empty card shows a hint instead.
+ *
+ * @param[in,out] list Scrolling list receiving the rows.
+ */
 static void build_partition_rows(lv_obj_t *list)
 {
 	for (size_t index = 0U; index < ui.model.partition_count; index++) {
@@ -99,6 +150,12 @@ static void build_partition_rows(lv_obj_t *list)
 	}
 }
 
+/**
+ * @brief Build the partition-picker view of the Files page.
+ *
+ * @details Adds the "choose a partition" header and the scrolling partition
+ *          list below it.
+ */
 static void build_partitions(void)
 {
 	lv_obj_t *list;
@@ -110,6 +167,16 @@ static void build_partitions(void)
 
 /* ---- one directory ---- */
 
+/**
+ * @brief Open the clicked directory.
+ *
+ * @details Appends the entry name to the current path, taking care not to
+ *          double the separator at the root and to undo a truncated append
+ *          when the path would overflow. The worker is then asked for the new
+ *          listing and the page is rebuilt.
+ *
+ * @param[in] event LVGL click event carrying the entry index.
+ */
 static void directory_event(lv_event_t *event)
 {
 	uint32_t index = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
@@ -126,6 +193,13 @@ static void directory_event(lv_event_t *event)
 	ui_schedule_rebuild();
 }
 
+/**
+ * @brief Leave the current directory on the Files page.
+ *
+ * @details From the root it returns to the partition picker. Otherwise it cuts
+ *          the path at the last separator, falling back to "/" when there is
+ *          none, and requests the parent listing.
+ */
 void files_go_back(void)
 {
 	char *slash;
@@ -148,6 +222,14 @@ void files_go_back(void)
 	ui_schedule_rebuild();
 }
 
+/**
+ * @brief Add the ".." row that navigates to the parent directory.
+ *
+ * @details A ghost-styled row; clicking it runs the common back handler. It is
+ *          disabled while the UI is busy.
+ *
+ * @param[in,out] list Scrolling list receiving the row.
+ */
 static void build_parent_row(lv_obj_t *list)
 {
 	lv_obj_t *button = make_button(list, "..", ui_back_event, NULL);
@@ -159,6 +241,17 @@ static void build_parent_row(lv_obj_t *list)
 	set_disabled(button, ui.model.busy);
 }
 
+/**
+ * @brief Add one subdirectory row.
+ *
+ * @details A pill row with a recoloured folder icon on the left and an
+ *          ellipsised name, wired to directory_event() with the entry index.
+ *          The row is disabled while the UI is busy.
+ *
+ * @param[in,out] list  Scrolling list receiving the row.
+ * @param[in]     index Entry index carried as click user data.
+ * @param[in]     entry Directory entry to display.
+ */
 static void build_directory_row(lv_obj_t *list, uint32_t index, const struct cardsight_file_entry *entry)
 {
 	lv_obj_t *button = lv_button_create(list);
@@ -182,6 +275,15 @@ static void build_directory_row(lv_obj_t *list, uint32_t index, const struct car
 	set_disabled(button, ui.model.busy);
 }
 
+/**
+ * @brief Add one file row.
+ *
+ * @details A plain, non-clickable row with the ellipsised name on the left and
+ *          the formatted size right-aligned in a fixed column.
+ *
+ * @param[in,out] list  Scrolling list receiving the row.
+ * @param[in]     entry File entry to display.
+ */
 static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *entry)
 {
 	lv_obj_t *row = make_box(list, lv_pct(100), APP_ROW_HEIGHT);
@@ -201,6 +303,14 @@ static void build_file_row(lv_obj_t *list, const struct cardsight_file_entry *en
 	lv_obj_align(size, LV_ALIGN_RIGHT_MID, -FILES_ROW_INSET, 0);
 }
 
+/**
+ * @brief Fill the list with the parent row and every current entry.
+ *
+ * @details Adds the parent row unless the page is at the root, then dispatches
+ *          each entry to the directory or file row builder.
+ *
+ * @param[in,out] list Scrolling list receiving the rows.
+ */
 static void build_directory_rows(lv_obj_t *list)
 {
 	if (strcmp(ui.files_path, "/") != 0) {
@@ -217,6 +327,14 @@ static void build_directory_rows(lv_obj_t *list)
 	}
 }
 
+/**
+ * @brief Build the directory view of the Files page.
+ *
+ * @details Adds an ellipsised "P<n> <path>" header and the scrolling list. The
+ *          list shows "reading" or "failed" while the snapshot does not match
+ *          the shown directory, the mapped error when listing failed, an empty
+ *          hint for an empty directory, and the rows otherwise.
+ */
 static void build_directory(void)
 {
 	char head[VFS_PATH_MAX + 24];
@@ -229,6 +347,7 @@ static void build_directory(void)
 	lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
 	ui_label_set_ellipsis(label, head, ui_page_width() - 8);
 	list = make_list(FILES_HEADER_HEIGHT, 0);
+	/* the snapshot may still be from the previous directory */
 	if (!list_matches()) {
 		make_label(list, ui.model.busy ? "正在读取…" : "读取失败", UI_MUTED);
 		return;
@@ -244,6 +363,12 @@ static void build_directory(void)
 	build_directory_rows(list);
 }
 
+/**
+ * @brief Build the Files page, either the directory or the partition picker.
+ *
+ * @details The detail flag selects the directory view; otherwise the partition
+ *          picker is built.
+ */
 void build_files(void)
 {
 	if (ui.files_detail) {

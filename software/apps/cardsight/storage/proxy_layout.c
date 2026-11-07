@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* A root text file that describes the source disk: its partition table and where each partition sits. */
+/**
+ * @file proxy_layout.c
+ * @brief The root text file that describes the source disk, its table and partitions.
+ */
 
 #include "proxy_internal.h"
 
@@ -7,33 +10,57 @@
 #include <size.h>
 #include <stdarg.h>
 
+/** @brief Size of the scratch buffer holding the generated text. */
 #define LAYOUT_TEXT_MAX 2048U
 /* The MBR is one sector; a GPT entry array of 128 entries is eight sectors. */
+/** @brief Sectors read from the source for a table header or entry array. */
 #define LAYOUT_TABLE_SECTORS 8U
 
 /* The proxy lock is held for the whole start, so one set of scratch buffers serves the builder. */
+/** @brief Scratch buffer for the on-disk table header. */
 static uint8_t layout_table[LAYOUT_TABLE_SECTORS * PROXY_SECTOR_SIZE] __attribute__((aligned(64)));
+/** @brief Scratch buffer for a GPT entry array. */
 static uint8_t layout_array[LAYOUT_TABLE_SECTORS * PROXY_SECTOR_SIZE] __attribute__((aligned(64)));
+/** @brief Scratch buffer for the generated text file. */
 static char layout_text[LAYOUT_TEXT_MAX];
 
+/**
+ * @brief One partition found in the source disk's own table.
+ */
 struct layout_entry {
+	/** @brief First sector of the partition. */
 	uint64_t start;
+	/** @brief Size of the partition in sectors. */
 	uint64_t sectors;
+	/** @brief MBR partition type byte. */
 	uint8_t mbr_type;
+	/** @brief GPT type GUID. */
 	uint8_t gpt_type[16];
+	/** @brief True when the MBR entry is marked bootable. */
 	bool bootable;
+	/** @brief True when this entry was filled from the table. */
 	bool valid;
 };
 
+/** @brief GPT type GUID of an EFI system partition. */
 static const uint8_t gpt_efi_system[16] = { 0x28, 0x73, 0x2a, 0xc1, 0x1f, 0xf8, 0xd2, 0x11,
 	0xba, 0x4b, 0x00, 0xa0, 0xc9, 0x3e, 0xc9, 0x3b };
+/** @brief GPT type GUID of a Microsoft basic data partition. */
 static const uint8_t gpt_basic_data[16] = { 0xa2, 0xa0, 0xd0, 0xeb, 0xe5, 0xb9, 0x33, 0x44,
 	0x87, 0xc0, 0x68, 0xb6, 0xb7, 0x26, 0x99, 0xc7 };
+/** @brief GPT type GUID of a Linux filesystem partition. */
 static const uint8_t gpt_linux_filesystem[16] = { 0xaf, 0x3d, 0xc6, 0x0f, 0x83, 0x84, 0x72, 0x47,
 	0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d, 0xe4 };
+/** @brief GPT type GUID of a Linux swap partition. */
 static const uint8_t gpt_linux_swap[16] = { 0x6d, 0xfd, 0x57, 0x06, 0xab, 0xa4, 0xc4, 0x43,
 	0x84, 0xe5, 0x09, 0x33, 0xc8, 0x4b, 0x4f, 0x4f };
 
+/**
+ * @brief Describe an MBR partition type byte for the layout file.
+ *
+ * @param[in] type MBR partition type byte.
+ * @return Human-readable type name, or "unknown".
+ */
 static const char *mbr_type_name(uint8_t type)
 {
 	switch (type) {
@@ -49,10 +76,19 @@ static const char *mbr_type_name(uint8_t type)
 	}
 }
 
+/**
+ * @brief Describe a GPT type GUID for the layout file.
+ *
+ * @param[in] type 16-byte GPT type GUID.
+ * @return Human-readable type name, or "other".
+ */
 static const char *gpt_type_name(const uint8_t type[16])
 {
+	/** @brief GUIDs the layout file knows by name. */
 	static const struct {
+		/** @brief GPT type GUID. */
 		const uint8_t *guid;
+		/** @brief Name shown in the layout file. */
 		const char *name;
 	} names[] = {
 		{ gpt_efi_system, "EFI system" },
@@ -69,7 +105,15 @@ static const char *gpt_type_name(const uint8_t type[16])
 	return "other";
 }
 
-/* GPT stores the first three fields of a GUID little endian. */
+/**
+ * @brief Format a GPT GUID as text.
+ *
+ * @details GPT stores the first three fields of a GUID little endian, so the
+ * bytes are reordered to the usual 8-4-4-4-12 textual form.
+ *
+ * @param[in]  guid   16-byte GUID.
+ * @param[out] output Buffer of 37 bytes receiving the text.
+ */
 static void gpt_guid_text(const uint8_t guid[16], char output[37])
 {
 	snprintf(output, 37U, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
@@ -77,12 +121,24 @@ static void gpt_guid_text(const uint8_t guid[16], char output[37])
 		guid[8], guid[9], guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
 }
 
+/**
+ * @brief Load a 32-bit little-endian value from a byte array.
+ *
+ * @param[in] bytes Four bytes to read.
+ * @return The loaded value.
+ */
 static uint32_t read_le32(const uint8_t *bytes)
 {
 	return (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 |
 		(uint32_t)bytes[3] << 24;
 }
 
+/**
+ * @brief Load a 64-bit little-endian value from a byte array.
+ *
+ * @param[in] bytes Eight bytes to read.
+ * @return The loaded value.
+ */
 static uint64_t read_le64(const uint8_t *bytes)
 {
 	uint64_t value = 0U;
@@ -93,6 +149,19 @@ static uint64_t read_le64(const uint8_t *bytes)
 	return value;
 }
 
+/**
+ * @brief Append formatted text to a bounded buffer.
+ *
+ * @details The used count is advanced only by what was actually written, and
+ * the buffer is always left NUL-terminated. Once the buffer is full further
+ * appends are ignored.
+ *
+ * @param[in,out] text   Buffer receiving the text.
+ * @param[in]     size   Size of @p text in bytes.
+ * @param[in,out] used   Bytes already used.
+ * @param[in]     format printf-style format string.
+ * @param[in]     ...    Arguments for @p format.
+ */
 static void text_append(char *text, size_t size, size_t *used, const char *format, ...)
 {
 	va_list arguments;
@@ -109,7 +178,22 @@ static void text_append(char *text, size_t size, size_t *used, const char *forma
 	}
 }
 
-/* The on-disk table itself, so the file describes partitions the view does not expose as well. */
+/**
+ * @brief Read the partition table of the source disk.
+ *
+ * @details The MBR signature is required. Without the protective 0xEE type the
+ * four 16-byte entries at offset 446 are decoded. With it, the GPT header at
+ * LBA 1 is checked, and its entry array is read with the fixed scratch buffer;
+ * only the entries that fit in the sectors read can be described, and the
+ * header's array LBA is reported as text. The on-disk table is used, so the
+ * file describes partitions the view does not expose as well.
+ *
+ * @param[in]  source         Whole-disk block device.
+ * @param[out] entries        Array receiving the partitions found.
+ * @param[out] gpt            True when the table is GPT.
+ * @param[out] gpt_header_text Text receiving the GPT entry-array LBA.
+ * @return True when a table was read.
+ */
 static bool read_table(struct block_device *source, struct layout_entry entries[PROXY_PARTITIONS + 4U],
 	bool *gpt, char gpt_header_text[16])
 {
@@ -178,6 +262,12 @@ static bool read_table(struct block_device *source, struct layout_entry entries[
 	return true;
 }
 
+/**
+ * @brief Find the view partition that starts at a sector.
+ *
+ * @param[in] start First sector of the partition.
+ * @return The matching partition, or NULL.
+ */
 static const struct proxy_partition *exposed_partition(uint64_t start)
 {
 	for (uint32_t index = 0U; index < PROXY_PARTITIONS; index++) {
@@ -190,6 +280,17 @@ static const struct proxy_partition *exposed_partition(uint64_t start)
 	return NULL;
 }
 
+/**
+ * @brief Add the _LAYOUT.TXT file that describes the source disk.
+ *
+ * @details The source disk is opened again and its table read with the shared
+ * scratch buffers. The text lists the disk and its capacity, the table type,
+ * the view capacity and its read-only state, and then one line per partition
+ * with its start, end, size, type, whether the view exposes it and which file
+ * system it holds. The text is added to the root as a memory-backed file.
+ *
+ * @return 0 on success, or a negative errno.
+ */
 int proxy_layout_add_file(void)
 {
 	struct layout_entry entries[PROXY_PARTITIONS + 4U];

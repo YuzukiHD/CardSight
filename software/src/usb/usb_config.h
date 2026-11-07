@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * CherryUSB for this board: the MUSB device controller and the mass storage class. The class
- * runs its transfers in a thread, and the transfer buffer is the reserved on-chip SRAM block.
+/**
+ * @file usb_config.h
+ * @brief CherryUSB configuration for this board: the MUSB device controller and mass storage.
+ *
+ * The class runs its transfers in a thread, and the transfer buffer is the reserved on-chip
+ * SRAM block. Caching is enabled, with 64-byte alignment for the buffers the controller sees.
  */
 
 #ifndef CHERRYUSB_CONFIG_H

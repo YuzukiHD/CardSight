@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * Disks: allocation, registration and removal, and the device reference the block devices use.
+/**
+ * @file genhd.c
+ * @brief Disks: allocation, registration and removal, and the device reference model.
  *
  * The disk list is protected by one lock. A disk owns its partitions; a partition holds a
  * reference on its disk, so an open partition stays valid after the disk was taken away (its
  * transfers fail once the disk is dead).
  */
 
+/** @brief Log module name used by the pr_*() helpers. */
 #define LOG_MODULE "block"
 
 #include <stdio.h>
@@ -24,15 +26,26 @@
 #include "block/block_internal.h"
 
 
+/** @brief Head of the registered disks; protected by the block lock. */
 static struct gendisk *disk_list;
 
 #ifdef CARDSIGHT_HOST_TEST
+/** @brief Host test build: no locking, the test owns the state. */
 void blk_lock(void) {}
+/** @brief Host test build: no locking, the test owns the state. */
 void blk_unlock(void) {}
 #else
+/** @brief Lock protecting @c disk_list and the block devices. */
 static struct mutex block_lock;
+/** @brief Whether @c block_lock was initialised; disks can appear before the scheduler runs. */
 static bool block_lock_ready;
 
+/**
+ * @brief Take the block lock, initialising it on first use.
+ *
+ * @details The initialisation is lazy because disks register from early init, which runs
+ * before there is a scheduler; the mutex primitives are usable at that point.
+ */
 void blk_lock(void)
 {
 	if (!block_lock_ready) {
@@ -42,13 +55,25 @@ void blk_lock(void)
 	mutex_lock_timeout(&block_lock, WAIT_FOREVER);
 }
 
+/**
+ * @brief Release the block lock.
+ */
 void blk_unlock(void)
 {
 	mutex_unlock(&block_lock);
 }
 #endif
 
-/* The last reference of a block device is gone. */
+/**
+ * @brief Drop the last reference of a block device.
+ *
+ * @details Called through @c dev->release. For partition 0 the free_disk callback of the disk
+ * runs first, then the disk and the partition 0 record are freed. For a partition only the
+ * record is freed, and the reference the partition held on its disk is dropped, which may
+ * release the disk in turn.
+ *
+ * @param[in] dev Device whose reference count reached zero.
+ */
 void bdev_release(struct device *dev)
 {
 	struct block_device *bdev = container_of(dev, struct block_device, dev);
@@ -66,12 +91,22 @@ void bdev_release(struct device *dev)
 	}
 }
 
+/**
+ * @brief Initialise a device record with one reference.
+ *
+ * @param[out] dev Device to initialise.
+ */
 void device_initialize(struct device *dev)
 {
 	memset(dev, 0, sizeof(*dev));
 	dev->refcount = 1;
 }
 
+/**
+ * @brief Take one more reference on a device.
+ *
+ * @param[in,out] dev Device to reference; NULL is ignored.
+ */
 void get_device(struct device *dev)
 {
 	if (dev != NULL) {
@@ -79,6 +114,15 @@ void get_device(struct device *dev)
 	}
 }
 
+/**
+ * @brief Allocate an unregistered disk and its partition 0 record.
+ *
+ * @details Both records come from the heap, so nothing is released when the registry refuses
+ * the disk later; put_disk() drops the single reference. The sector size defaults to 512
+ * bytes, which is the only size the layer accepts.
+ *
+ * @return The disk, or NULL when either allocation fails.
+ */
 struct gendisk *alloc_disk(void)
 {
 	struct gendisk *disk = calloc(1, sizeof(*disk));
@@ -97,6 +141,14 @@ struct gendisk *alloc_disk(void)
 	return disk;
 }
 
+/**
+ * @brief Drop the caller's reference on a disk.
+ *
+ * @details Releasing partition 0 releases the disk itself through bdev_release(), once the
+ * registry's reference is gone too.
+ *
+ * @param[in] disk Disk to release; NULL is ignored.
+ */
 void put_disk(struct gendisk *disk)
 {
 	if (disk != NULL) {
@@ -104,7 +156,16 @@ void put_disk(struct gendisk *disk)
 	}
 }
 
-/* the lock is held */
+/**
+ * @brief Report whether a device name is already taken.
+ *
+ * @details Checks every registered disk's own name and then each of its partitions, because a
+ * name only has to be unique across the whole layer.
+ *
+ * @param[in] name Name to look for.
+ * @return true when a disk or partition already uses @p name.
+ * @note The block lock must be held.
+ */
 static bool name_exists(const char *name)
 {
 	struct gendisk *disk;
@@ -122,7 +183,15 @@ static bool name_exists(const char *name)
 	return false;
 }
 
-/* the lock is held */
+/**
+ * @brief Look up a block device by name.
+ *
+ * @details A block device by name; the block lock is held. Each disk's partition 0 is matched
+ * before its partitions.
+ *
+ * @param[in] name Name to look for, without the "/dev/" prefix.
+ * @return The matching block device, or NULL.
+ */
 struct block_device *find_locked(const char *name)
 {
 	struct gendisk *disk;
@@ -140,6 +209,21 @@ struct block_device *find_locked(const char *name)
 	return NULL;
 }
 
+/**
+ * @brief Publish a disk and scan its partition table.
+ *
+ * @details Validates the operations and the name, takes the block lock and refuses a disk that
+ * is already registered or whose name is taken. Partition 0 is then named and sized, and gets
+ * two references: the caller's and the registry's, the second dropped by disk_remove(). The
+ * disk is linked at the head of the list and its table scanned while the lock is held, so the
+ * partitions are visible before any name lookup can find the disk. A missing table is not an
+ * error (a blank disk is one block device), and neither is a table that cannot be parsed: the
+ * disk is published without partitions and the failure is only logged.
+ *
+ * @param[in] disk Disk to publish.
+ * @return 0 on success, -EINVAL for incomplete operations or a second registration, or -EEXIST
+ *         when the name is taken.
+ */
 int add_disk(struct gendisk *disk)
 {
 	int result;
@@ -170,6 +254,7 @@ int add_disk(struct gendisk *disk)
 	disk->next = disk_list;
 	disk_list = disk;
 
+	/* the disk is visible; its partitions join it under the same lock */
 	result = blk_scan_partitions(disk);
 	if (result == -ENOENT) {
 		result = 0; /* a disk without a table is one block device */
@@ -181,6 +266,14 @@ int add_disk(struct gendisk *disk)
 	return result;
 }
 
+/**
+ * @brief Report whether any block device of the disk is mounted.
+ *
+ * @details Checks partition 0 and then every partition.
+ *
+ * @param[in] disk Disk to inspect.
+ * @return true when a mount claim is held.
+ */
 bool disk_has_mounts(const struct gendisk *disk)
 {
 	if (disk->part0->mounts != 0U) {
@@ -194,6 +287,15 @@ bool disk_has_mounts(const struct gendisk *disk)
 	return false;
 }
 
+/**
+ * @brief Unlink a dead disk from the list and free the registry's reference.
+ *
+ * @details Marks the disk dead first, so openers still holding it fail their transfers, then
+ * releases its partitions, unlinks it from the list and drops the registry's reference.
+ *
+ * @param[in] disk Disk to remove.
+ * @note The block lock must be held.
+ */
 void disk_remove(struct gendisk *disk)
 {
 	struct gendisk **link = &disk_list;
@@ -210,6 +312,15 @@ void disk_remove(struct gendisk *disk)
 	put_device(&disk->part0->dev); /* the registry's reference */
 }
 
+/**
+ * @brief Unregister a disk unless something still uses it.
+ *
+ * @details Refuses an unregistered disk and one with a mounted partition; the caller can then
+ * close the mounts and retry. Removal itself happens under the block lock.
+ *
+ * @param[in] disk Disk to unregister.
+ * @return 0 on success, -ENODEV when not registered, or -EBUSY when a partition is mounted.
+ */
 int del_gendisk(struct gendisk *disk)
 {
 	int result = 0;
@@ -226,6 +337,14 @@ int del_gendisk(struct gendisk *disk)
 	return result;
 }
 
+/**
+ * @brief Unregister a disk even while it is mounted.
+ *
+ * @details Used when the media is gone: the mounts cannot be dropped by the block layer, and
+ * their transfers fail through the dead flag instead.
+ *
+ * @param[in] disk Disk to unregister.
+ */
 void del_gendisk_force(struct gendisk *disk)
 {
 	blk_lock();
@@ -236,6 +355,16 @@ void del_gendisk_force(struct gendisk *disk)
 }
 
 #ifdef CONFIG_SHELL
+/**
+ * @brief Shell command: list the disks and partitions with their sizes and mount state.
+ *
+ * @details Walks the disk list under the block lock, printing a line per disk and one per
+ * partition with its offset and type byte.
+ *
+ * @param[in] argc Argument count, unused.
+ * @param[in] argv Argument vector, unused.
+ * @return Always 0.
+ */
 static int command_blk(int argc, char **argv)
 {
 	struct gendisk *disk;
@@ -262,6 +391,17 @@ static int command_blk(int argc, char **argv)
 }
 SHELL_CMD(blk, "list the block devices", command_blk);
 
+/**
+ * @brief Shell command: hex dump the first 64 bytes of one sector.
+ *
+ * @details Opens the named device, reads one sector and prints its leading bytes; the open and
+ * close balance the device reference.
+ *
+ * @param[in] argc Argument count, at least 3: the command, the device and the sector.
+ * @param[in] argv Argument vector.
+ * @return 0 on success, -EINVAL for too few arguments, -ENODEV without the device, or the read
+ *         error.
+ */
 static int command_blkread(int argc, char **argv)
 {
 	uint8_t sector[512] __attribute__((aligned(64)));
@@ -293,7 +433,19 @@ static int command_blkread(int argc, char **argv)
 SHELL_CMD(blkread, "blkread <dev> <sector>", command_blkread);
 
 #ifndef CARDSIGHT_HOST_TEST
-/* Read @p mib MiB from the disk in 256 KiB requests and report the throughput. */
+/**
+ * @brief Shell command: read a number of MiB from a disk and report the throughput.
+ *
+ * @details Reads @p mib MiB in 256 KiB requests (512 sectors, a cache-line-aligned buffer) from
+ * the given sector, printing progress every 16 MiB, then divides the sectors read by the
+ * elapsed milliseconds. The buffer is allocated aligned so the DMA engine can use it directly.
+ *
+ * @param[in] argc Argument count, at least 4: the command, the device, the first sector and the
+ *                 size in MiB.
+ * @param[in] argv Argument vector.
+ * @return 0 on success, -EINVAL for too few arguments, -ENODEV without the device, -ENOMEM
+ *         without the buffer, or the read error that stopped the loop.
+ */
 static int command_blkbench(int argc, char **argv)
 {
 	struct block_device *bdev;

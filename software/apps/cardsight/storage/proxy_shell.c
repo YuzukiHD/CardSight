@@ -1,9 +1,25 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* The storageproxy shell command and the counters it prints. */
+/**
+ * @file proxy_shell.c
+ * @brief The storageproxy shell command and the counters it prints.
+ */
 
 #include "proxy_internal.h"
 
 #ifdef CONFIG_STORAGE_PROXY_SHELL
+/**
+ * @brief Entry point of the storageproxy shell command.
+ *
+ * @details Subcommands: "start <disk> [mask]" starts the view (all present
+ * partitions when no mask is given), "stop" stops it, "status" prints the node
+ * and string usage, the per-partition probe results and the write-path
+ * timings, and "reset" clears the counters. With no argument it behaves like
+ * "status".
+ *
+ * @param[in] argc Argument count.
+ * @param[in] argv Argument vector.
+ * @return 0 on success, or a negative errno.
+ */
 static int command_storageproxy(int argc, char **argv)
 {
 	if (argc == 2 && strcmp(argv[1], "stop") == 0) {
@@ -35,8 +51,10 @@ static int command_storageproxy(int argc, char **argv)
 		printf("  staged %llu sectors, runs renamed %u, copied %u\n", (unsigned long long)proxy_stats.staged_sectors,
 			(uint32_t)proxy_stats.runs_renamed, (uint32_t)proxy_stats.runs_copied);
 		{
+			/** @brief Labels of the timing counters, in the order of @c timings. */
 			static const char *const names[] = { "disk write", "batch flush", "directory", "pending store",
 				"pending flush", "entry sync" };
+			/** @brief Timing counters printed by the status command. */
 			const struct proxy_timing *timings[] = { &proxy_stats.disk_write, &proxy_stats.batch_flush,
 				&proxy_stats.directory_write, &proxy_stats.pending_store, &proxy_stats.pending_flush,
 				&proxy_stats.sync_entry };
@@ -57,5 +75,6 @@ static int command_storageproxy(int argc, char **argv)
 	return -EINVAL;
 }
 
+/** @brief Register @c storageproxy as a shell command with its usage text. */
 SHELL_CMD(storageproxy, "storageproxy [start <disk> [partition mask]|stop|status|reset]: partition proxy", command_storageproxy);
 #endif

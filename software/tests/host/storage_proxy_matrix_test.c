@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * Storage proxy matrix: the same workloads through the exFAT view for different source partition
- * mixes (FAT32, exFAT, ext4, all of them at once). Every write is read back from the source
- * partitions and compared byte for byte, and the stop/start cycle is repeated.
+/**
+ * @file storage_proxy_matrix_test.c
+ * @brief Host matrix test for the storage proxy.
+ *
+ * Runs the same workloads through the exFAT view for different source partition
+ * mixes (FAT32, exFAT, ext4, all at once). Every write is read back from the
+ * source partitions and compared byte for byte, and the stop/start cycle is
+ * repeated.
  */
 
 #include <errno.h>
@@ -14,13 +18,23 @@
 #include "storage/storage_proxy.h"
 #include <vfs.h>
 
+/** @brief Size of the simulated card in 512-byte sectors (160 MiB). */
 #define CARD_SECTORS (160U * 2048U)
+/** @brief Size of each simulated source partition in MiB. */
 #define PARTITION_MIB 48U
 
+/** @brief Backing store of the simulated card, allocated in main(). */
 static uint8_t *disk_data;
+/** @brief Number of failed assertions so far. */
 static uint32_t failures;
+/** @brief Number of assertions executed so far. */
 static uint32_t checks;
 
+/**
+ * @brief Assert a condition, counting it and reporting the failing line.
+ *
+ * @param[in] condition Expression expected to be true.
+ */
 #define CHECK(condition)                                                               \
 	do {                                                                             \
 		checks++;                                                                 \
@@ -30,11 +44,23 @@ static uint32_t checks;
 		}                                                                        \
 	} while (0)
 
+/** @brief Host stub for the block-layer lock. */
 void base_lock(void) {}
+/** @brief Host stub for the block-layer unlock. */
 void base_unlock(void) {}
+/** @brief Host stub for the VFS lock. */
 void vfs_os_lock(void) {}
+/** @brief Host stub for the VFS unlock. */
 void vfs_os_unlock(void) {}
 
+/**
+ * @brief Host implementation of the kernel logger that discards messages.
+ *
+ * @param[in] level  Log level; ignored.
+ * @param[in] module Module name; ignored.
+ * @param[in] format Message format; ignored.
+ * @param[in] ...    Arguments for @p format; ignored.
+ */
 void log_print(int level, const char *module, const char *format, ...)
 {
 	(void)level;
@@ -42,6 +68,15 @@ void log_print(int level, const char *module, const char *format, ...)
 	(void)format;
 }
 
+/**
+ * @brief Read sectors from the in-memory card.
+ *
+ * @param[in]  disk   Disk being read; ignored.
+ * @param[in]  sector First sector to read.
+ * @param[out] buffer Destination for @p count sectors.
+ * @param[in]  count  Number of 512-byte sectors.
+ * @return 0.
+ */
 static int ram_read(struct gendisk *disk, uint64_t sector, void *buffer, uint32_t count)
 {
 	(void)disk;
@@ -49,6 +84,15 @@ static int ram_read(struct gendisk *disk, uint64_t sector, void *buffer, uint32_
 	return 0;
 }
 
+/**
+ * @brief Write sectors to the in-memory card.
+ *
+ * @param[in] disk   Disk being written; ignored.
+ * @param[in] sector First sector to write.
+ * @param[in] buffer Source of @p count sectors.
+ * @param[in] count  Number of 512-byte sectors.
+ * @return 0.
+ */
 static int ram_write(struct gendisk *disk, uint64_t sector, const void *buffer, uint32_t count)
 {
 	(void)disk;
@@ -56,12 +100,26 @@ static int ram_write(struct gendisk *disk, uint64_t sector, const void *buffer, 
 	return 0;
 }
 
+/** @brief Block operations of the simulated card. */
 static const struct block_device_operations ram_operations = { .read = ram_read, .write = ram_write };
 
+/** @brief Number of format-progress callbacks seen in the current format. */
 static uint32_t progress_updates;
+/** @brief Last completed amount reported by the format-progress callback. */
 static uint64_t progress_last_done;
+/** @brief Last total amount reported by the format-progress callback. */
 static uint64_t progress_last_total;
 
+/**
+ * @brief Format-progress callback that records the reported values.
+ *
+ * @details Counts each update, stores the last done/total pair, and asserts
+ *          that the completed amount never exceeds the total.
+ *
+ * @param[in] context Unused callback context.
+ * @param[in] done    Amount completed so far.
+ * @param[in] total   Total amount of work.
+ */
 static void format_progress_cb(void *context, uint64_t done, uint64_t total)
 {
 	(void)context;
@@ -71,6 +129,9 @@ static void format_progress_cb(void *context, uint64_t done, uint64_t total)
 	CHECK(done <= total);
 }
 
+/**
+ * @brief Clear the recorded format-progress state before a format.
+ */
 static void reset_progress(void)
 {
 	progress_updates = 0U;
@@ -78,14 +139,37 @@ static void reset_progress(void)
 	progress_last_total = 0U;
 }
 
+/** @brief Registers the FatFs-backed VFS implementation. */
 extern int vfs_ff_register(void);
+/** @brief Registers the ext4-backed VFS implementation. */
 extern int vfs_ext_register(void);
 
+/**
+ * @brief Deterministic content byte for a file at a given offset.
+ *
+ * @param[in] seed     Per-file seed.
+ * @param[in] position Byte offset in the file.
+ * @return The pattern byte at @p position.
+ */
 static uint8_t pattern_byte(uint32_t seed, size_t position)
 {
 	return (uint8_t)((position * 29U + seed * 131U + (position >> 9) * 7U) + 7U);
 }
 
+/**
+ * @brief Write a deterministic pattern to a file in chunks.
+ *
+ * @details Opens the file with write, create, and truncate, then writes the
+ *          pattern in chunks of at most @p chunk bytes, checking each write's
+ *          return value. The descriptor is always closed; the first error wins
+ *          over the close result.
+ *
+ * @param[in] path  Destination path.
+ * @param[in] size  File size in bytes.
+ * @param[in] seed  Pattern seed.
+ * @param[in] chunk Maximum write size in bytes.
+ * @return 0 on success, or a negative errno.
+ */
 static int write_pattern(const char *path, size_t size, uint32_t seed, size_t chunk)
 {
 	uint8_t *buffer = malloc(chunk);
@@ -115,6 +199,19 @@ static int write_pattern(const char *path, size_t size, uint32_t seed, size_t ch
 }
 
 /* Returns the first differing offset + 1, 0 when the file matches, or a negative error. */
+/**
+ * @brief Verify a file written by write_pattern().
+ *
+ * @details Reads the file in 4 KiB blocks, compares every byte with the
+ *          pattern, and finally checks the reported size. The descriptor is
+ *          always closed.
+ *
+ * @param[in] path File to verify.
+ * @param[in] size Expected size in bytes.
+ * @param[in] seed Expected pattern seed.
+ * @return 0 when the file matches, the first differing offset + 1 when a byte
+ *         differs, or a negative errno on open, read, or size mismatch.
+ */
 static long verify_pattern(const char *path, size_t size, uint32_t seed)
 {
 	uint8_t block[4096];
@@ -151,11 +248,17 @@ static long verify_pattern(const char *path, size_t size, uint32_t seed)
 	return result;
 }
 
+/**
+ * @brief One source-filesystem mix for all three partitions.
+ */
 struct mix {
+	/** @brief Mix name shown in the test output. */
 	const char *name;
+	/** @brief Filesystem type of each source partition, in partition order. */
 	const char *types[3]; /* fat, exfat, ext4 per partition */
 };
 
+/** @brief Source mixes exercised by the matrix. */
 static const struct mix mixes[] = {
 	{ "FAT32 only", { "fat", "fat", "fat" } },
 	{ "exFAT only", { "exfat", "exfat", "exfat" } },
@@ -164,6 +267,18 @@ static const struct mix mixes[] = {
 	{ "ext4 + FAT32 + exFAT", { "ext", "fat", "exfat" } },
 };
 
+/**
+ * @brief Create the simulated card, its partitions, and their seed files.
+ *
+ * @details Allocates a gendisk backed by @c disk_data, writes an MBR layout with
+ *          three 48 MiB partitions, formats each with the mix's filesystem
+ *          while checking that progress advances and ends at the total, mounts
+ *          it, and leaves one seed file per partition. The card geometry and
+ *          seed files give the later workloads a known source state.
+ *
+ * @param[out] disk_out Receives the allocated disk.
+ * @param[in]  mix      Filesystem types for the three partitions.
+ */
 static void build_card(struct gendisk **disk_out, const struct mix *mix)
 {
 	const uint32_t partition_sizes[3] = { PARTITION_MIB, PARTITION_MIB, PARTITION_MIB };
@@ -177,6 +292,7 @@ static void build_card(struct gendisk **disk_out, const struct mix *mix)
 	CHECK(add_disk(disk) == 0);
 	{
 		struct blk_partition_layout_entry layout[3];
+		/** @brief Filesystem used when creating each source partition. */
 		static const enum blk_partition_content contents[3] = {
 			BLK_PARTITION_FAT32, BLK_PARTITION_FAT32, BLK_PARTITION_FAT32,
 		};
@@ -216,6 +332,17 @@ static const size_t sizes[] = {
 	65535U, 65536U, 65537U, 100000U, 262144U, 1048576U + 1U,
 };
 
+/**
+ * @brief Write and verify files at every size boundary the proxy cares about.
+ *
+ * @details Sizes run from zero through single sectors, 4 KiB, the 32 KiB
+ *          buffer, cluster-sized writes, and sizes just over each boundary. Each
+ *          file is written through the view and read back through the view.
+ *
+ * @param[in] view_dir   Directory of the partition inside the view.
+ * @param[in] source_dir Directory of the source partition.
+ * @param[in] partition  Partition number, used to derive the seed.
+ */
 static void workload_sizes(const char *view_dir, const char *source_dir, uint32_t partition)
 {
 	for (uint32_t index = 0U; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
@@ -230,8 +357,19 @@ static void workload_sizes(const char *view_dir, const char *source_dir, uint32_
 	}
 }
 
+/**
+ * @brief Write and verify one file with many different chunk sizes.
+ *
+ * @details Odd write sizes arrive as sector runs with partial first and last
+ *          sectors, so every chunk size from one byte to 200000 bytes is tried
+ *          on the same 150000-byte pattern.
+ *
+ * @param[in] view_dir  Directory of the partition inside the view.
+ * @param[in] partition Partition number, used to derive the seeds.
+ */
 static void workload_chunks(const char *view_dir, uint32_t partition)
 {
+	/** @brief Write sizes exercised by the chunk workload. */
 	static const size_t chunks[] = { 1U, 100U, 512U, 777U, 4096U, 16384U, 65536U, 200000U };
 
 	for (uint32_t index = 0U; index < sizeof(chunks) / sizeof(chunks[0]); index++) {
@@ -246,6 +384,16 @@ static void workload_chunks(const char *view_dir, uint32_t partition)
 }
 
 /* Enough names to push entry groups across every sector edge of the directory. */
+/**
+ * @brief Create and verify 40 files with short, medium, and long names.
+ *
+ * @details Enough names are used to push entry groups across every sector edge
+ *          of the directory, and every file is read back after the whole batch
+ *          is written.
+ *
+ * @param[in] view_dir  Directory of the partition inside the view.
+ * @param[in] partition Partition number, used to derive the seeds.
+ */
 static void workload_many_files(const char *view_dir, uint32_t partition)
 {
 	char path[128];
@@ -262,6 +410,16 @@ static void workload_many_files(const char *view_dir, uint32_t partition)
 	}
 }
 
+/**
+ * @brief Exercise directory creation, a nested write, rename, and removal.
+ *
+ * @details Creates a two-level tree, writes a file into the inner directory,
+ *          renames it into the outer one, verifies its contents at the new
+ *          path, and removes the empty inner directory.
+ *
+ * @param[in] view_dir  Directory of the partition inside the view.
+ * @param[in] partition Partition number, used to derive the seed.
+ */
 static void workload_directories(const char *view_dir, uint32_t partition)
 {
 	char path[128];
@@ -280,6 +438,16 @@ static void workload_directories(const char *view_dir, uint32_t partition)
 	CHECK(vfs_rmdir(path) == 0);
 }
 
+/**
+ * @brief Exercise overwrite, truncate, grow, and unlink on one file.
+ *
+ * @details Writes 90000 bytes, rewrites it smaller with a new seed, then grows
+ *          it past the first size and verifies the final contents before
+ *          unlinking it.
+ *
+ * @param[in] view_dir  Directory of the partition inside the view.
+ * @param[in] partition Partition number, used to derive the seeds.
+ */
 static void workload_overwrite_truncate(const char *view_dir, uint32_t partition)
 {
 	char path[128];
@@ -300,8 +468,26 @@ static void workload_overwrite_truncate(const char *view_dir, uint32_t partition
 	CHECK(vfs_unlink(path) == 0);
 }
 
+/**
+ * @brief Forward declaration of the Windows-order verification helper.
+ *
+ * @param[in] mount Mount point of a source partition.
+ */
 static void check_windows_order(const char *mount);
 
+/**
+ * @brief Verify the workloads directly on the source partitions.
+ *
+ * @details Mounts each source partition and reads the seed file plus every file
+ *          the workloads created, comparing them with the original patterns.
+ *          This proves the proxy mirrored writes into the real filesystems, not
+ *          only into its view. On partition 1 it also verifies the Windows
+ *          write-order files and the valid-data-length file.
+ *
+ * @param[in] mix        Mix that describes each partition's filesystem.
+ * @param[in] expect_work True when the proxy workloads ran and their files must
+ *                        exist.
+ */
 static void check_sources(const struct mix *mix, bool expect_work)
 {
 	/* The same files, read from the partitions the proxy mirrors into. */
@@ -353,6 +539,17 @@ static void check_sources(const struct mix *mix, bool expect_work)
  * A Windows host writes DataLength in whole clusters while ValidDataLength is what exists. The source
  * file must keep the valid length: the rounded one would pad it with zeros.
  */
+/**
+ * @brief Model a Windows host writing DataLength as whole clusters.
+ *
+ * @details The host reports DataLength rounded up to the cluster size while
+ *          ValidDataLength is what actually exists. The test finds the exFAT
+ *          stream extension entry in the first sectors of the view, patches its
+ *          DataLength to the rounded value, and leaves the source file with the
+ *          valid length: the rounded length would pad it with zeros. The
+ *          workload file itself is verified later by check_windows_order()'s
+ *          caller.
+ */
 static void workload_valid_length(void)
 {
 	struct block_device *view;
@@ -398,25 +595,59 @@ static void workload_valid_length(void)
  * free clusters from the allocation bitmap it read when it mounted. These helpers build that order by
  * hand on the exFAT view, where a FatFs host would always write the entry first.
  */
+/**
+ * @brief Geometry of the mounted exFAT view, read from its boot sector.
+ */
 struct view_layout {
+	/** @brief Open block device of the exFAT view. */
 	struct block_device *view;
+	/** @brief First sector of cluster 2. */
 	uint32_t data_start;
+	/** @brief Total cluster count of the view. */
 	uint32_t clusters;
+	/** @brief Cluster holding the root directory. */
 	uint32_t root_cluster;
+	/** @brief Cluster holding the partition directory being edited. */
 	uint32_t directory_cluster;
+	/** @brief Cluster holding the allocation bitmap. */
 	uint32_t bitmap_cluster;
 };
 
+/**
+ * @brief Return the first sector of a cluster in the view.
+ *
+ * @param[in] layout  View layout read by view_open().
+ * @param[in] cluster Cluster number, two or greater.
+ * @return Absolute sector number.
+ */
 static uint64_t cluster_sector(const struct view_layout *layout, uint32_t cluster)
 {
 	return layout->data_start + (uint64_t)(cluster - 2U) * 64U;
 }
 
+/**
+ * @brief Read a little-endian 32-bit value.
+ *
+ * @param[in] bytes Four bytes in little-endian order.
+ * @return The decoded value.
+ */
 static uint32_t read_le32(const uint8_t *bytes)
 {
 	return bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
 }
 
+/**
+ * @brief Open the view and locate its root directory and allocation bitmap.
+ *
+ * @details Reads the boot sector to get the data start, cluster count, and root
+ *          cluster, then scans the root directory entries for the bitmap entry
+ *          (0x81) and for the directory entry (0x85, 0xC0, 0xC1) whose UTF-16
+ *          name matches @p directory_name.
+ *
+ * @param[out] layout         Geometry and cluster numbers of the view.
+ * @param[in]  directory_name Name of the partition directory to locate.
+ * @return True when both the directory and the bitmap were found.
+ */
 static bool view_open(struct view_layout *layout, const char *directory_name)
 {
 	uint8_t sector[512];
@@ -457,6 +688,15 @@ static bool view_open(struct view_layout *layout, const char *directory_name)
 	return layout->directory_cluster != 0U && layout->bitmap_cluster != 0U;
 }
 
+/**
+ * @brief Compute the exFAT up-case name hash of a file name.
+ *
+ * @details Folds ASCII letters to upper case and applies the standard
+ *          rotate-right-and-add hash, including the required zero terminator.
+ *
+ * @param[in] name File name.
+ * @return The 16-bit name hash.
+ */
 static uint16_t name_hash(const char *name)
 {
 	uint16_t hash = 0U;
@@ -471,6 +711,21 @@ static uint16_t name_hash(const char *name)
 }
 
 /* Write a file entry set (85, C0, C1...) into the first free slots of the directory. */
+/**
+ * @brief Write an exFAT file entry set into the directory.
+ *
+ * @details Builds a primary (0x85) entry, a stream extension (0xC0), and one
+ *          name entry per 15 characters, computes the entry-set checksum, and
+ *          writes the group into the first free run of slots, or in place when
+ *          the same name already exists (a size update). Two sectors are read
+ *          at a time so a group may span a sector edge.
+ *
+ * @param[in] layout        View layout from view_open().
+ * @param[in] name          File name.
+ * @param[in] first_cluster First cluster of the data; zero for an empty entry.
+ * @param[in] size          Valid and data length in bytes.
+ * @return True when the group was written.
+ */
 static bool view_put_entry(const struct view_layout *layout, const char *name, uint32_t first_cluster, uint64_t size)
 {
 	const size_t name_length = strlen(name);
@@ -545,6 +800,19 @@ static bool view_put_entry(const struct view_layout *layout, const char *name, u
 	return false;
 }
 
+/**
+ * @brief Write pattern data for a view file, sector padded.
+ *
+ * @details Writes the stream in chunks, zero-padding each chunk to a 512-byte
+ *          boundary as a host writing whole sectors would.
+ *
+ * @param[in] layout        View layout from view_open().
+ * @param[in] first_cluster First cluster of the file.
+ * @param[in] bytes         Number of bytes to write.
+ * @param[in] seed          Pattern seed.
+ * @param[in] chunk         Maximum write size in bytes.
+ * @return True on success.
+ */
 static bool view_write_data(const struct view_layout *layout, uint32_t first_cluster, size_t bytes, uint32_t seed, size_t chunk)
 {
 	uint8_t *buffer = malloc(chunk + 512U);
@@ -567,6 +835,21 @@ static bool view_write_data(const struct view_layout *layout, uint32_t first_clu
 }
 
 /* Data of the same stream from byte offset `from` up to `to`, chunks cut on 512 byte boundaries. */
+/**
+ * @brief Write pattern data for a byte range of a view file.
+ *
+ * @details Starts at the 512-byte boundary at or below @p from, writes through
+ *          @p to, and pads each chunk to whole sectors. Used to model a host
+ *          that writes ahead of the size it has reported.
+ *
+ * @param[in] layout        View layout from view_open().
+ * @param[in] first_cluster First cluster of the file.
+ * @param[in] from          First byte of the range.
+ * @param[in] to            One past the last byte of the range.
+ * @param[in] seed          Pattern seed.
+ * @param[in] chunk         Maximum write size in bytes.
+ * @return True on success.
+ */
 static bool view_write_data_range(const struct view_layout *layout, uint32_t first_cluster, size_t from, size_t to,
 	uint32_t seed, size_t chunk)
 {
@@ -590,6 +873,18 @@ static bool view_write_data_range(const struct view_layout *layout, uint32_t fir
 }
 
 /* Set or clear the allocation bits of a cluster range, as a host does when it takes or frees space. */
+/**
+ * @brief Set or clear the allocation bits of a cluster range.
+ *
+ * @details Mirrors what a host does when it takes or frees space: each bit is
+ *          read-modify-written in the view's allocation bitmap sectors.
+ *
+ * @param[in] layout        View layout from view_open().
+ * @param[in] first_cluster First cluster of the range.
+ * @param[in] count         Number of clusters.
+ * @param[in] used          True to mark used, false to free.
+ * @return True on success.
+ */
 static bool view_bitmap(const struct view_layout *layout, uint32_t first_cluster, uint32_t count, bool used)
 {
 	uint8_t sector[512];
@@ -614,6 +909,18 @@ static bool view_bitmap(const struct view_layout *layout, uint32_t first_cluster
 }
 
 /* A host deletes by clearing the in-use bit of the entry group; nothing is flushed. */
+/**
+ * @brief Delete a file entry set the way a host does.
+ *
+ * @details Finds the entry group whose name matches and clears the in-use bit
+ *          of every entry in the group; nothing is flushed. The data clusters
+ *          are deliberately left allocated, as a host would leave them until it
+ *          updates the bitmap.
+ *
+ * @param[in] layout View layout from view_open().
+ * @param[in] name   File name to delete.
+ * @return True when the entry was found and cleared.
+ */
 static bool view_delete_entry(const struct view_layout *layout, const char *name)
 {
 	const size_t name_length = strlen(name);
@@ -650,6 +957,12 @@ static bool view_delete_entry(const struct view_layout *layout, const char *name
 	return false;
 }
 
+/**
+ * @brief Files written data-first in the Windows-order workload.
+ *
+ * Each entry holds the file name, its offset in clusters from the start of the
+ * test area, its size in bytes, and the pattern seed used to generate its data.
+ */
 static const struct { const char *name; uint32_t offset; size_t size; uint32_t seed; } windows_files[] = {
 	{ "win-big.bin", 0U, 3U * 1024U * 1024U + 100U, 501U },         /* far past what RAM holds */
 	{ "win-small.bin", 200U, 70000U, 502U },                        /* fits in RAM */
@@ -657,6 +970,16 @@ static const struct { const char *name; uint32_t offset; size_t size; uint32_t s
 };
 
 /* Data first, entry afterwards, for files placed one after another in the free clusters at the end. */
+/**
+ * @brief Model a Windows host's write order: data first, entry afterwards.
+ *
+ * @details A Windows host writes file data first and the directory entry that
+ *          owns it afterwards, and it takes free clusters from the allocation
+ *          bitmap it read at mount. The function builds that order by hand on
+ *          the exFAT view: plain files, two files back to back, an entry that
+ *          lags the data, slot reuse after a delete, a freed cluster handed to
+ *          a new file, and an abandoned copy whose space is returned.
+ */
 static void workload_windows_order(void)
 {
 	struct view_layout layout;
@@ -747,6 +1070,14 @@ static void workload_windows_order(void)
 	bdev_close(layout.view);
 }
 
+/**
+ * @brief Verify the files written by workload_windows_order().
+ *
+ * @details Reads every file through the source partition and checks that no
+ *          ".cs-stage-" temporary entry was left on the card.
+ *
+ * @param[in] mount Mount point of the source partition.
+ */
 static void check_windows_order(const char *mount)
 {
 	char path[96];
@@ -775,6 +1106,17 @@ static void check_windows_order(const char *mount)
 	}
 }
 
+/**
+ * @brief Run the full matrix for one source-filesystem mix.
+ *
+ * @details Builds the card and seed files, scans and starts the proxy, mounts
+ *          the view, checks the _LAYOUT.TXT description of the disk, and runs
+ *          every workload on all three partitions. It then verifies the source
+ *          partitions, restarts the proxy to check persistence, exercises stop
+ *          and restart, and deletes the disk.
+ *
+ * @param[in] mix Source filesystem mix.
+ */
 static void run_mix(const struct mix *mix)
 {
 	struct gendisk *disk;
@@ -847,6 +1189,14 @@ static void run_mix(const struct mix *mix)
 	put_disk(disk);
 }
 
+/**
+ * @brief Check the view's layout description for a GPT card.
+ *
+ * @details Builds a GPT layout with FAT32, exFAT, and ext4 partitions whose
+ *          last entry covers the rest of the card, starts the proxy, and checks
+ *          that _LAYOUT.TXT names GPT, the partition type names, and only the
+ *          real table entries.
+ */
 static void run_gpt_layout(void)
 {
 	const struct blk_partition_layout_entry entries[] = {
@@ -854,6 +1204,7 @@ static void run_gpt_layout(void)
 		{ .sectors = PARTITION_MIB * 2048U, .content = BLK_PARTITION_EXFAT, .label = "DATA" },
 		{ .sectors = 0U, .content = BLK_PARTITION_EXT4, .label = "ROOT" },
 	};
+	/** @brief Filesystem of each GPT test partition. */
 	static const char *const types[3] = { "fat", "exfat", "ext" };
 	struct gendisk *disk = alloc_disk();
 	char layout[1024];
@@ -898,6 +1249,15 @@ static void run_gpt_layout(void)
 	put_disk(disk);
 }
 
+/**
+ * @brief Check partition selection and the read-only propagation.
+ *
+ * @details Starts the proxy with only the exFAT partition selected and proves
+ *          the other partitions are absent. It then marks one source partition
+ *          read-only, restarts with all partitions selected, and checks that
+ *          the whole view becomes read-only and writes are refused with EROFS
+ *          instead of being lost.
+ */
 static void run_selection_and_read_only(void)
 {
 	struct gendisk *disk;
@@ -941,6 +1301,16 @@ static void run_selection_and_read_only(void)
 	put_disk(disk);
 }
 
+/**
+ * @brief Run the storage proxy matrix test.
+ *
+ * @details Allocates the simulated card, registers the FatFs and ext4 VFS
+ *          implementations, runs every source mix, then the selection/read-only
+ *          and GPT layout cases. Prints a PASS or FAIL summary and returns the
+ *          process status.
+ *
+ * @return 0 when every check passed, 1 otherwise.
+ */
 int main(void)
 {
 	disk_data = aligned_alloc(64U, (size_t)CARD_SECTORS * 512U);

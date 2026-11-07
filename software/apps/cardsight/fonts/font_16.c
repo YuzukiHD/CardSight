@@ -1,3 +1,9 @@
+/**
+ * @file font_16.c
+ * @brief Generated data: the 16 px CardSight UI font.
+ *
+ * Generated LVGL font data for the 16 px glyph subset used by the CardSight UI.
+ */
 /*******************************************************************************
  * Size: 16 px
  * Bpp: 4

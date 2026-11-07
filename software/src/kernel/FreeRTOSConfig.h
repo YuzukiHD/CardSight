@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * FreeRTOS configuration for the CardSight C907.
+/**
+ * @file FreeRTOSConfig.h
+ * @brief FreeRTOS configuration for the CardSight C907.
  *
  * The machine timer is the CLINT at 24 MHz, so configCPU_CLOCK_HZ is that frequency, not the CPU
  * clock: the port derives the timer increment for one tick from it. The port's timer interrupt

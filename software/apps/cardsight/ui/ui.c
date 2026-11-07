@@ -1,7 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/**
+ * @file ui.c
+ * @brief Screen shell, tab bar, dialogs, and the top-level refresh and rebuild path.
+ *
+ * cardsight_ui_refresh() tears the LVGL screen down and rebuilds the tabs, all
+ * page tiles, and the bottom bar from a snapshot of the application model.
+ * Rebuilds are deferred through an LVGL async call so they never run inside an
+ * input event, and the scroll position of every list is preserved across them.
+ */
 #include "ui/ui_internal.h"
 
+/** @brief The single live UI instance; only the LVGL task mutates it. */
 struct cardsight_ui ui;
+/**
+ * @brief Drop every cached widget pointer before a rebuild.
+ *
+ * @details The screen is about to be cleaned, so all pointers into the old tree
+ *          become stale. The tab arrays are zeroed as well; pages refill their
+ *          own pointers when they are rebuilt.
+ */
 static void ui_clear_page_refs(void)
 {
 	ui.tabbar = NULL;
@@ -30,6 +47,14 @@ static void ui_clear_page_refs(void)
 	ui.proxy_start = NULL;
 }
 
+/**
+ * @brief LVGL async callback that performs a deferred rebuild.
+ *
+ * @details Clears the pending flag first, so a rebuild triggered from inside
+ *          the refresh can schedule another one.
+ *
+ * @param[in] argument Unused async-call argument.
+ */
 static void ui_async_rebuild(void *argument)
 {
 	(void)argument;
@@ -37,6 +62,12 @@ static void ui_async_rebuild(void *argument)
 	cardsight_ui_refresh(NULL);
 }
 
+/**
+ * @brief Request a deferred rebuild of the whole widget tree.
+ *
+ * @details Coalesces multiple requests: while one async call is pending no
+ *          second one is queued. The rebuild then runs on the LVGL task.
+ */
 void ui_schedule_rebuild(void)
 {
 	if (!ui.rebuild_pending) {
@@ -44,6 +75,14 @@ void ui_schedule_rebuild(void)
 	}
 }
 
+/**
+ * @brief Seed the layout editor with a default three-partition split.
+ *
+ * @details Uses up to three partitions, gives each all but the last MiB of the
+ *          card divided by the partition count, and assigns FAT32, exFAT, and
+ *          ext4 in order. The last partition keeps a zero size, meaning "rest of
+ *          the card".
+ */
 static void default_layout(void)
 {
 	uint64_t available_mib = ui.model.sectors / 2048U;
@@ -57,13 +96,27 @@ static void default_layout(void)
 	}
 }
 
+/** @brief Inset of the tab highlight and buttons from the bar edge in pixels. */
 #define TAB_PAD 2
 
+/**
+ * @brief Return the width of the bottom bar inside the screen margins.
+ *
+ * @return Width in pixels.
+ */
 static int32_t bar_width(void)
 {
 	return (int32_t)ui.width - 2 * APP_BAR_MARGIN;
 }
 
+/**
+ * @brief Return the width of one tab cell.
+ *
+ * @details Splits the bar's inner width, after the two-pixel border and the
+ *          pads, evenly across the tabs.
+ *
+ * @return Width in pixels.
+ */
 static int32_t tab_width(void)
 {
 	return (bar_width() - 2 - 2 * TAB_PAD) / (int32_t)APP_TAB_COUNT;
@@ -71,6 +124,16 @@ static int32_t tab_width(void)
 
 /* The five tabs share the inner width; the last one is pinned to the right pad so the
  * outer gaps match instead of leaving the division remainder on the right. */
+/**
+ * @brief Return the X position of a tab inside the bar.
+ *
+ * @details Distributes the free space evenly between the first and last tab and
+ *          pins the last tab to the right pad, so the outer gaps match instead
+ *          of leaving the division remainder on the right.
+ *
+ * @param[in] index Tab index.
+ * @return X position in pixels.
+ */
 static int32_t tab_x(uint32_t index)
 {
 	int32_t inner = bar_width() - 2 - 2 * TAB_PAD;
@@ -83,8 +146,18 @@ static int32_t tab_x(uint32_t index)
 	return TAB_PAD + (int32_t)index * step;
 }
 
+/** @brief Page whose tab is currently highlighted; drives the slide animation. */
 static enum cardsight_mode tab_shown;
 
+/**
+ * @brief Animation callback that slides the tab highlight.
+ *
+ * @details Moves the indicator and then realigns its glass backdrop so the
+ *          blurred wallpaper stays registered while the highlight moves.
+ *
+ * @param[in,out] object Indicator object.
+ * @param[in]     value  New X position in pixels.
+ */
 static void tab_anim_x(void *object, int32_t value)
 {
 	lv_obj_set_x(object, value);
@@ -93,11 +166,27 @@ static void tab_anim_x(void *object, int32_t value)
 
 /* The selected icon grows a little; the move is eased so it reads as one motion with the
  * sliding highlight. */
+/**
+ * @brief Animation callback that scales a tab icon.
+ *
+ * @param[in,out] object Icon being scaled.
+ * @param[in]     value  New LVGL image scale (256 is 1:1).
+ */
 static void tab_icon_anim_scale(void *object, int32_t value)
 {
 	lv_image_set_scale(object, (uint32_t)value);
 }
 
+/**
+ * @brief Animate a tab icon to a target scale.
+ *
+ * @details Returns early when the icon is already at the target. Without
+ *          animations the scale is set directly; otherwise it eases over
+ *          160 ms so the growth reads as one motion with the sliding highlight.
+ *
+ * @param[in,out] icon   Icon to scale; NULL is ignored.
+ * @param[in]     target Target LVGL image scale (256 is 1:1).
+ */
 static void tab_icon_scale_to(lv_obj_t *icon, int32_t target)
 {
 	lv_anim_t animation;
@@ -119,6 +208,14 @@ static void tab_icon_scale_to(lv_obj_t *icon, int32_t target)
 }
 
 /* Slide the highlight to the active tab and recolour the labels. */
+/**
+ * @brief Slide the highlight to the active tab and recolour the labels.
+ *
+ * @details Every tab is coloured by selection and the selected icon is scaled
+ *          up slightly. The highlight moves with an eased animation, unless the
+ *          page did not change or animations are disabled, in which case it
+ *          jumps to the target.
+ */
 void ui_update_tabs(void)
 {
 	int32_t target;
@@ -157,6 +254,15 @@ void ui_update_tabs(void)
 	lv_anim_start(&animation);
 }
 
+/**
+ * @brief Click handler for a bottom tab.
+ *
+ * @details Does nothing while a request is busy, because leaving its page would
+ *          hide its progress. Otherwise the tab's index, carried as user data,
+ *          selects the page.
+ *
+ * @param[in] event LVGL click event carrying the tab index.
+ */
 static void tab_event(lv_event_t *event)
 {
 	/* A running request owns the screen; leaving its page would hide its progress. */
@@ -167,8 +273,17 @@ static void tab_event(lv_event_t *event)
 }
 
 /* Five icon tabs along the bottom; the outer pill follows the glass corners. */
+/**
+ * @brief Build the five-icon tab bar along the bottom.
+ *
+ * @details Wraps the bar in a glass card, then creates the sliding highlight
+ *          with its own frosted backdrop, followed by one transparent ghost
+ *          button per tab holding a scaled, recoloured icon. The buttons are
+ *          disabled while a request is busy.
+ */
 static void build_tab_bar(void)
 {
+	/** @brief Icon of each tab, indexed like the pages. */
 	static const lv_image_dsc_t *const icons[APP_TAB_COUNT] = {
 		&cardsight_icon_usb, &cardsight_icon_proxy, &cardsight_icon_drive,
 		&cardsight_icon_folder, &cardsight_icon_info,
@@ -209,6 +324,15 @@ static void build_tab_bar(void)
 	}
 }
 
+/**
+ * @brief Common handler for the back gesture or button.
+ *
+ * @details Ignored while busy. On the Files page in detail view it navigates up
+ *          one directory; elsewhere it leaves the layout editor or partition
+ *          detail view and schedules a rebuild.
+ *
+ * @param[in] event LVGL event that triggered the back action.
+ */
 void ui_back_event(lv_event_t *event)
 {
 	(void)event;
@@ -225,6 +349,13 @@ void ui_back_event(lv_event_t *event)
 }
 
 /* Sub pages swap the tabs for a full width back button. */
+/**
+ * @brief Build the bottom bar: layout actions, a back button, or the tabs.
+ *
+ * @details The bar is a transparent box that lets the glass card's shadow spill
+ *          outside it. It hosts the layout editor actions, a full-width back
+ *          button on detail pages, and the tab bar otherwise.
+ */
 static void build_bar(void)
 {
 	ui.bar = make_box(ui.screen, bar_width(), APP_BAR_HEIGHT);
@@ -240,6 +371,15 @@ static void build_bar(void)
 	}
 }
 
+/**
+ * @brief Switch the visible page and update the tab bar.
+ *
+ * @details Hides every other tile, leaves any open detail view, points the
+ *          content host at the selected tile, and refreshes the tabs, header,
+ *          and backdrop.
+ *
+ * @param[in] mode Page to show.
+ */
 void show_page(enum cardsight_mode mode)
 {
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
@@ -258,6 +398,12 @@ void show_page(enum cardsight_mode mode)
 }
 
 /* The identification happens before the block device exists, so the pages cannot tell. */
+/**
+ * @brief Show or hide the card-identification spinner.
+ *
+ * @details Identification happens before the block device exists, so the pages
+ *          cannot tell; this overlay is driven straight from the model flag.
+ */
 void ui_update_detecting(void)
 {
 	if (ui.detecting_card != NULL) {
@@ -265,6 +411,12 @@ void ui_update_detecting(void)
 	}
 }
 
+/**
+ * @brief Select the wallpaper variant for the current page.
+ *
+ * @details Text-heavy pages get the frosted wallpaper, while the home page keeps
+ *          the sharp artwork. The list fade strips are repainted afterwards.
+ */
 void ui_update_backdrop(void)
 {
 	/* Text-heavy pages get the frosted wallpaper; the home page stays sharp. */
@@ -275,8 +427,16 @@ void ui_update_backdrop(void)
 	ui_refresh_list_fades();
 }
 
+/**
+ * @brief Refresh the app bar title, item count, and card status.
+ *
+ * @details The title is the layout editor's name or the page name; the status
+ *          shows "identifying", the formatted capacity, or "no card"; the count
+ *          appears only on the Files detail view.
+ */
 void ui_update_header(void)
 {
+	/** @brief Page title of each tab, indexed by cardsight_mode. */
 	static const char *const names[APP_TAB_COUNT] = { "直连", "代理", "磁盘", "文件", "信息" };
 	char title[48];
 	char count[24] = "";
@@ -306,6 +466,15 @@ void ui_update_header(void)
 }
 
 /* Rounded outline of the glass and the bar inset, to line up against the real corners. */
+/**
+ * @brief Click handler for the radius calibration overlay.
+ *
+ * @details Reads the touch point: the left third shrinks the radius, the right
+ *          third grows it, and the middle accepts it, logs the value, closes
+ *          the overlay, and schedules a rebuild.
+ *
+ * @param[in] event LVGL click event; the active input device supplies the point.
+ */
 static void calibration_event(lv_event_t *event)
 {
 	lv_indev_t *input = lv_indev_active();
@@ -332,6 +501,16 @@ static void calibration_event(lv_event_t *event)
 }
 
 /* Left third shrinks the radius, right third grows it, the middle accepts it. */
+/**
+ * @brief Open the touch calibration overlay with a given screen radius.
+ *
+ * @details Clamps the radius to 8..60 px, replaces any existing overlay with a
+ *          full-screen card whose border marks the glass outline, and draws the
+ *          current value plus the gesture hints. An inner box shows where the
+ *          bar inset lands relative to the rounded corner.
+ *
+ * @param[in] radius Requested corner radius in pixels.
+ */
 void ui_open_calibration(int32_t radius)
 {
 	lv_obj_t *inner;
@@ -364,6 +543,11 @@ void ui_open_calibration(int32_t radius)
 	lv_obj_align(label, LV_ALIGN_CENTER, 0, 18);
 }
 
+/**
+ * @brief Click handler that closes the settings sheet.
+ *
+ * @param[in] event LVGL click event; not inspected.
+ */
 static void settings_close_event(lv_event_t *event)
 {
 	(void)event;
@@ -375,6 +559,17 @@ static void settings_close_event(lv_event_t *event)
 
 /* The sheet is built outside the input event: creating this many objects while the
  * button is being released made LVGL walk a stale style list and fault. */
+/**
+ * @brief Deferred builder for the settings sheet.
+ *
+ * @details The sheet is built outside the input event: creating this many
+ *          objects while the button was being released made LVGL walk a stale
+ *          style list and fault. It lays out a full-screen background, a title,
+ *          the product, author, and licence lines in a column, and a bottom back
+ *          button.
+ *
+ * @param[in] argument Unused async-call argument.
+ */
 static void settings_open_async(void *argument)
 {
 	lv_obj_t *dialog;
@@ -415,12 +610,23 @@ static void settings_open_async(void *argument)
 	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
 }
 
+/**
+ * @brief Click handler that opens the settings sheet asynchronously.
+ *
+ * @param[in] event LVGL click event; not inspected.
+ */
 static void settings_event(lv_event_t *event)
 {
 	(void)event;
 	(void)lv_async_call(settings_open_async, NULL);
 }
 
+/**
+ * @brief Return the heading for an error sheet from the failed request type.
+ *
+ * @param[in] request Request that failed.
+ * @return Constant heading; never NULL.
+ */
 static const char *error_title(enum cardsight_request_type request)
 {
 	switch (request) {
@@ -440,6 +646,14 @@ static const char *error_title(enum cardsight_request_type request)
 	}
 }
 
+/**
+ * @brief Click handler that dismisses the error sheet.
+ *
+ * @details Records the dismissed error code so the refresh does not reopen the
+ *          same sheet, and deletes the dialog asynchronously.
+ *
+ * @param[in] event LVGL click event; not inspected.
+ */
 static void error_close_event(lv_event_t *event)
 {
 	(void)event;
@@ -453,6 +667,16 @@ static void error_close_event(lv_event_t *event)
 
 /* Same material as the settings sheet: a full-screen frost, a title, one glass card with the
  * concrete failure, and the bar button at the bottom. Created outside the input event. */
+/**
+ * @brief Deferred builder for the error sheet.
+ *
+ * @details Uses the same material as the settings sheet: a full-screen frost, a
+ *          title, one glass card with the operation name, the controller's
+ *          verbatim failure, the error code, and the path when listing failed,
+ *          plus the bottom back button. Created outside the input event.
+ *
+ * @param[in] argument Unused async-call argument.
+ */
 static void error_open_async(void *argument)
 {
 	lv_obj_t *dialog;
@@ -514,6 +738,12 @@ static void error_open_async(void *argument)
 }
 
 /* A failed request keeps its error in the snapshot until the sheet is dismissed. */
+/**
+ * @brief Open the error sheet when a request failed and was not dismissed.
+ *
+ * @details A new request clears the dismissed marker; a zero or already
+ *          dismissed error, or an open sheet, suppresses the popup.
+ */
 static void ui_error_check(void)
 {
 	if (ui.model.busy) {
@@ -528,6 +758,14 @@ static void ui_error_check(void)
 }
 
 /* Fill and text of the busy banner; called again for every progress step without a rebuild. */
+/**
+ * @brief Refresh the busy banner text and progress fill.
+ *
+ * @details Called again for every progress step without a rebuild. The label
+ *          shows the operation and percentage when one is known; the fill is
+ *          scaled to the bar width, kept at least two corner radii wide so it
+ *          stays a pill, and hidden when progress is not positive.
+ */
 void ui_update_progress(void)
 {
 	char text[64];
@@ -548,6 +786,13 @@ void ui_update_progress(void)
 }
 
 /* Progress while a request runs; failures get the error sheet instead. */
+/**
+ * @brief Build the progress banner that covers the bottom bar while busy.
+ *
+ * @details A tinted glass card with a translucent accent fill, a centred label,
+ *          and a slide-in animation from behind the tab bar. Failures get the
+ *          error sheet instead, so nothing is built when the request is idle.
+ */
 static void build_banner(void)
 {
 	uint32_t color = UI_ACCENT;
@@ -589,6 +834,15 @@ static void build_banner(void)
 	}
 }
 
+/**
+ * @brief Find the scrollable list inside a page tile.
+ *
+ * @details Returns the first direct child of the tile that LVGL reports as
+ *          scrollable, which is the list built by make_list().
+ *
+ * @param[in] index Tile index.
+ * @return The list object, or NULL when the tile has none.
+ */
 static lv_obj_t *tile_list(uint32_t index)
 {
 	lv_obj_t *tile = ui.tiles[index];
@@ -603,6 +857,20 @@ static lv_obj_t *tile_list(uint32_t index)
 	return NULL;
 }
 
+/**
+ * @brief Rebuild the whole UI from the current application snapshot.
+ *
+ * @details Takes a model snapshot, keeps the Files detail state consistent with
+ *          card presence, initialises the partition selection once, and resets
+ *          the view state when the card changed. It then reads the display
+ *          geometry, creates the root screen on first use, saves every list's
+ *          scroll position, cleans the tree, and rebuilds the wallpaper, shell,
+ *          header, settings button, page tiles, bottom bar, and the detection
+ *          spinner. Finally it restores the visible tile, scroll positions, an
+ *          open format dialog, the busy banner, and the error sheet.
+ *
+ * @param[in] argument Unused task argument.
+ */
 void cardsight_ui_refresh(void *argument)
 {
 	int32_t scroll[APP_TAB_COUNT] = { 0 };
@@ -611,14 +879,17 @@ void cardsight_ui_refresh(void *argument)
 
 	(void)argument;
 	cardsight_snapshot(&ui.model);
+	/* a missing card cannot stay in the Files detail view */
 	if (!ui.model.card_present) {
 		ui.files_detail = false;
 	}
+	/* initial selection: every partition that exists */
 	if (!ui.selection_initialized && ui.model.partition_count != 0U) {
 		for (size_t index = 0; index < ui.model.partition_count; index++)
 			ui.selected |= 1U << (ui.model.partitions[index].partno - 1U);
 		ui.selection_initialized = true;
 	}
+	/* a different size means a different card; reset the per-card view state */
 	if (ui.model.card_present && (ui.layout_count == 0U || ui.layout_sectors != ui.model.sectors)) {
 		/* A different card: its size, partitions and selection are not the old card's. */
 		default_layout();
@@ -632,11 +903,13 @@ void cardsight_ui_refresh(void *argument)
 		}
 		ui.layout_sectors = ui.model.sectors;
 	}
+	/* read the panel geometry so the layout follows rotation */
 	if (sunxi_display_get_info(&display_info) == 0) {
 		ui.width = display_info.width;
 		ui.height = display_info.height;
 		ui.landscape = ui.width >= ui.height;
 	}
+	/* first use: configure the root screen once */
 	if (ui.screen == NULL) {
 		ui.animations = true;
 		ui.screen = lv_screen_active();
@@ -651,6 +924,7 @@ void cardsight_ui_refresh(void *argument)
 
 		scroll[index] = list != NULL ? lv_obj_get_scroll_y(list) : 0;
 	}
+	/* drop the old tree and every cached pointer into it */
 	lv_obj_clean(ui.screen);
 	ui_list_fades_reset();
 	ui.shell = NULL;
@@ -660,6 +934,7 @@ void cardsight_ui_refresh(void *argument)
 	if (ui.screen_radius == 0) {
 		ui.screen_radius = APP_SCREEN_RADIUS;
 	}
+	/* wallpaper first so every glass surface can sample it */
 	{
 		ui.background = lv_image_create(ui.screen);
 		lv_image_set_src(ui.background, backdrop_image());
@@ -703,6 +978,7 @@ void cardsight_ui_refresh(void *argument)
 		lv_obj_set_clickable(settings, true);
 		lv_obj_add_event_cb(settings, settings_event, LV_EVENT_CLICKED, NULL);
 	}
+	/* one tile per page, all built up front */
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
 		ui.tiles[index] = lv_obj_create(ui.page_host);
 		lv_obj_set_size(ui.tiles[index], lv_pct(100), lv_pct(100));
@@ -745,6 +1021,7 @@ void cardsight_ui_refresh(void *argument)
 		lv_obj_align(label, LV_ALIGN_LEFT_MID, 52, 0);
 		lv_obj_set_hidden(ui.detecting_card, true);
 	}
+	/* restore the page the user was looking at */
 	ui.content = ui.tiles[(uint32_t)ui.mode];
 	for (uint32_t index = 0U; index < ARRAY_SIZE(ui.tiles); index++) {
 		lv_obj_set_hidden(ui.tiles[index], index != (uint32_t)ui.mode);
@@ -768,6 +1045,15 @@ void cardsight_ui_refresh(void *argument)
 	ui_error_check();
 }
 
+/**
+ * @brief Lightweight refresh pass used by the UI runtime task.
+ *
+ * @details Takes a snapshot and updates only the in-place parts of the current
+ *          page: Direct page values, proxy controls, progress banner, detection
+ *          spinner, and the error sheet. It never rebuilds the tree.
+ *
+ * @param[in] argument Unused task argument.
+ */
 void cardsight_ui_runtime(void *argument)
 {
 	(void)argument;

@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * What a driver or the application needs from the kernel: FreeRTOS itself, the small wrappers
- * above it (mutex, semaphore, message queue, delays) and the shared helpers.
+/**
+ * @file kernel.h
+ * @brief What a driver or the application needs from the kernel: FreeRTOS itself, the small
+ * wrappers above it (mutex, semaphore, message queue, delays) and the shared helpers.
  */
 
 #ifndef CARDSIGHT_KERNEL_H
@@ -26,7 +27,11 @@
 #include <hal/message_queue.h>
 #include <hal/semaphore.h>
 
-/* Bytes the C library's bump allocator has handed out to malloc so far. */
+/**
+ * @brief Bytes the C library's bump allocator has handed out to malloc so far.
+ *
+ * @return The number of bytes returned by sbrk for the C heap.
+ */
 size_t platform_heap_used(void);
 
 #endif /* CARDSIGHT_KERNEL_H */

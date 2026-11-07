@@ -1,9 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* Block device operations of the view, and the translation of a sector to its source data. */
+/**
+ * @file proxy_io.c
+ * @brief Block device operations of the view, and the translation of a sector to its source data.
+ *
+ * A read is resolved from the on-disk structure of the view: boot region,
+ * FAT, bitmap, up-case table, then data clusters, which are mapped back to a
+ * node and then to the source file. A write is routed in the same way, except
+ * that a data cluster with no owner is staged until its directory entry
+ * arrives. Every callback takes @c proxy.lock.
+ */
 
 #include "proxy_internal.h"
 
 
+/**
+ * @brief Position the cached read descriptor on a node and offset.
+ *
+ * @details The descriptor is reused only for the same node; a different node
+ * closes it and opens the source file again. A seek is issued only when the
+ * cached position differs from the requested offset.
+ *
+ * @param[in] node_index Node to read from.
+ * @param[in] offset     Byte offset to seek to.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_open_cached(uint32_t node_index, uint64_t offset)
 {
 	const struct proxy_node *node = &proxy.nodes[node_index];
@@ -32,6 +52,19 @@ static int proxy_open_cached(uint32_t node_index, uint64_t offset)
 }
 
 
+/**
+ * @brief Read one sector of a file node.
+ *
+ * @details The sector is zeroed first; a read past the end therefore returns
+ * zeros. Memory-backed nodes are copied straight from the arena, volatile ones
+ * read as zeros, and source files are read through the cached descriptor in a
+ * loop that tolerates short reads.
+ *
+ * @param[in]  node_index Node index.
+ * @param[in]  offset     Byte offset of the sector inside the file.
+ * @param[out] sector     Buffer receiving the sector.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_read_file(uint32_t node_index, uint64_t offset,
 			   uint8_t sector[PROXY_SECTOR_SIZE])
 {
@@ -67,6 +100,20 @@ static int proxy_read_file(uint32_t node_index, uint64_t offset,
 }
 
 
+/**
+ * @brief Read one sector of the view by its sector number.
+ *
+ * @details Sectors before the FAT are boot records: record 11 is the checksum
+ * sector and the rest come from @c proxy_boot_record(). The FAT is generated
+ * entry by entry, the reserved gap reads as zeros, and a data sector is
+ * resolved to the bitmap, the up-case table or a node. In the last case the
+ * offset inside the node is computed and the directory or file reader is
+ * called. A sector with no owner reads as zeros.
+ *
+ * @param[in]  sector_number Logical sector number inside the view.
+ * @param[out] sector        Buffer receiving the sector.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_read_sector(uint64_t sector_number, uint8_t sector[PROXY_SECTOR_SIZE])
 {
 	if (proxy.source_lost) {
@@ -158,9 +205,19 @@ static int proxy_read_sector(uint64_t sector_number, uint8_t sector[PROXY_SECTOR
 }
 
 
-/*
- * Sectors of one source file that follow each other are read with a single call instead of one call
- * per sector. Returns how many sectors it filled (at least one), or a negative error.
+/**
+ * @brief Read a consecutive run of sectors of one source file in one call.
+ *
+ * @details Sectors of one source file that follow each other are read with a
+ * single call instead of one call per sector. The run is clamped to the end of
+ * the node's extent and to 128 sectors, zeroed first, and truncated to the
+ * file size; the cached descriptor is positioned once and read in a loop.
+ * Anything that is not a plain VFS file falls back to @c proxy_read_sector().
+ *
+ * @param[in]  sector Logical sector to start at.
+ * @param[out] output Buffer receiving the sectors.
+ * @param[in]  count  Maximum number of sectors to read.
+ * @return Number of sectors filled (at least one), or a negative errno.
  */
 static int proxy_read_run(uint64_t sector, uint8_t *output, uint32_t count)
 {
@@ -216,6 +273,20 @@ static int proxy_read_run(uint64_t sector, uint8_t *output, uint32_t count)
 }
 
 
+/**
+ * @brief Block device read callback of the view.
+ *
+ * @details The lock is taken only when the view is running, which is what lets
+ * teardown call the lock-free path. Under the lock any queued write is flushed
+ * first, so the host never reads data older than what it just wrote. The read
+ * then proceeds in runs and stops at the first error.
+ *
+ * @param[in]  disk   Disk being read; unused.
+ * @param[in]  sector First logical sector.
+ * @param[out] buffer Buffer receiving the data.
+ * @param[in]  count  Number of sectors to read.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_disk_read(struct gendisk *disk, uint64_t sector, void *buffer, uint32_t count)
 {
 	uint8_t *output = buffer;
@@ -245,7 +316,12 @@ static int proxy_disk_read(struct gendisk *disk, uint64_t sector, void *buffer, 
 }
 
 
-/* A cached read descriptor and position are stale once the file under it was written or resized. */
+/**
+ * @brief Forget the cached read descriptor and position.
+ *
+ * @details A cached read descriptor and position are stale once the file under
+ * it was written or resized.
+ */
 void proxy_drop_read_cache(void)
 {
 	if (proxy.cached_fd >= 0) {
@@ -256,9 +332,19 @@ void proxy_drop_read_cache(void)
 }
 
 
-/*
- * Some file systems cannot seek past the end of a file. Data may arrive out of order, so a target
- * shorter than the place being written to is first filled with zeros up to it; they read as zeros either way.
+/**
+ * @brief Fill a file with zeros up to a position before writing there.
+ *
+ * @details Some file systems cannot seek past the end of a file. Data may
+ * arrive out of order, so a target shorter than the place being written to is
+ * first filled with zeros up to it; they read as zeros either way. A stat
+ * failure is ignored because the seek that follows reports what is wrong. The
+ * zero buffer is the shared fill buffer, written in chunks until the position
+ * is reached.
+ *
+ * @param[in] descriptor Open descriptor of the file.
+ * @param[in] position   Position the following write will use.
+ * @return 0 on success, or a negative errno.
  */
 int proxy_fill_to(int descriptor, uint64_t position)
 {
@@ -289,6 +375,21 @@ int proxy_fill_to(int descriptor, uint64_t position)
 }
 
 
+/**
+ * @brief Write one sector of the view by its sector number.
+ *
+ * @details Writes to a read-only or out-of-range sector fail. Only the volume
+ * flags of the boot region are kept, because the geometry is fixed. FAT writes
+ * are ignored: every object is advertised as a contiguous NoFatChain stream.
+ * Bitmap writes both update the stored bitmap and drop any staged data for
+ * clusters that just became free. A data cluster owned by a node is written
+ * back through the directory or file path; one that no node owns is stored as
+ * orphan data until its entry arrives.
+ *
+ * @param[in] sector_number Logical sector number inside the view.
+ * @param[in] data          Sector contents.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_SECTOR_SIZE])
 {
 	if (proxy.source_lost) {
@@ -348,6 +449,20 @@ static int proxy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_S
 }
 
 
+/**
+ * @brief Block device write callback of the view.
+ *
+ * @details The whole request is handled under @c proxy.lock, one sector at a
+ * time, so a directory sector and the data it references cannot interleave
+ * with another writer. The sector counter is updated and the first eight
+ * failures are logged.
+ *
+ * @param[in] disk   Disk being written; unused.
+ * @param[in] sector First logical sector.
+ * @param[in] buffer Data to write.
+ * @param[in] count  Number of sectors.
+ * @return 0 on success, or a negative errno of the first failing sector.
+ */
 static int proxy_disk_write(struct gendisk *disk, uint64_t sector, const void *buffer, uint32_t count)
 {
 	const uint8_t *input = buffer;
@@ -373,6 +488,16 @@ static int proxy_disk_write(struct gendisk *disk, uint64_t sector, const void *b
 }
 
 
+/**
+ * @brief Block device flush callback of the view.
+ *
+ * @details Queued file data is written first, then the deletes the host asked
+ * for are carried out, so a flush leaves the source volumes consistent. The
+ * whole sequence runs under @c proxy.lock and failures are logged.
+ *
+ * @param[in] disk Disk being flushed; unused.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_disk_flush(struct gendisk *disk)
 {
 	int result;
@@ -391,11 +516,20 @@ static int proxy_disk_flush(struct gendisk *disk)
 }
 
 
+/**
+ * @brief Block device free callback of the view.
+ *
+ * @details Nothing is tied to the disk object itself; the view is released by
+ * @c storage_proxy_stop().
+ *
+ * @param[in] disk Disk being freed; unused.
+ */
 static void proxy_disk_free(struct gendisk *disk)
 {
 	(void)disk;
 }
 
+/** @brief Block device operations the view registers under @c PROXY_DISK_NAME. */
 const struct block_device_operations proxy_disk_operations = {
 	.read = proxy_disk_read,
 	.write = proxy_disk_write,

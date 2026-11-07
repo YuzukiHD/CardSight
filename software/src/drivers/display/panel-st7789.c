@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * The panel of the board: an ST7789-compatible controller behind SPI1, four-wire SPI at
- * 60 MHz, data/command on PD4 and reset on PD5. The panel is write only: the controller's
- * receive path is not used.
+/**
+ * @file panel-st7789.c
+ * @brief The panel of the board: an ST7789-compatible controller behind SPI1.
+ *
+ * Four-wire SPI at 60 MHz, data/command on PD4 and reset on PD5. The panel is write only: the
+ * controller's receive path is not used.
  */
 
+/** @brief Log module name used by the pr_*() helpers. */
 #define LOG_MODULE "display"
 
 #include <errno.h>
@@ -20,26 +23,44 @@
 #include "drivers/display/panel-st7789.h"
 #include "drivers/spi/spi-sunxi.h"
 
+/** @brief Sleep out: leave the panel's power-saving state. */
 #define ST7789_SLPOUT  0x11U
+/** @brief Interface pixel format (COLMOD). */
 #define ST7789_COLMOD  0x3aU
+/** @brief Memory data access control: mirror and colour order. */
 #define ST7789_MADCTL  0x36U
+/** @brief Column address set: the window in X. */
 #define ST7789_CASET   0x2aU
+/** @brief Row address set: the window in Y. */
 #define ST7789_RASET   0x2bU
+/** @brief Memory write: the pixels that follow fill the window. */
 #define ST7789_RAMWR   0x2cU
+/** @brief Display on. */
 #define ST7789_DISPON  0x29U
 
+/** @brief MADCTL bit: mirror the column order. */
 #define MADCTL_MIRROR_X 0x40U
+/** @brief MADCTL bit: exchange blue and red. */
 #define MADCTL_BGR	0x08U
 
+/** @brief Panel the subsystem probed; every transfer uses it. */
 static const struct sunxi_panel_config *panel_config;
 
+/**
+ * @brief One entry of the panel's initialisation table.
+ */
 struct panel_command {
+	/** @brief Command byte. */
 	uint8_t command;
+	/** @brief Number of parameter bytes that follow. */
 	uint8_t count;
+	/** @brief Recovery time after the command in milliseconds; 0 for none. */
 	uint16_t delay_ms;
+	/** @brief Parameter bytes, at most 14. */
 	uint8_t parameters[14];
 };
 
+/** @brief Vendor initialisation sequence, run once after reset. */
 static const struct panel_command panel_init[] = {
 	{ ST7789_SLPOUT, 0U, 120U, { 0 } },
 	{ ST7789_MADCTL, 1U, 0U, { MADCTL_MIRROR_X } },
@@ -63,19 +84,46 @@ static const struct panel_command panel_init[] = {
 	{ ST7789_RAMWR, 0U, 0U, { 0 } },
 };
 
+/**
+ * @brief Send one command with its parameter bytes.
+ *
+ * @details Four-wire SPI has no separate command phase: the data/command line goes low for
+ * the command byte and high for the parameters. A command without parameters leaves the line
+ * low, so the next byte sent by the caller is again a command.
+ *
+ * @param[in] command    Command byte.
+ * @param[in] parameters Parameter bytes, or NULL when @p count is zero.
+ * @param[in] count      Number of parameter bytes.
+ * @return 0 on success, or a negative errno from the SPI controller.
+ */
 static int panel_command(uint8_t command, const uint8_t *parameters, size_t count)
 {
 	int result;
 
+	/* command phase: the line is low for the opcode */
 	sunxi_gpio_set_output(&panel_config->command, 0);
 	result = sunxi_spi_write(&command, 1U);
 	if (result != 0 || count == 0U) {
 		return result;
 	}
+	/* data phase: the line is high for the parameters */
 	sunxi_gpio_set_output(&panel_config->command, 1);
 	return sunxi_spi_write(parameters, count);
 }
 
+/**
+ * @brief Program the address window and prepare the panel for pixel data.
+ *
+ * @details The panel takes inclusive end coordinates in big-endian byte order, so the window
+ * size is turned into x+width-1 and y+height-1. RAMWR is issued last and leaves the panel
+ * waiting for pixels.
+ *
+ * @param[in] x_pos  Left column.
+ * @param[in] y_pos  Top row.
+ * @param[in] width  Rectangle width in pixels.
+ * @param[in] height Rectangle height in pixels.
+ * @return 0 on success, or a negative errno from the last command.
+ */
 int st7789_set_window(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t height)
 {
 	uint16_t column_start = x_pos;
@@ -94,12 +142,33 @@ int st7789_set_window(uint16_t x_pos, uint16_t y_pos, uint16_t width, uint16_t h
 	return result == 0 ? panel_command(ST7789_RAMWR, NULL, 0U) : result;
 }
 
+/**
+ * @brief Send pixels in the panel's byte order.
+ *
+ * @details The data/command line is raised before the burst, so the bytes are taken as pixel
+ * data for the window programmed by st7789_set_window().
+ *
+ * @param[in] buffer Pixel bytes.
+ * @param[in] length Size of @p buffer in bytes.
+ * @return 0 on success, or a negative errno from the SPI controller.
+ */
 int st7789_write_pixels(const void *buffer, size_t length)
 {
 	sunxi_gpio_set_output(&panel_config->command, 1);
 	return sunxi_spi_write(buffer, length);
 }
 
+/**
+ * @brief Reset, initialise and enable the panel.
+ *
+ * @details Initialises the SPI controller first, then holds the reset line low for 20 ms and
+ * lets the panel recover for 120 ms after release. The vendor table is then sent in order;
+ * each step's delay is honoured and the first failing command aborts the probe.
+ *
+ * @param[in] config Board data for the panel.
+ * @return 0 on success, -EINVAL for a NULL @p config or a missing SPI controller, or -EIO when
+ *         a command could not be sent.
+ */
 int st7789_probe(const struct sunxi_panel_config *config)
 {
 	int result;

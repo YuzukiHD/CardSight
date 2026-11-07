@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * The interrupt helpers the device stack's FreeRTOS glue expects. This kernel runs one hart, so
- * "inside an interrupt" is the state the PLIC dispatcher publishes while it calls a handler.
+/**
+ * @file irq.h
+ * @brief The interrupt helpers the device stack's FreeRTOS glue expects.
+ *
+ * This kernel runs one hart, so "inside an interrupt" is the state the PLIC dispatcher
+ * publishes while it calls a handler.
  */
 
 #ifndef CARDSIGHT_IRQ_H
@@ -12,17 +15,29 @@
 
 #include "arch/arch.h"
 
+/**
+ * @brief Report whether the caller runs inside an interrupt handler.
+ *
+ * @details Returns the state the PLIC dispatcher publishes while it calls a handler.
+ *
+ * @return Non-zero inside an interrupt, 0 in task context.
+ */
 static inline int in_interrupt(void)
 {
 	return cs_in_interrupt();
 }
 
-/* the critical-section names the device stack's glue uses */
+/**
+ * @brief Enter a critical section.
+ *
+ * The critical-section names the device stack's glue uses.
+ */
 static inline void os_crit_enter(void)
 {
 	taskENTER_CRITICAL();
 }
 
+/** @brief Leave a critical section entered with os_crit_enter(). */
 static inline void os_crit_exit(void)
 {
 	taskEXIT_CRITICAL();

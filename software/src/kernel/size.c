@@ -1,10 +1,24 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Decimal capacity formatting, shared by the drivers, the shell and the application. */
+/**
+ * @file size.c
+ * @brief Decimal capacity formatting, shared by the drivers, the shell and the application.
+ */
 
 #include <stdio.h>
 
 #include <size.h>
 
+/**
+ * @brief Format a byte count with a decimal unit suffix.
+ *
+ * Picks the largest unit (TB, GB, MB, kB, B) the value reaches, rounds to the nearest whole
+ * unit of 1000 rather than 1024, and prints the result into @p buffer. A NULL buffer or a zero
+ * size leaves the output untouched.
+ *
+ * @param[in]  bytes  Capacity in bytes.
+ * @param[out] buffer Destination buffer.
+ * @param[in]  size   Size of @p buffer in bytes.
+ */
 void format_capacity(uint64_t bytes, char *buffer, size_t size)
 {
 	if (buffer == NULL || size == 0U) {

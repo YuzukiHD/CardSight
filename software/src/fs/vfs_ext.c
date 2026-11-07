@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * lwext4 as a VFS file system type: ext2, ext3 and ext4.
+/**
+ * @file vfs_ext.c
+ * @brief lwext4 as a VFS file system type: ext2, ext3 and ext4.
  *
  * The library reads and writes 512-byte physical blocks through the block layer; a bounce buffer
  * covers the buffers it hands down unaligned (the card driver only does DMA on aligned ones).
@@ -24,46 +25,84 @@
 #include "ext4_oflags.h"
 
 
+/** @brief Fallback number of simultaneous ext mounts when the configuration sets none. */
 #ifndef CONFIG_EXT_FS_MAX_MOUNTS
 #define CONFIG_EXT_FS_MAX_MOUNTS 3
 #endif
 
+/** @brief Physical block size seen by lwext4; the ext superblock always sits at 1024 bytes. */
 #define EXT_SECTOR_SIZE	 512U
+/** @brief Offset of the ext superblock magic inside sector 2 (0x38). */
 #define EXT_MAGIC_OFFSET 56U
+/** @brief Superblock magic of every ext2/ext3/ext4 volume. */
 #define EXT_MAGIC	 0xef53U
+/** @brief Sectors moved per bounce-buffer round trip. */
 #define EXT_BOUNCE_SECTORS 16U
 
+/**
+ * @brief Everything one ext mount owns.
+ *
+ * A slot is reused across mounts: the names and the library block device survive, only
+ * @c bdev and the flags change. The buffers are cache-line aligned because the block layer
+ * only does DMA on aligned addresses.
+ */
 struct ext_mount {
-	struct block_device *bdev;
-	struct ext4_blockdev ext_bdev;
-	struct ext4_blockdev_iface iface;
-	char device_name[16];
-	char mount_name[16];
+	struct block_device *bdev;	/**< Device holding the volume. */
+	struct ext4_blockdev ext_bdev;	/**< Library view of the device. */
+	struct ext4_blockdev_iface iface;	/**< Library callbacks and physical geometry. */
+	char device_name[16];		/**< Library device name, "extdev<slot>". */
+	char mount_name[16];		/**< Library mount point, "/ext<slot>/". */
 	uint8_t physical_buffer[EXT_SECTOR_SIZE] __attribute__((aligned(64)));
+					/**< Sector buffer the library requires. */
 	uint8_t bounce[EXT_BOUNCE_SECTORS * EXT_SECTOR_SIZE] __attribute__((aligned(64)));
-	bool registered;
-	bool mounted;
-	bool read_only;
+					/**< Bounce buffer for unaligned transfers. */
+	bool registered;		/**< Block device registered with the library. */
+	bool mounted;			/**< Slot currently mounted. */
+	bool read_only;			/**< Volume was mounted or formatted read-only. */
 };
 
+/**
+ * @brief An open file: the mount plus the library file object.
+ */
 struct ext_file {
-	struct ext_mount *mount;
-	ext4_file file;
+	struct ext_mount *mount;	/**< Mount the file lives on. */
+	ext4_file file;		/**< Library file object. */
 };
 
+/**
+ * @brief An open directory: the mount, the library directory, and its VFS path.
+ *
+ * The path is kept because lwext4 entries carry only a name, while the metadata lookup of
+ * vfs_readdir() needs the full path.
+ */
 struct ext_dir {
-	struct ext_mount *mount;
-	ext4_dir dir;
-	char path[VFS_PATH_MAX];
+	struct ext_mount *mount;	/**< Mount the directory lives on. */
+	ext4_dir dir;		/**< Library directory object. */
+	char path[VFS_PATH_MAX];	/**< VFS path of the directory, for entry stats. */
 };
 
+/** @brief Mount slots; @c mounted marks the live ones. */
 static struct ext_mount ext_mounts[CONFIG_EXT_FS_MAX_MOUNTS];
 
+/**
+ * @brief Recover the mount context from a library block device.
+ *
+ * @param[in] ext_bdev Block device handed to the library.
+ * @return The owning mount, or NULL when the device or its interface is not set up.
+ *
+ * The interface stores the mount in its @c p_user field.
+ */
 static struct ext_mount *mount_from_bdev(struct ext4_blockdev *ext_bdev)
 {
 	return ext_bdev != NULL && ext_bdev->bdif != NULL ? ext_bdev->bdif->p_user : NULL;
 }
 
+/**
+ * @brief Convert an lwext4 status into a negated errno.
+ *
+ * @param[in] result EOK or a positive lwext4 error code.
+ * @return 0 for EOK, otherwise the negated code.
+ */
 static int ext_error(int result)
 {
 	return result == EOK ? 0 : -result;
@@ -71,11 +110,30 @@ static int ext_error(int result)
 
 /* ---- the block device the library sees ---- */
 
+/**
+ * @brief Open hook of the library block device.
+ *
+ * @param[in] ext_bdev Block device handed to the library.
+ * @return EOK when the device is set up, ENODEV otherwise.
+ */
 static int ext_device_open(struct ext4_blockdev *ext_bdev)
 {
 	return mount_from_bdev(ext_bdev) != NULL ? EOK : ENODEV;
 }
 
+/**
+ * @brief Read blocks for lwext4.
+ *
+ * @param[in]  ext_bdev Block device handed to the library.
+ * @param[out] buffer   Destination buffer.
+ * @param[in]  block    First physical block (512 bytes) to read.
+ * @param[in]  count    Number of blocks.
+ * @return EOK, ENODEV, or EIO on a medium error.
+ *
+ * The card driver only takes cache-line aligned DMA buffers. An aligned request is handed
+ * straight to the block layer; anything else is copied through the mount's bounce buffer in
+ * chunks of EXT_BOUNCE_SECTORS.
+ */
 static int ext_device_read(struct ext4_blockdev *ext_bdev, void *buffer, uint64_t block, uint32_t count)
 {
 	struct ext_mount *mount = mount_from_bdev(ext_bdev);
@@ -84,6 +142,7 @@ static int ext_device_read(struct ext4_blockdev *ext_bdev, void *buffer, uint64_
 	if (mount == NULL) {
 		return ENODEV;
 	}
+	/* an aligned buffer is what the card driver's DMA wants */
 	if (((uintptr_t)buffer & 63U) == 0U) {
 		return bdev_read(mount->bdev, block, buffer, count) == 0 ? EOK : EIO;
 	}
@@ -101,6 +160,19 @@ static int ext_device_read(struct ext4_blockdev *ext_bdev, void *buffer, uint64_
 	return EOK;
 }
 
+/**
+ * @brief Write blocks for lwext4.
+ *
+ * @param[in] ext_bdev Block device handed to the library.
+ * @param[in] buffer   Source buffer.
+ * @param[in] block    First physical block (512 bytes) to write.
+ * @param[in] count    Number of blocks.
+ * @return EOK, ENODEV, EROFS, or EIO on a medium error.
+ *
+ * Reports the write to the VFS format progress counter first. An aligned source covering a
+ * whole bounce chunk goes out in one call; any other buffer is copied through the bounce
+ * buffer. A read-only mount refuses the write before touching the medium.
+ */
 static int ext_device_write(struct ext4_blockdev *ext_bdev, const void *buffer, uint64_t block, uint32_t count)
 {
 	struct ext_mount *mount = mount_from_bdev(ext_bdev);
@@ -134,6 +206,12 @@ static int ext_device_write(struct ext4_blockdev *ext_bdev, const void *buffer, 
 	return EOK;
 }
 
+/**
+ * @brief Close hook of the library block device.
+ *
+ * @param[in] ext_bdev Block device handed to the library.
+ * @return EOK when the device is set up, ENODEV otherwise.
+ */
 static int ext_device_close(struct ext4_blockdev *ext_bdev)
 {
 	struct ext_mount *mount = mount_from_bdev(ext_bdev);
@@ -143,6 +221,12 @@ static int ext_device_close(struct ext4_blockdev *ext_bdev)
 
 /* ---- mounting ---- */
 
+/**
+ * @brief Check whether sector 2 carries the ext superblock magic.
+ *
+ * @param[in] bdev Device to inspect.
+ * @return True when the magic is present.
+ */
 static bool ext_has_magic(struct block_device *bdev)
 {
 	uint8_t sector[EXT_SECTOR_SIZE] __attribute__((aligned(64)));
@@ -154,15 +238,29 @@ static bool ext_has_magic(struct block_device *bdev)
 		sector[EXT_MAGIC_OFFSET + 1U] == (uint8_t)(EXT_MAGIC >> 8);
 }
 
+/**
+ * @brief Decode a little-endian 32-bit field.
+ *
+ * @param[in] bytes Four bytes in on-disk order.
+ * @return The decoded value.
+ */
 static uint32_t ext_le32(const uint8_t *bytes)
 {
 	return (uint32_t)bytes[0] | (uint32_t)bytes[1] << 8 | (uint32_t)bytes[2] << 16 |
 		(uint32_t)bytes[3] << 24;
 }
 
-/*
- * A superblock that survived the magic check can still be nonsense, and the mount would then walk
- * block groups the volume does not have or replay a journal larger than the card. Refuse it here.
+/**
+ * @brief Reject a superblock whose geometry cannot describe this device.
+ *
+ * @param[in] bdev Device to inspect.
+ * @return True when the superblock fields are plausible.
+ *
+ * A superblock that survived the magic check can still be nonsense, and the mount would then
+ * walk block groups the volume does not have or replay a journal larger than the card. The
+ * checks are: block size in range, a non-zero block count whose size fits the partition, a
+ * plausible block and inode count per group, and a group count that cannot overflow the
+ * library's group table. Refuse it here.
  */
 static bool ext_superblock_sane(struct block_device *bdev)
 {
@@ -206,6 +304,14 @@ static bool ext_superblock_sane(struct block_device *bdev)
 	return true;
 }
 
+/**
+ * @brief Reserve a mount slot for a device.
+ *
+ * @param[in] bdev Device to mount.
+ * @return A free slot, or NULL when all slots are mounted.
+ *
+ * The device and mount names are formatted once per slot and then reused.
+ */
 static struct ext_mount *ext_alloc_mount(struct block_device *bdev)
 {
 	for (uint32_t index = 0U; index < CONFIG_EXT_FS_MAX_MOUNTS; index++) {
@@ -223,6 +329,14 @@ static struct ext_mount *ext_alloc_mount(struct block_device *bdev)
 	return NULL;
 }
 
+/**
+ * @brief Fill the library block device for a mount.
+ *
+ * @param[in,out] mount Mount whose interface and block device are configured.
+ *
+ * The interface points at the mount through @c p_user, uses 512-byte physical blocks and the
+ * mount's aligned physical buffer, and covers the whole opened device.
+ */
 static void ext_setup_blockdev(struct ext_mount *mount)
 {
 	mount->iface.open = ext_device_open;
@@ -238,11 +352,26 @@ static void ext_setup_blockdev(struct ext_mount *mount)
 	mount->ext_bdev.part_size = bdev_nr_sectors(mount->bdev) * EXT_SECTOR_SIZE;
 }
 
+/**
+ * @brief Mount an ext volume through lwext4.
+ *
+ * @param[in]  bdev         Device holding the volume.
+ * @param[in]  flags        VFS_MOUNT_* flags; VFS_MOUNT_READ_ONLY forces a read-only mount.
+ * @param[out] private_data Receives the mount context.
+ * @return 0 on success, -EINVAL for a bad superblock, -ENOMEM when no slot is free, or the
+ *         negated lwext4 error.
+ *
+ * The magic and the superblock geometry are checked before the library is involved. A
+ * read-write mount then replays the journal and starts the journaling layer; a failure there
+ * unmounts again. Recovering the journal is what makes a card pulled from another system
+ * safe to write.
+ */
 static int ext_vfs_mount(struct block_device *bdev, uint32_t flags, void **private_data)
 {
 	struct ext_mount *mount;
 	int result;
 
+	/* refuse a damaged superblock before lwext4 walks its block groups */
 	if (!ext_has_magic(bdev) || !ext_superblock_sane(bdev)) {
 		return -EINVAL;
 	}
@@ -263,6 +392,7 @@ static int ext_vfs_mount(struct block_device *bdev, uint32_t flags, void **priva
 	if (result != EOK) {
 		return ext_error(result);
 	}
+	/* a read-write mount replays the journal before it is used */
 	if (!mount->read_only) {
 		result = ext4_recover(mount->mount_name);
 		if (result == EOK) {
@@ -278,6 +408,15 @@ static int ext_vfs_mount(struct block_device *bdev, uint32_t flags, void **priva
 	return 0;
 }
 
+/**
+ * @brief Unmount an ext volume.
+ *
+ * @param[in] private_data Mount context from ext_vfs_mount().
+ * @return 0 on success, or the negated lwext4 error.
+ *
+ * Stops the journal on a read-write mount, unmounts the volume, then unregisters the block
+ * device so the slot can be reused. The slot is only cleared once every step succeeded.
+ */
 static int ext_vfs_umount(void *private_data)
 {
 	struct ext_mount *mount = private_data;
@@ -298,6 +437,12 @@ static int ext_vfs_umount(void *private_data)
 	return ext_error(result);
 }
 
+/**
+ * @brief Flush an ext mount's cached writes.
+ *
+ * @param[in] private_data Mount context.
+ * @return 0, or the negated lwext4 error; a read-only mount has nothing to flush.
+ */
 static int ext_vfs_sync(void *private_data)
 {
 	struct ext_mount *mount = private_data;
@@ -307,6 +452,15 @@ static int ext_vfs_sync(void *private_data)
 
 /* ---- paths and files ---- */
 
+/**
+ * @brief Build the library path of a file inside a mount.
+ *
+ * @param[in]  mount  Mount context.
+ * @param[in]  path   Path relative to the mount point.
+ * @param[out] output Buffer receiving the mount name plus the path.
+ * @param[in]  size   Size of @p output in bytes.
+ * @return 0 on success, -ENAMETOOLONG when the result is truncated.
+ */
 static int ext_full_path(const struct ext_mount *mount, const char *path, char *output, size_t size)
 {
 	int written = snprintf(output, size, "%s%s", mount->mount_name, path[0] == '/' ? path + 1 : path);
@@ -314,6 +468,18 @@ static int ext_full_path(const struct ext_mount *mount, const char *path, char *
 	return written < 0 || (size_t)written >= size ? -ENAMETOOLONG : 0;
 }
 
+/**
+ * @brief Open a file inside an ext mount.
+ *
+ * @param[in]  private_data Mount context.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[in]  flags        VFS_O_* flags.
+ * @param[out] file_data    Receives the allocated file object.
+ * @return 0 on success, -EROFS, -EINVAL, -ENOMEM, -ENAMETOOLONG, or the negated lwext4 error.
+ *
+ * A write open on a read-only mount is refused first. The VFS flags are translated into the
+ * library's open flags, the file object is allocated, and the library opens the full path.
+ */
 static int ext_vfs_open(void *private_data, const char *path, uint32_t flags, void **file_data)
 {
 	struct ext_mount *mount = private_data;
@@ -336,6 +502,7 @@ static int ext_vfs_open(void *private_data, const char *path, uint32_t flags, vo
 	if (file == NULL) {
 		return -ENOMEM;
 	}
+	/* map the VFS flags onto the lwext4 open flags */
 	open_flags = (flags & VFS_O_READ) != 0U && (flags & VFS_O_WRITE) != 0U ? O_RDWR :
 		(flags & VFS_O_WRITE) != 0U ? O_WRONLY : O_RDONLY;
 	if ((flags & VFS_O_CREATE) != 0U) {
@@ -360,6 +527,14 @@ static int ext_vfs_open(void *private_data, const char *path, uint32_t flags, vo
 	return 0;
 }
 
+/**
+ * @brief Read from an ext file.
+ *
+ * @param[in]  file_data File object.
+ * @param[out] buffer    Destination buffer.
+ * @param[in]  length    Maximum number of bytes to read.
+ * @return The number of bytes read, or the negated lwext4 error.
+ */
 static int ext_vfs_read(void *file_data, void *buffer, size_t length)
 {
 	struct ext_file *file = file_data;
@@ -369,6 +544,14 @@ static int ext_vfs_read(void *file_data, void *buffer, size_t length)
 	return result == EOK ? (int)got : ext_error(result);
 }
 
+/**
+ * @brief Write to an ext file.
+ *
+ * @param[in] file_data File object.
+ * @param[in] buffer    Source buffer.
+ * @param[in] length    Number of bytes to write.
+ * @return The number of bytes written, -EROFS, or the negated lwext4 error.
+ */
 static int ext_vfs_write(void *file_data, const void *buffer, size_t length)
 {
 	struct ext_file *file = file_data;
@@ -382,6 +565,17 @@ static int ext_vfs_write(void *file_data, const void *buffer, size_t length)
 	return result == EOK ? (int)put : ext_error(result);
 }
 
+/**
+ * @brief Move the position of an ext file, handling both offset signs.
+ *
+ * @param[in] file_data File object.
+ * @param[in] offset    Relative or absolute offset.
+ * @param[in] whence    0 from the start, 1 from the current position, 2 from the end.
+ * @return The new position, -EINVAL, or the negated lwext4 error.
+ *
+ * The signed VFS offset is resolved against the chosen base with explicit bounds checks, then
+ * the absolute target is applied to the library, which only seeks from the start.
+ */
 static int64_t ext_vfs_seek(void *file_data, int64_t offset, int whence)
 {
 	struct ext_file *file = file_data;
@@ -416,6 +610,13 @@ static int64_t ext_vfs_seek(void *file_data, int64_t offset, int whence)
 	return (int64_t)ext4_ftell(&file->file);
 }
 
+/**
+ * @brief Resize an ext file.
+ *
+ * @param[in] file_data File object.
+ * @param[in] size      New size in bytes.
+ * @return 0, -EROFS, or the negated lwext4 error.
+ */
 static int ext_vfs_truncate(void *file_data, uint64_t size)
 {
 	struct ext_file *file = file_data;
@@ -423,6 +624,12 @@ static int ext_vfs_truncate(void *file_data, uint64_t size)
 	return file->mount->read_only ? -EROFS : ext_error(ext4_ftruncate(&file->file, size));
 }
 
+/**
+ * @brief Flush the cached writes of an ext file.
+ *
+ * @param[in] file_data File object.
+ * @return 0, or the negated lwext4 error; a read-only mount has nothing to flush.
+ */
 static int ext_vfs_flush(void *file_data)
 {
 	struct ext_file *file = file_data;
@@ -430,6 +637,12 @@ static int ext_vfs_flush(void *file_data)
 	return file->mount->read_only ? 0 : ext_error(ext4_cache_flush(file->mount->mount_name));
 }
 
+/**
+ * @brief Close an ext file and free its object.
+ *
+ * @param[in] file_data File object.
+ * @return 0, or the negated lwext4 error from the library close.
+ */
 static int ext_vfs_close(void *file_data)
 {
 	struct ext_file *file = file_data;
@@ -439,6 +652,13 @@ static int ext_vfs_close(void *file_data)
 	return result;
 }
 
+/**
+ * @brief Report the size of an open ext file.
+ *
+ * @param[in]  file_data File object.
+ * @param[out] st        Structure receiving size and the read-only flag.
+ * @return 0.
+ */
 static int ext_vfs_fstat(void *file_data, struct vfs_stat *st)
 {
 	struct ext_file *file = file_data;
@@ -449,6 +669,17 @@ static int ext_vfs_fstat(void *file_data, struct vfs_stat *st)
 	return 0;
 }
 
+/**
+ * @brief Stat a path inside an ext mount.
+ *
+ * @param[in]  mount Mount context.
+ * @param[in]  path  Path relative to the mount point.
+ * @param[out] st    Structure receiving the metadata.
+ * @return 0, -ENAMETOOLONG, -ENOTSUP for a special file, or the negated lwext4 error.
+ *
+ * The raw inode is read to learn the mode: directories, regular files and symbolic links are
+ * accepted, everything else is refused. Directories report size 0, as the VFS expects.
+ */
 static int ext_stat_path(struct ext_mount *mount, const char *path, struct vfs_stat *st)
 {
 	struct ext4_sblock *superblock;
@@ -461,6 +692,7 @@ static int ext_stat_path(struct ext_mount *mount, const char *path, struct vfs_s
 	if (result != 0) {
 		return result;
 	}
+	/* the inode mode says whether this is a file, a directory, or a link */
 	result = ext4_raw_inode_fill(full, &inode_number, &inode);
 	if (result != EOK) {
 		return ext_error(result);
@@ -481,11 +713,26 @@ static int ext_stat_path(struct ext_mount *mount, const char *path, struct vfs_s
 	return 0;
 }
 
+/**
+ * @brief Stat a path for the VFS.
+ *
+ * @param[in]  private_data Mount context.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[out] st           Structure receiving the metadata.
+ * @return 0, or the negative errno from ext_stat_path().
+ */
 static int ext_vfs_stat(void *private_data, const char *path, struct vfs_stat *st)
 {
 	return ext_stat_path(private_data, path, st);
 }
 
+/**
+ * @brief Create a directory inside an ext mount.
+ *
+ * @param[in] private_data Mount context.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the negated lwext4 error.
+ */
 static int ext_vfs_mkdir(void *private_data, const char *path)
 {
 	struct ext_mount *mount = private_data;
@@ -499,6 +746,13 @@ static int ext_vfs_mkdir(void *private_data, const char *path)
 	return result == 0 ? ext_error(ext4_dir_mk(full)) : result;
 }
 
+/**
+ * @brief Remove a file inside an ext mount.
+ *
+ * @param[in] private_data Mount context.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the negated lwext4 error.
+ */
 static int ext_vfs_unlink(void *private_data, const char *path)
 {
 	struct ext_mount *mount = private_data;
@@ -512,6 +766,13 @@ static int ext_vfs_unlink(void *private_data, const char *path)
 	return result == 0 ? ext_error(ext4_fremove(full)) : result;
 }
 
+/**
+ * @brief Remove a directory inside an ext mount.
+ *
+ * @param[in] private_data Mount context.
+ * @param[in] path         Path relative to the mount point.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the negated lwext4 error.
+ */
 static int ext_vfs_rmdir(void *private_data, const char *path)
 {
 	struct ext_mount *mount = private_data;
@@ -525,6 +786,14 @@ static int ext_vfs_rmdir(void *private_data, const char *path)
 	return result == 0 ? ext_error(ext4_dir_rm(full)) : result;
 }
 
+/**
+ * @brief Rename an entry inside an ext mount.
+ *
+ * @param[in] private_data Mount context.
+ * @param[in] from         Existing path.
+ * @param[in] to           New path.
+ * @return 0, -EROFS, -ENAMETOOLONG, or the negated lwext4 error.
+ */
 static int ext_vfs_rename(void *private_data, const char *from, const char *to)
 {
 	struct ext_mount *mount = private_data;
@@ -542,6 +811,16 @@ static int ext_vfs_rename(void *private_data, const char *from, const char *to)
 	return result == 0 ? ext_error(ext4_frename(old_path, new_path)) : result;
 }
 
+/**
+ * @brief Open a directory inside an ext mount.
+ *
+ * @param[in]  private_data Mount context.
+ * @param[in]  path         Path relative to the mount point.
+ * @param[out] dir_data     Receives the allocated directory object.
+ * @return 0, -ENOMEM, -ENAMETOOLONG, or the negated lwext4 error.
+ *
+ * The VFS path is stored in the object so readdir() can stat each entry by its full path.
+ */
 static int ext_vfs_opendir(void *private_data, const char *path, void **dir_data)
 {
 	struct ext_mount *mount = private_data;
@@ -567,6 +846,16 @@ static int ext_vfs_opendir(void *private_data, const char *path, void **dir_data
 	return 0;
 }
 
+/**
+ * @brief Read the next entry of an ext directory.
+ *
+ * @param[in]  dir_data Directory object.
+ * @param[out] entry    Entry filled with name and metadata.
+ * @return 0 on success, -ENOENT at the end, -ENAMETOOLONG, or a negative errno.
+ *
+ * "." and ".." are skipped. Each remaining entry is stat'ed through its full path; an entry
+ * whose type VFS cannot represent (-ENOTSUP) is skipped rather than failing the listing.
+ */
 static int ext_vfs_readdir(void *dir_data, struct vfs_dirent *entry)
 {
 	struct ext_dir *dir = dir_data;
@@ -574,6 +863,7 @@ static int ext_vfs_readdir(void *dir_data, struct vfs_dirent *entry)
 	char path[VFS_PATH_MAX];
 	int length;
 
+	/* skip "." and ".." and any entry whose type the VFS cannot represent */
 	for (;;) {
 		do {
 			ext_entry = ext4_dir_entry_next(&dir->dir);
@@ -599,6 +889,12 @@ static int ext_vfs_readdir(void *dir_data, struct vfs_dirent *entry)
 	}
 }
 
+/**
+ * @brief Close an ext directory and free its object.
+ *
+ * @param[in] dir_data Directory object.
+ * @return 0, or the negated lwext4 error from the library close.
+ */
 static int ext_vfs_closedir(void *dir_data)
 {
 	struct ext_dir *dir = dir_data;
@@ -608,6 +904,16 @@ static int ext_vfs_closedir(void *dir_data)
 	return result;
 }
 
+/**
+ * @brief Report the capacity of an ext mount.
+ *
+ * @param[in]  private_data Mount context.
+ * @param[out] total        Receives the total size in bytes.
+ * @param[out] free_bytes   Receives the free space in bytes.
+ * @return 0, or the negated lwext4 error.
+ *
+ * The free count is clamped to the total, in case the library reports inconsistent counters.
+ */
 static int ext_vfs_statfs(void *private_data, uint64_t *total, uint64_t *free_bytes)
 {
 	struct ext_mount *mount = private_data;
@@ -625,6 +931,16 @@ static int ext_vfs_statfs(void *private_data, uint64_t *total, uint64_t *free_by
 	return 0;
 }
 
+/**
+ * @brief Describe an ext mount: label and exact file system generation.
+ *
+ * @param[in]  private_data Mount context.
+ * @param[out] info         Volume information; @c label and @c fstype are filled.
+ * @return 0, or the negated lwext4 error.
+ *
+ * The generation comes from the superblock feature flags: extents mean ext4, a journal means
+ * ext3, otherwise ext2.
+ */
 static int ext_vfs_volume_info(void *private_data, struct vfs_volume_info *info)
 {
 	struct ext_mount *mount = private_data;
@@ -645,9 +961,24 @@ static int ext_vfs_volume_info(void *private_data, struct vfs_volume_info *info)
 	return 0;
 }
 
-/* A mount context is nearly nine kilobytes; the formatter gets one of its own, not the stack. */
+/**
+ * @brief Format context of its own: a mount context is nearly nine kilobytes, too much for the
+ * stack.
+ */
 static struct ext_mount ext_format_mount;
 
+/**
+ * @brief Create an ext file system on a device.
+ *
+ * @param[in] bdev     Device to format.
+ * @param[in] label    Volume label, may be NULL.
+ * @param[in] argument F_SET_EXT2, F_SET_EXT3 or F_SET_EXT4 selection.
+ * @return 0 on success, -EROFS, or the negated lwext4 error.
+ *
+ * The formatter reuses the dedicated format context and a scratch superblock, so no mount slot
+ * is consumed. Read-only devices are refused, and the device is flushed once the library is
+ * done.
+ */
 static int ext_vfs_format(struct block_device *bdev, const char *label, uint32_t argument)
 {
 	struct ext_mount *mount = &ext_format_mount;
@@ -668,6 +999,7 @@ static int ext_vfs_format(struct block_device *bdev, const char *label, uint32_t
 	return result == EOK ? bdev_flush(bdev) : ext_error(result);
 }
 
+/** @brief The VFS file system type exported by this file. */
 static const struct vfs_fs ext_type = {
 	.name = "ext",
 	.flags = 0U,
@@ -695,11 +1027,21 @@ static const struct vfs_fs ext_type = {
 	.volume_info = ext_vfs_volume_info,
 };
 
+/**
+ * @brief Register the ext file system type with the VFS.
+ *
+ * @return 0 on success, or the negative errno from vfs_register().
+ */
 int vfs_ext_register(void)
 {
 	return vfs_register(&ext_type);
 }
 
+/**
+ * @brief Init call that registers the ext file system.
+ *
+ * @return 0 on success, or the negative errno from vfs_register().
+ */
 static int ext_init(void)
 {
 	return vfs_ext_register();

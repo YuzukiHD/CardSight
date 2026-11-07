@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/*
- * LVGL on this board: the C library provides malloc, strings and formatting, and only the LVGL
- * task calls into LVGL, so there is no operating-system port to configure. Everything else is
- * left at the LVGL defaults.
+/**
+ * @file lv_conf.h
+ * @brief LVGL configuration for CardSight.
+ *
+ * The C library provides malloc, strings and formatting, and only the LVGL task calls into
+ * LVGL, so there is no operating-system port to configure. Everything else is left at the LVGL
+ * defaults.
  */
 
 #ifndef LV_CONF_H

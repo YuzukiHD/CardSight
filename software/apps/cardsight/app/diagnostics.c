@@ -1,4 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/**
+ * @file diagnostics.c
+ * @brief Board diagnostics driven from the cardsight shell command.
+ *
+ * The command runs UI work on the LVGL task through @c lvgl_port_post and
+ * waits on a semaphore for it to finish, and it can start or stop USB mass
+ * storage directly for host-side tests. The object-tree validator checks that
+ * every visible widget stays inside its parent and inside the rounded glass.
+ */
 #include "ui/ui_internal.h"
 #include "app/diagnostics.h"
 #include <malloc.h>
@@ -7,20 +16,43 @@
 #include <shell.h>
 #endif
 #ifdef CONFIG_SHELL
+/** @brief Released by an LVGL callback when the command it ran has finished. */
 static struct semaphore ui_command_done;
+/** @brief Result the last LVGL callback stored for the waiting command. */
 static int ui_command_result;
+/** @brief Page the shell asked the UI to show. */
 static enum cardsight_mode ui_requested_mode;
+/** @brief True when the shell asked for the layout editor instead of the plain page. */
 static bool ui_requested_layout;
+/** @brief Screen radius requested by the radius command, or zero for the current one. */
 static int ui_requested_radius;
 #endif
 
+/**
+ * @brief Check that one rectangle is entirely inside another.
+ *
+ * @param[in] outer Containing area.
+ * @param[in] inner Area that must fit inside @p outer.
+ * @return True when every edge of @p inner lies within @p outer.
+ */
 static bool area_contains(const lv_area_t *outer, const lv_area_t *inner)
 {
 	return inner->x1 >= outer->x1 && inner->y1 >= outer->y1 &&
 		inner->x2 <= outer->x2 && inner->y2 <= outer->y2;
 }
 
-/* Is the point inside the rounded glass? Only the four corner squares can fail. */
+/**
+ * @brief Check whether a point lies inside the rounded screen glass.
+ *
+ * @details Is the point inside the rounded glass? Only the four corner
+ * squares can fail. The distance from the nearest corner centre is compared
+ * with the radius squared; the outside region is clamped away first so the
+ * test is exact for points near the middle as well.
+ *
+ * @param[in] x_pos Horizontal position in screen coordinates.
+ * @param[in] y_pos Vertical position in screen coordinates.
+ * @return True when the point is on the glass.
+ */
 static bool point_on_glass(int32_t x_pos, int32_t y_pos)
 {
 	int32_t radius = ui.screen_radius;
@@ -32,7 +64,18 @@ static bool point_on_glass(int32_t x_pos, int32_t y_pos)
 	return dx * dx + dy * dy <= radius * radius;
 }
 
-/* A rounded object only reaches its bounding corner along the arc; test the 45 degree point of it. */
+/**
+ * @brief Check the four corners of a rounded object against the glass.
+ *
+ * @details A rounded object only reaches its bounding corner along the arc;
+ * test the 45 degree point of it. The radius is capped at half the shorter
+ * side because LVGL caps it there too, and the inset is measured from the
+ * bounding corner to that 45 degree point.
+ *
+ * @param[in] object Object whose radius applies.
+ * @param[in] area   Bounding box of the object.
+ * @return True when all four arc corners are on the glass.
+ */
 static bool corners_on_glass(lv_obj_t *object, const lv_area_t *area)
 {
 	int32_t radius = MIN(lv_obj_get_style_radius(object, LV_PART_MAIN),
@@ -45,6 +88,22 @@ static bool corners_on_glass(lv_obj_t *object, const lv_area_t *area)
 		point_on_glass(area->x2 - inset, area->y2 - inset);
 }
 
+/**
+ * @brief Walk a widget tree and count layout problems.
+ *
+ * @details Hidden children are skipped. A child must lie inside its parent
+ * unless the parent scrolls or clips its corners, and a child must stay on the
+ * glass unless an ancestor already clipped it. Clickable children must be at
+ * least APP_TOUCH_MIN along one axis and never smaller than 32x32, because the
+ * tab bar and the format segments are as large as the short side allows.
+ * Every failure is logged with the page name and the offending child, and the
+ * walk recurses with the clipping state accumulated so far.
+ *
+ * @param[in]     parent   Parent whose children are checked.
+ * @param[in]     page     Page name used in the log.
+ * @param[in]     clipped  True when an ancestor already restricts its children.
+ * @param[in,out] failures Counter receiving one per problem.
+ */
 static void validate_tree(lv_obj_t *parent, const char *page, bool clipped, int *failures)
 {
 	lv_area_t parent_area;
@@ -93,11 +152,28 @@ static void validate_tree(lv_obj_t *parent, const char *page, bool clipped, int 
 	}
 }
 
+/**
+ * @brief Validate a whole widget tree with no ancestor clipping.
+ *
+ * @param[in]     parent   Root of the tree to check.
+ * @param[in]     page     Page name used in the log.
+ * @param[in,out] failures Counter receiving one per problem.
+ */
 static void validate_object_tree(lv_obj_t *parent, const char *page, int *failures)
 {
 	validate_tree(parent, page, false, failures);
 }
 
+/**
+ * @brief Validate the currently shown page and the bottom bar.
+ *
+ * @details The layout is updated first so the coordinates are final. The tile
+ * of the current mode must exist together with the bottom bar; after that both
+ * trees are walked independently.
+ *
+ * @param[in]     name     Page name used in the log.
+ * @param[in,out] failures Counter receiving one per problem.
+ */
 static void validate_active_page(const char *name, int *failures)
 {
 	lv_obj_t *active = ui.tiles[(uint32_t)ui.mode];
@@ -112,6 +188,11 @@ static void validate_active_page(const char *name, int *failures)
 	validate_object_tree(ui.bar, name, failures);
 }
 
+/**
+ * @brief Validate the active page, the format dialog and the banner.
+ *
+ * @return Number of problems found; zero when the UI passes.
+ */
 int cardsight_validate_ui(void)
 {
 	int failures = 0;
@@ -122,6 +203,16 @@ int cardsight_validate_ui(void)
 }
 
 #ifdef CONFIG_SHELL
+/**
+ * @brief LVGL callback that switches to the page the shell selected.
+ *
+ * @details The UI is rebuilt when the layout editor or the manage detail state
+ * changes, because those alter the page structure; otherwise only the tile is
+ * shown. The layout editor detail is cleared after the choice, and the waiting
+ * command is released with success.
+ *
+ * @param[in] argument Unused.
+ */
 static void ui_select_page_callback(void *argument)
 {
 	bool rebuild;
@@ -140,7 +231,15 @@ static void ui_select_page_callback(void *argument)
 	up(&ui_command_done);
 }
 
-/* Shows the corner calibration overlay; touch it to adjust, tap the middle to accept. */
+/**
+ * @brief LVGL callback that opens the corner calibration overlay.
+ *
+ * @details Shows the corner calibration overlay; touch it to adjust, tap the
+ * middle to accept. The radius from the command is used when one was given,
+ * otherwise the current screen radius.
+ *
+ * @param[in] argument Unused.
+ */
 static void ui_radius_callback(void *argument)
 {
 	(void)argument;
@@ -149,8 +248,18 @@ static void ui_radius_callback(void *argument)
 	up(&ui_command_done);
 }
 
+/**
+ * @brief LVGL callback that validates every page of the UI.
+ *
+ * @details Each page is shown in turn and validated, then the layout editor is
+ * built and validated too. The previous page and editor flag are restored and
+ * the UI rebuilt before the command is released, so the test leaves no trace.
+ *
+ * @param[in] argument Unused.
+ */
 static void ui_selftest_callback(void *argument)
 {
+	/** @brief Page names in the order their modes are enumerated. */
 	static const char *names[] = { "direct", "proxy", "disk", "info" };
 	enum cardsight_mode saved_mode;
 	bool saved_layout;
@@ -174,8 +283,15 @@ static void ui_selftest_callback(void *argument)
 	up(&ui_command_done);
 }
 
-/* Rebuild the whole UI N times; comparing the heap before and after turns a leak of any
- * per-rebuild buffer into an obvious number. */
+/**
+ * @brief LVGL callback that rebuilds the UI a number of times.
+ *
+ * @details Rebuild the whole UI N times; comparing the heap before and after
+ * turns a leak of any per-rebuild buffer into an obvious number. The final
+ * show_page() leaves the visible page consistent with the mode.
+ *
+ * @param[in] argument Number of rebuilds, passed as an integer in the pointer.
+ */
 static void ui_memtest_callback(void *argument)
 {
 	uint32_t runs = (uint32_t)(uintptr_t)argument;
@@ -188,6 +304,14 @@ static void ui_memtest_callback(void *argument)
 	up(&ui_command_done);
 }
 
+/**
+ * @brief LVGL callback that runs the UI memory guards.
+ *
+ * @details The fade lists and the LVGL draw buffer are checked while the LVGL
+ * task owns the display, so the checks do not race with a redraw.
+ *
+ * @param[in] argument Unused.
+ */
 static void ui_memcheck_callback(void *argument)
 {
 	int failures = 0;
@@ -199,6 +323,25 @@ static void ui_memcheck_callback(void *argument)
 	up(&ui_command_done);
 }
 
+/**
+ * @brief Entry point of the cardsight shell command.
+ *
+ * @details The subcommands cover board diagnostics that are easier to drive
+ * from the console than from the UI:
+ * - "usb-test" starts a read-only proxy and USB device, then stops them;
+ * - "usb on|off|disk" starts the proxy-backed device, stops it, or exposes
+ *   the whole card read-only for host-side tests;
+ * - "ui-test" runs the object-tree selftest on the LVGL task;
+ * - "page <name>" switches to a page, "radius [px]" opens calibration;
+ * - "memtest [n]" rebuilds the UI n times and compares the heaps;
+ * - "memcheck" runs the UI memory guards.
+ * Each LVGL callback is posted and waited for with a timeout, so a hung UI is
+ * reported as -ETIMEDOUT instead of blocking the shell.
+ *
+ * @param[in] argc Argument count.
+ * @param[in] argv Argument vector.
+ * @return 0 on success, or a negative errno naming the failure.
+ */
 static int command_cardsight(int argc, char **argv)
 {
 	if (argc == 2 && strcmp(argv[1], "usb-test") == 0) {
@@ -340,9 +483,17 @@ static int command_cardsight(int argc, char **argv)
 	return -EINVAL;
 }
 
+/** @brief Register @c cardsight as a shell command with its usage text. */
 SHELL_CMD(cardsight, "cardsight page <name> | radius [px] | ui-test | memtest [n] | memcheck | usb-test: board diagnostics", command_cardsight);
 #endif
 
+/**
+ * @brief Create the semaphore the shell callbacks release.
+ *
+ * @details It starts at zero with a limit of one, so a command posts a
+ * callback and waits for exactly one completion; a leftover release cannot
+ * satisfy the next command.
+ */
 void cardsight_diagnostics_init(void)
 {
 #ifdef CONFIG_SHELL

@@ -1,16 +1,36 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* Erasing and formatting one partition, with progress for the banner. */
+/**
+ * @file format.c
+ * @brief Erasing and formatting one partition, with progress for the banner.
+ */
 
 #include "app/app_internal.h"
 
 
+/**
+ * @brief Return the VFS file system name for a partition content type.
+ *
+ * @param[in] content File system to create.
+ * @return "fat32", "exfat" or "ext".
+ */
 static const char *format_name(enum blk_partition_content content)
 {
 	return content == BLK_PARTITION_FAT32 ? "fat32" : content == BLK_PARTITION_EXFAT ? "exfat" : "ext";
 }
 
 
-/* Progress is a percentage of the current stage, or -1 while the stage has no measure. */
+/**
+ * @brief Publish format progress and optionally a new operation text.
+ *
+ * @details Progress is a percentage of the current stage, or -1 while the
+ * stage has no measure. Duplicate percentages are dropped only when the
+ * operation text does not change, which keeps the refresh traffic low without
+ * losing a stage transition. Only multiples of ten are logged, because the
+ * serial log is plain ASCII and has no place for an unknown percentage.
+ *
+ * @param[in] percent   Progress percentage, or -1 when it is not measurable.
+ * @param[in] operation New operation text, or NULL to keep the current one.
+ */
 static void app_set_progress(int percent, const char *operation)
 {
 	mutex_lock_timeout(&app_lock, WAIT_FOREVER);
@@ -31,9 +51,17 @@ static void app_set_progress(int percent, const char *operation)
 }
 
 
-/*
- * ext4 writes its inode tables below the highest sector it has touched, so a percentage would sit
- * near the end for most of the run. It shows the elapsed time instead, once a second.
+/**
+ * @brief Progress callback handed to the VFS formatter.
+ *
+ * @details ext4 writes its inode tables below the highest sector it has
+ * touched, so a percentage would sit near the end for most of the run; the
+ * callback still scales the sectors the formatter reports. A zero total is
+ * reported as zero rather than dividing by it.
+ *
+ * @param[in] context Unused.
+ * @param[in] done    Work units finished.
+ * @param[in] total   Work units of the stage.
  */
 static void format_progress(void *context, uint64_t done, uint64_t total)
 {
@@ -42,7 +70,18 @@ static void format_progress(void *context, uint64_t done, uint64_t total)
 }
 
 
-/* Full format: overwrite the whole partition with zeros before the file system is written. */
+/**
+ * @brief Overwrite the whole partition with zeros before the file system is written.
+ *
+ * @details Full format: the partition is erased in 512-sector chunks of zeros
+ * and flushed once at the end, so the card sees one large sequential stream.
+ * The chunk comes from the kernel heap because the C library heap is small; it
+ * is allocated with 63 bytes of slack and rounded up so every write is 64-byte
+ * aligned. Progress is the fraction of the partition already erased.
+ *
+ * @param[in] device Block device name of the partition.
+ * @return 0 on success, or a negative errno.
+ */
 static int wipe_partition(const char *device)
 {
 	enum { CHUNK_SECTORS = 512 };
@@ -86,6 +125,20 @@ static int wipe_partition(const char *device)
 }
 
 
+/**
+ * @brief Format one partition, optionally erasing it first.
+ *
+ * @details A full format wipes the partition before the file system is
+ * written; a quick format only writes the metadata. The VFS progress callback
+ * is installed for the duration of the format so the banner advances, and is
+ * cleared again even when the format fails. The label is derived from the
+ * partition number, and ext4 is asked for four reserved blocks.
+ *
+ * @param[in] partition Partition number, one-based.
+ * @param[in] content   File system to create.
+ * @param[in] full      True to zero the whole partition first.
+ * @return 0 on success, or a negative errno.
+ */
 int format_partition(uint32_t partition, enum blk_partition_content content, bool full)
 {
 	char device[VFS_BLK_NAME];

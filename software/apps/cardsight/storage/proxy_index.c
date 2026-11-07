@@ -1,9 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* The index of what the volume shows: nodes, names, directory slots and their lookups. */
+/**
+ * @file proxy_index.c
+ * @brief The index of what the volume shows: nodes, names, directory slots and their lookups.
+ *
+ * Nodes form a parent/child/sibling tree in a flat array. Names and source
+ * paths live in one string arena addressed by offset, and directory slots are
+ * handed out by the host, so the index records them and retires whatever a
+ * reused slot left behind.
+ */
 
 #include "proxy_internal.h"
 
 
+/**
+ * @brief Compare two nodes by first cluster for the sorted range index.
+ *
+ * @param[in] left  First element, a node index.
+ * @param[in] right Second element, a node index.
+ * @return Negative, zero or positive as @p left sorts before, with or after @p right.
+ */
 static int proxy_range_compare(const void *left, const void *right)
 {
 	uint32_t left_index = *(const uint32_t *)left;
@@ -15,6 +30,13 @@ static int proxy_range_compare(const void *left, const void *right)
 }
 
 
+/**
+ * @brief Rebuild the cluster-sorted node index used by cluster lookups.
+ *
+ * @details Every node that owns clusters and is not deleted is collected and
+ * sorted by its first cluster, so a cluster number can later be resolved with
+ * a binary search.
+ */
 void proxy_rebuild_ranges(void)
 {
 	proxy.range_count = 0U;
@@ -27,6 +49,16 @@ void proxy_rebuild_ranges(void)
 }
 
 
+/**
+ * @brief Copy a string into the arena and return its offset.
+ *
+ * @details The arena only grows upwards, so an object that is renamed or
+ * reclassified leaks its old copy rather than compacting the arena; running
+ * out of arena marks the view truncated.
+ *
+ * @param[in] string String to copy.
+ * @return Offset in the arena, or UINT32_MAX when it does not fit.
+ */
 uint32_t proxy_store_string(const char *string)
 {
 	size_t size = strlen(string) + 1U;
@@ -42,8 +74,20 @@ uint32_t proxy_store_string(const char *string)
 }
 
 
+/**
+ * @brief Make a name safe to use as a source file name.
+ *
+ * @details Control characters and the characters a FAT/exFAT source cannot
+ * hold are replaced with '_'. A trailing space or dot is also replaced, and an
+ * empty result becomes "_", so the name is never invalid and never empty.
+ *
+ * @param[in]  input  Name to sanitise.
+ * @param[out] output Buffer receiving the sanitised name.
+ * @param[in]  size   Size of @p output in bytes.
+ */
 static void proxy_sanitize_name(const char *input, char *output, size_t size)
 {
+	/** @brief Characters a source file name cannot contain. */
 	static const char invalid[] = "\"*/:<>?\\|";
 	size_t length = 0U;
 
@@ -66,6 +110,13 @@ static void proxy_sanitize_name(const char *input, char *output, size_t size)
 }
 
 
+/**
+ * @brief Report whether a live child with a name exists.
+ *
+ * @param[in] parent Parent node index.
+ * @param[in] name   Name to compare case-insensitively.
+ * @return True when a live child has that name.
+ */
 static bool proxy_name_exists(uint32_t parent, const char *name)
 {
 	uint32_t child = proxy.nodes[parent].first_child;
@@ -81,6 +132,19 @@ static bool proxy_name_exists(uint32_t parent, const char *name)
 }
 
 
+/**
+ * @brief Produce a name that no live sibling uses.
+ *
+ * @details The sanitised base name is tried first. When it is taken, "~N"
+ * suffixes are appended and the base is shortened as needed to stay within
+ * @p size, for up to ten thousand attempts. A synthetic "entry-XXXXXXXX" name
+ * is the last resort so a node can always be created.
+ *
+ * @param[in]  parent Parent node index.
+ * @param[in]  input  Requested name.
+ * @param[out] output Buffer receiving the unique name.
+ * @param[in]  size   Size of @p output in bytes.
+ */
 static void proxy_unique_name(uint32_t parent, const char *input, char *output, size_t size)
 {
 	char base[VFS_NAME_MAX + 1];
@@ -107,6 +171,15 @@ static void proxy_unique_name(uint32_t parent, const char *input, char *output, 
 }
 
 
+/**
+ * @brief Number of directory slots a name occupies.
+ *
+ * @details UTF-8 bytes are an upper bound for UTF-16 code units, which leaves
+ * stable slack for renames.
+ *
+ * @param[in] name UTF-8 name.
+ * @return Slot count, including the stream and name entries.
+ */
 static uint32_t proxy_entry_span_name(const char *name)
 {
 	/* UTF-8 bytes are an upper bound for UTF-16 code units, leaving stable slack for renames. */
@@ -114,6 +187,16 @@ static uint32_t proxy_entry_span_name(const char *name)
 }
 
 
+/**
+ * @brief Find the next free directory slot of a parent.
+ *
+ * @details The root starts after its three system entries; every other
+ * directory starts at zero. The highest end of any child's slot span wins, so
+ * a new object is appended behind everything the host already saw.
+ *
+ * @param[in] parent Parent node index.
+ * @return First unused absolute slot.
+ */
 static uint32_t proxy_next_directory_slot(uint32_t parent)
 {
 	uint32_t slot = parent == 0U ? 3U : 0U;
@@ -132,6 +215,24 @@ static uint32_t proxy_next_directory_slot(uint32_t parent)
 }
 
 
+/**
+ * @brief Add one node to the index.
+ *
+ * @details The name is made unique and stored in the arena together with the
+ * source path. The node is appended to the parent's child list and gets the
+ * next free directory slot. When the layout is already in use (the view runs
+ * and clusters are being handed out) the node immediately receives contiguous
+ * clusters; if that fails the node is rolled back. Reaching an index limit
+ * marks the view truncated and yields PROXY_INVALID_NODE.
+ *
+ * @param[in] parent      Node index of the containing directory.
+ * @param[in] name        Requested name; made unique and sanitised.
+ * @param[in] directory   True for a directory.
+ * @param[in] source      Where the node's data comes from.
+ * @param[in] source_data Source path or text, or NULL.
+ * @param[in] size        File size in bytes.
+ * @return The new node index, or PROXY_INVALID_NODE.
+ */
 uint32_t proxy_add_node(uint32_t parent, const char *name, bool directory,
 			       enum proxy_source source, const char *source_data, uint64_t size)
 {
@@ -187,6 +288,14 @@ uint32_t proxy_add_node(uint32_t parent, const char *name, bool directory,
 }
 
 
+/**
+ * @brief Add a read-only text file to a directory of the view.
+ *
+ * @param[in] parent  Node index of the containing directory.
+ * @param[in] name    Name of the file inside the view.
+ * @param[in] message Text the file returns when read.
+ * @return 0 on success, or -ENOMEM.
+ */
 int proxy_add_message(uint32_t parent, const char *name, const char *message)
 {
 	return proxy_add_node(parent, name, false, PROXY_SOURCE_MEMORY,
@@ -194,6 +303,18 @@ int proxy_add_message(uint32_t parent, const char *name, const char *message)
 }
 
 
+/**
+ * @brief Mount one source partition and add its folder to the root.
+ *
+ * @details The folder is always added under the name "partitionN", even when
+ * the mount fails; in that case the folder receives an _ERROR.TXT message that
+ * names the device and the error, so the host sees why it is empty. The mount
+ * is read-only when the view is read-only.
+ *
+ * @param[in]  partition Zero-based partition index.
+ * @param[out] root_node Node index of the folder that was added.
+ * @return 0 on success, or a negative errno.
+ */
 int proxy_mount_partition(uint32_t partition, uint32_t *root_node)
 {
 	struct proxy_partition *part = &proxy.partitions[partition];
@@ -220,6 +341,18 @@ int proxy_mount_partition(uint32_t partition, uint32_t *root_node)
 }
 
 
+/**
+ * @brief Index the children of a source directory, once.
+ *
+ * @details The directory is opened on the mounted source and every entry is
+ * added as a child, with its full source path. Leftover staging files from an
+ * earlier run are unlinked instead of indexed. The directory is marked scanned
+ * even when the walk stopped early, so it is not retried forever; a walk error
+ * and a reached index limit are both reported to the host as small text files.
+ *
+ * @param[in] parent Node index of the directory.
+ * @return 0 on success, or a negative errno.
+ */
 int proxy_scan_directory(uint32_t parent)
 {
 	struct proxy_node *parent_node = &proxy.nodes[parent];
@@ -283,6 +416,16 @@ int proxy_scan_directory(uint32_t parent)
 }
 
 
+/**
+ * @brief Find a live child by name.
+ *
+ * @details Retired nodes and tombstones are skipped, because they must not
+ * appear in a directory or be matched a second time.
+ *
+ * @param[in] parent Parent node index.
+ * @param[in] name   Name to look for, compared case-insensitively.
+ * @return The child index, or PROXY_INVALID_NODE.
+ */
 uint32_t proxy_find_child(uint32_t parent, const char *name)
 {
 	uint32_t child = proxy.nodes[parent].first_child;
@@ -298,6 +441,15 @@ uint32_t proxy_find_child(uint32_t parent, const char *name)
 }
 
 
+/**
+ * @brief Find a live node by its first cluster.
+ *
+ * @details A linear scan of the index; cluster zero never matches, and retired
+ * nodes and tombstones are skipped.
+ *
+ * @param[in] cluster First cluster to look for.
+ * @return The node index, or PROXY_INVALID_NODE.
+ */
 uint32_t proxy_find_cluster(uint32_t cluster)
 {
 	for (uint32_t index = 1U; index < proxy.node_count; index++) {
@@ -310,7 +462,15 @@ uint32_t proxy_find_cluster(uint32_t cluster)
 }
 
 
-/* As above, but only an object that is still alive; the host may hand a freed cluster to a new file. */
+/**
+ * @brief Find a node at a cluster that is not deleted.
+ *
+ * @details As above, but only an object that is still alive; the host may hand
+ * a freed cluster to a new file.
+ *
+ * @param[in] cluster First cluster to look for.
+ * @return The node index, or PROXY_INVALID_NODE.
+ */
 static uint32_t proxy_find_live_cluster(uint32_t cluster)
 {
 	uint32_t index = proxy_find_cluster(cluster);
@@ -319,6 +479,13 @@ static uint32_t proxy_find_live_cluster(uint32_t cluster)
 }
 
 
+/**
+ * @brief Find a child that is not deleted.
+ *
+ * @param[in] parent Parent node index.
+ * @param[in] name   Name to look for.
+ * @return The child index, or PROXY_INVALID_NODE.
+ */
 static uint32_t proxy_find_live_child(uint32_t parent, const char *name)
 {
 	uint32_t index = proxy_find_child(parent, name);
@@ -327,11 +494,20 @@ static uint32_t proxy_find_live_child(uint32_t parent, const char *name)
 }
 
 
-/*
- * Which known object does a host entry describe? An object of that name that is alive, else the live
- * one at that cluster (a rename). A deleted object counts as the one renamed only if it kept its size
- * at the same cluster; else the entry is a new file that reuses freed space, which may revive a deleted
- * object of the same name.
+/**
+ * @brief Match a host directory entry to a known node, or report that it is new.
+ *
+ * @details Which known object does a host entry describe? An object of that
+ * name that is alive, else the live one at that cluster (a rename). A deleted
+ * object counts as the one renamed only if it kept its size at the same
+ * cluster; else the entry is a new file that reuses freed space, which may
+ * revive a deleted object of the same name.
+ *
+ * @param[in] parent        Parent node index.
+ * @param[in] name          Name from the host entry.
+ * @param[in] first_cluster First cluster from the host entry.
+ * @param[in] size          Data length from the host entry.
+ * @return The matching node index, or PROXY_INVALID_NODE.
  */
 uint32_t proxy_identify_entry(uint32_t parent, const char *name, uint32_t first_cluster, uint64_t size)
 {
@@ -353,6 +529,17 @@ uint32_t proxy_identify_entry(uint32_t parent, const char *name, uint32_t first_
 }
 
 
+/**
+ * @brief Build the source path of a child of a source-backed directory.
+ *
+ * @details The parent's source path and the child name are joined, avoiding a
+ * double slash when the parent is the source root.
+ *
+ * @param[in]  parent Parent node index.
+ * @param[in]  name   Child name.
+ * @param[out] path   Buffer receiving the path.
+ * @return 0 on success, -ENODEV when the parent has no source, or -ENAMETOOLONG.
+ */
 int proxy_child_path(uint32_t parent, const char *name, char path[VFS_PATH_MAX])
 {
 	const struct proxy_node *parent_node = &proxy.nodes[parent];
@@ -368,6 +555,16 @@ int proxy_child_path(uint32_t parent, const char *name, char path[VFS_PATH_MAX])
 }
 
 
+/**
+ * @brief Move a node under a new parent and give it a fresh directory slot.
+ *
+ * @details The node is unlinked from the old parent's child list, which also
+ * recomputes the old parent's last-child pointer when it pointed at the node,
+ * and is appended to the new parent with the next free slot there.
+ *
+ * @param[in] node_index Node to move.
+ * @param[in] parent     New parent node index.
+ */
 void proxy_reparent(uint32_t node_index, uint32_t parent)
 {
 	struct proxy_node *node = &proxy.nodes[node_index];
@@ -406,9 +603,17 @@ void proxy_reparent(uint32_t node_index, uint32_t parent)
 }
 
 
-/*
- * The host chooses where an entry goes and reuses the slots of deleted ones, so the node takes the
- * host's slot. A deleted node that held any of those slots is retired, or both would claim them.
+/**
+ * @brief Leave a deleted placeholder that keeps the slots of a moved node.
+ *
+ * @details The host chooses where an entry goes and reuses the slots of
+ * deleted ones, so the node takes the host's slot. A deleted node that held
+ * any of those slots is retired, or both would claim them. The placeholder is
+ * a copy of the node that is marked deleted, tombstone and never scanned; it
+ * is appended to the same parent so those slots stay occupied. An exhausted
+ * index marks the view truncated instead.
+ *
+ * @param[in] node_index Node whose slots must stay occupied.
  */
 void proxy_leave_tombstone(uint32_t node_index)
 {
@@ -445,6 +650,15 @@ void proxy_leave_tombstone(uint32_t node_index)
 }
 
 
+/**
+ * @brief Take the host's directory slot and retire whatever held it before.
+ *
+ * @details Every live sibling whose slot span overlaps the new span is marked
+ * deleted and retired, so only one object can claim each slot of the view.
+ *
+ * @param[in] node_index Node taking the slot.
+ * @param[in] slot       Absolute first slot of the host entry.
+ */
 void proxy_adopt_slot(uint32_t node_index, uint32_t slot)
 {
 	struct proxy_node *node = &proxy.nodes[node_index];

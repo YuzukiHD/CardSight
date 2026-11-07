@@ -1,8 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+/**
+ * @file manage.c
+ * @brief Manage page: card capacity strip, partition list, and format dialog.
+ *
+ * The page shows a proportional strip of the card above a list of partitions,
+ * with a quiet entry at the end that opens the whole-card layout editor. The
+ * partition detail view offers quick and full format through a confirmation
+ * dialog.
+ */
 #include "ui/ui_internal.h"
 
+/** @brief Height of the proportional card strip, in pixels. */
 #define MANAGE_BAR_HEIGHT 12
 
+/**
+ * @brief Open the detail view of the clicked partition.
+ *
+ * @param[in] event LVGL click event carrying the partition number.
+ */
 static void manage_partition_event(lv_event_t *event)
 {
 	ui.manage_partition = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
@@ -10,6 +25,15 @@ static void manage_partition_event(lv_event_t *event)
 	ui_schedule_rebuild();
 }
 
+/**
+ * @brief Open the format confirmation for a chosen filesystem.
+ *
+ * @details Stores the content type, marks the dialog open, and builds it
+ *          immediately because the click handler is already outside the LVGL
+ *          input dispatch.
+ *
+ * @param[in] event LVGL click event carrying the content type as user data.
+ */
 static void format_choose_event(lv_event_t *event)
 {
 	ui.format_content = (enum blk_partition_content)(uintptr_t)lv_event_get_user_data(event);
@@ -17,6 +41,14 @@ static void format_choose_event(lv_event_t *event)
 	build_format_dialog();
 }
 
+/**
+ * @brief Close the format dialog without formatting.
+ *
+ * @details Ignored while a request is busy. Clears the open flag, deletes the
+ *          dialog asynchronously, and restores the page content pointer.
+ *
+ * @param[in] event LVGL click event; not inspected.
+ */
 static void format_cancel_event(lv_event_t *event)
 {
 	(void)event;
@@ -31,6 +63,16 @@ static void format_cancel_event(lv_event_t *event)
 	ui.content = ui.tiles[(uint32_t)ui.mode];
 }
 
+/**
+ * @brief Submit the format request chosen in the dialog.
+ *
+ * @details The user data distinguishes quick from full format: non-NULL means
+ *          full. The request carries the partition and content type; the dialog
+ *          and the detail view close and the page is rebuilt while the worker
+ *          runs the format.
+ *
+ * @param[in] event LVGL click event carrying the full-format marker.
+ */
 static void format_start_event(lv_event_t *event)
 {
 	struct cardsight_request request = { .type = CARDSIGHT_REQUEST_FORMAT };
@@ -45,6 +87,20 @@ static void format_start_event(lv_event_t *event)
 }
 
 /* One full-width option; what it does is explained in the dialog text above. */
+/**
+ * @brief Create one full-width format option button.
+ *
+ * @details The primary option is filled in the background colour; the other is
+ *          a danger-tinted option. What each one does is explained in the
+ *          dialog text above. Both are disabled while a transfer runs, while
+ *          the UI is busy, or when the card is read-only.
+ *
+ * @param[in,out] parent  Dialog receiving the option.
+ * @param[in]     title   Option label.
+ * @param[in]     full    True to request a full format.
+ * @param[in]     primary True for the primary visual variant.
+ * @param[in]     top     Y position in pixels.
+ */
 static void make_option(lv_obj_t *parent, const char *title, bool full, bool primary, int32_t top)
 {
 	lv_obj_t *button = lv_button_create(parent);
@@ -63,6 +119,14 @@ static void make_option(lv_obj_t *parent, const char *title, bool full, bool pri
 }
 
 /* Quick format recreates metadata; full format also overwrites all partition sectors. */
+/**
+ * @brief Build the format confirmation dialog.
+ *
+ * @details A full-screen background with the partition and filesystem in the
+ *          title, a danger-coloured warning, the quick-format primary option,
+ *          the full-format danger option, and a bottom back button. The busy
+ *          banner is raised above the dialog so progress stays visible.
+ */
 void build_format_dialog(void)
 {
 	char text[64];
@@ -98,6 +162,15 @@ void build_format_dialog(void)
  * Proportional strip of the card: one segment per partition in the filesystem colour. It is docked
  * above the list, so scrolling the partitions does not move the picture of the card.
  */
+/**
+ * @brief Draw the proportional strip of the card.
+ *
+ * @details One segment per partition, sized in proportion to its sector count
+ *          and coloured by filesystem, with a two-pixel gap between segments
+ *          and a minimum width of six pixels. Segments are clipped to the bar
+ *          width. The strip is docked above the list, so scrolling the
+ *          partitions does not move the picture of the card.
+ */
 static void build_capacity_bar(void)
 {
 	int32_t width = ui_page_width();
@@ -122,6 +195,15 @@ static void build_capacity_bar(void)
 	}
 }
 
+/**
+ * @brief Fill the partition list with one row per partition.
+ *
+ * @details Each row shows a colour dot, the partition number and filesystem,
+ *          the size, and a read-only marker. Every row opens the partition
+ *          detail view. An empty card shows a hint instead.
+ *
+ * @param[in,out] list Scrolling list receiving the rows.
+ */
 static void build_partition_rows(lv_obj_t *list)
 {
 
@@ -153,6 +235,15 @@ static void build_partition_rows(lv_obj_t *list)
 }
 
 /* The editor is a rare action, so it is a quiet row at the end of the list, not a docked button. */
+/**
+ * @brief Add the whole-card layout entry at the end of the list.
+ *
+ * @details The editor is a rare action, so it is a quiet glass row at the end
+ *          of the list rather than a docked button. It is disabled while a
+ *          transfer runs, while busy, or on a read-only card.
+ *
+ * @param[in,out] list Scrolling list receiving the row.
+ */
 static void build_layout_entry(lv_obj_t *list)
 {
 	lv_obj_t *button = make_button(list, "格式化整卡", layout_open_event, NULL);
@@ -163,8 +254,17 @@ static void build_layout_entry(lv_obj_t *list)
 	set_disabled(button, ui.model.running || ui.model.busy || !ui.model.card_writable);
 }
 
+/**
+ * @brief Build the partition detail view with one format action per filesystem.
+ *
+ * @details Looks up whether the selected partition itself is writable, then
+ *          adds a danger-styled row for each filesystem. The rows are disabled
+ *          unless the card and the partition are both writable and the UI is
+ *          idle.
+ */
 static void build_format_detail(void)
 {
+	/** @brief Filesystems offered in the partition detail view. */
 	static const enum blk_partition_content contents[] = { BLK_PARTITION_FAT32, BLK_PARTITION_EXFAT, BLK_PARTITION_EXT4 };
 	bool writable = false;
 	char text[64];
@@ -187,6 +287,13 @@ static void build_format_detail(void)
 	}
 }
 
+/**
+ * @brief Build the Manage page for the current mode.
+ *
+ * @details Dispatches to the layout editor when it is open, the format detail
+ *          when a partition is selected, and otherwise the capacity strip plus
+ *          the partition list and layout entry.
+ */
 void build_manage(void)
 {
 	lv_obj_t *list;

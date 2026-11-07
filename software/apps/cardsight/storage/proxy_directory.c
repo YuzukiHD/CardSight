@@ -1,9 +1,29 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* exFAT directory entries: reading the view, parsing what the host writes, and syncing it back. */
+/**
+ * @file proxy_directory.c
+ * @brief exFAT directory entries: reading the view, parsing host writes, and syncing back.
+ *
+ * The view has no on-disk directory: a sector is synthesized from the index
+ * nodes whose directory slots fall into it. In the other direction, each
+ * directory sector the host writes is parsed here and the entries it holds are
+ * matched to nodes or created as new ones.
+ */
 
 #include "proxy_internal.h"
 
 
+/**
+ * @brief Convert a UTF-8 string to UTF-16 for an exFAT name.
+ *
+ * @details Decodes one code point at a time, replacing malformed sequences
+ * with U+FFFD. Code points above the BMP are written as a surrogate pair, and
+ * the conversion stops when the output capacity would be exceeded.
+ *
+ * @param[in]  input    NUL-terminated UTF-8 string.
+ * @param[out] output   Buffer receiving UTF-16 code units.
+ * @param[in]  capacity Number of code units @p output can hold.
+ * @return Number of code units written.
+ */
 static size_t proxy_utf16(const char *input, uint16_t *output, size_t capacity)
 {
 	size_t length = 0U;
@@ -48,6 +68,15 @@ static size_t proxy_utf16(const char *input, uint16_t *output, size_t capacity)
 }
 
 
+/**
+ * @brief Number of 32-byte directory entries a node occupies.
+ *
+ * @details An object always has a stream entry and a name entry, plus one name
+ * entry for every 15 UTF-16 code units of its name.
+ *
+ * @param[in] node Node to measure.
+ * @return Entry count, including the stream and name entries.
+ */
 uint32_t proxy_object_entries(const struct proxy_node *node)
 {
 	uint16_t name[VFS_NAME_MAX + 1];
@@ -57,6 +86,17 @@ uint32_t proxy_object_entries(const struct proxy_node *node)
 }
 
 
+/**
+ * @brief Compute the exFAT name hash stored in a stream entry.
+ *
+ * @details The name is upper-cased one code unit at a time and each byte is
+ * folded into a rotating 16-bit checksum, low byte first, as the exFAT
+ * specification defines it.
+ *
+ * @param[in] name   UTF-16 name.
+ * @param[in] length Number of code units in @p name.
+ * @return The name hash.
+ */
 static uint16_t proxy_name_hash(const uint16_t *name, size_t length)
 {
 	uint16_t checksum = 0U;
@@ -73,6 +113,18 @@ static uint16_t proxy_name_hash(const uint16_t *name, size_t length)
 }
 
 
+/**
+ * @brief Build one raw exFAT directory entry of a node.
+ *
+ * @details Entry zero is the stream entry (attribute and the read-only bit for
+ * the view or a memory-backed file), entry one is the name entry with length,
+ * hash, first cluster and both data lengths, and the remaining entries are the
+ * name characters in 15-code-unit chunks. Unknown fields stay zero.
+ *
+ * @param[in]  node     Node to render.
+ * @param[in]  position Entry position inside the object's group.
+ * @param[out] entry    Buffer receiving the 32-byte entry.
+ */
 static void proxy_object_entry_raw(const struct proxy_node *node, uint32_t position,
 				   uint8_t entry[32])
 {
@@ -110,6 +162,15 @@ static void proxy_object_entry_raw(const struct proxy_node *node, uint32_t posit
 }
 
 
+/**
+ * @brief Compute the checksum of an object's whole entry group.
+ *
+ * @details The stream entry's own checksum field (bytes 2 and 3) is skipped,
+ * and every other byte of every entry is folded into the rotating checksum.
+ *
+ * @param[in] node Node whose group is checksummed.
+ * @return The entry-set checksum.
+ */
 static uint16_t proxy_object_checksum(const struct proxy_node *node)
 {
 	uint8_t entry[32];
@@ -130,6 +191,16 @@ static uint16_t proxy_object_checksum(const struct proxy_node *node)
 }
 
 
+/**
+ * @brief Build one directory entry of a node, with its checksum filled in.
+ *
+ * @details The raw entry is generated first, and the checksum is only patched
+ * into the stream entry, because computing it requires the other entries.
+ *
+ * @param[in]  node     Node to render.
+ * @param[in]  position Entry position inside the object's group.
+ * @param[out] entry    Buffer receiving the 32-byte entry.
+ */
 static void proxy_object_entry(const struct proxy_node *node, uint32_t position,
 			       uint8_t entry[32])
 {
@@ -140,8 +211,19 @@ static void proxy_object_entry(const struct proxy_node *node, uint32_t position,
 }
 
 
+/**
+ * @brief Render one of the three fixed system entries of the root directory.
+ *
+ * @details Position zero is the volume label "CARDSIGHT", position one is the
+ * allocation bitmap and position two is the up-case table; each carries the
+ * cluster and length recorded in the view.
+ *
+ * @param[in]  position System entry index.
+ * @param[out] entry    Buffer receiving the 32-byte entry.
+ */
 static void proxy_root_system_entry(uint32_t position, uint8_t entry[32])
 {
+	/** @brief Volume label stored in the root directory. */
 	static const uint16_t label[] = { 'C', 'A', 'R', 'D', 'S', 'I', 'G', 'H', 'T' };
 
 	memset(entry, 0, 32U);
@@ -164,6 +246,19 @@ static void proxy_root_system_entry(uint32_t position, uint8_t entry[32])
 }
 
 
+/**
+ * @brief Render one entry of a directory by its absolute slot number.
+ *
+ * @details The root directory reserves slots 0 to 2 for its system entries.
+ * For every other directory the child list is walked and the node whose slot
+ * range covers @p wanted supplies the entry. A deleted node is rendered with
+ * its in-use bit cleared, which is how exFAT marks a deleted entry.
+ *
+ * @param[in]  directory Directory node.
+ * @param[in]  wanted    Absolute slot number inside the directory.
+ * @param[out] entry     Buffer receiving the 32-byte entry.
+ * @return True when the slot belongs to an object.
+ */
 static bool proxy_directory_entry(const struct proxy_node *directory,
 				  uint32_t wanted, uint8_t entry[32])
 {
@@ -191,6 +286,17 @@ static bool proxy_directory_entry(const struct proxy_node *directory,
 }
 
 
+/**
+ * @brief Render one sector of a directory.
+ *
+ * @details The children are indexed first, then each of the sixteen slots of
+ * the sector is filled; slots that belong to no live object stay zero.
+ *
+ * @param[in]  node_index Node index of the directory.
+ * @param[in]  offset     Byte offset of the sector inside the directory.
+ * @param[out] sector     Buffer receiving the sector.
+ * @return 0 on success, or a negative errno from indexing the children.
+ */
 int proxy_read_directory(uint32_t node_index,
 				uint64_t offset, uint8_t sector[PROXY_SECTOR_SIZE])
 {
@@ -211,6 +317,19 @@ int proxy_read_directory(uint32_t node_index,
 }
 
 
+/**
+ * @brief Convert UTF-16 name code units back to UTF-8.
+ *
+ * @details Surrogates are encoded as three-byte sequences like any other code
+ * unit, matching how the names were decoded. The output is always
+ * NUL-terminated and stops before it would exceed @p capacity.
+ *
+ * @param[in]  input    UTF-16 code units.
+ * @param[in]  length   Number of code units to convert.
+ * @param[out] output   Buffer receiving the UTF-8 string.
+ * @param[in]  capacity Size of @p output in bytes.
+ * @return Number of bytes written, excluding the terminator.
+ */
 static size_t proxy_utf8(const uint16_t *input, size_t length, char *output, size_t capacity)
 {
 	size_t written = 0U;
@@ -244,6 +363,29 @@ static size_t proxy_utf8(const uint16_t *input, size_t length, char *output, siz
 }
 
 
+/**
+ * @brief Apply one host directory entry to the index.
+ *
+ * @details Three cases are handled:
+ * - An unknown name: the source object is created (mkdir, or an empty file with
+ *   O_EXCL). If the name already exists on the card because an earlier delete
+ *   was not flushed yet, the pending writes and deletes are carried out and the
+ *   create is retried once. The node is then added unallocated and adopts the
+ *   host's slot.
+ * - A known object that moved: a tombstone keeps its old slots, its source
+ *   file is renamed and the node is reparented under the new name.
+ * - A known object whose size changed: the source file is truncated to the new
+ *   length before the extent is updated.
+ * Finally the extent is adopted and the staged data of the clusters is claimed.
+ *
+ * @param[in] parent        Parent node index.
+ * @param[in] name          Entry name.
+ * @param[in] directory     True when the entry is a directory.
+ * @param[in] first_cluster First cluster from the host entry.
+ * @param[in] size          Data length from the host entry.
+ * @param[in] host_slot     Absolute slot the host entry starts at.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_sync_entry_inner(uint32_t parent, const char *name, bool directory,
 	uint32_t first_cluster, uint64_t size, uint32_t host_slot)
 {
@@ -358,6 +500,21 @@ static int proxy_sync_entry_inner(uint32_t parent, const char *name, bool direct
 }
 
 
+/**
+ * @brief Apply one host directory entry and record the timing and failures.
+ *
+ * @details Wraps @c proxy_sync_entry_inner() with the timing counters, traces
+ * the first forty file syncs to the log, and remembers the last error for the
+ * status command.
+ *
+ * @param[in] parent        Parent node index.
+ * @param[in] name          Entry name.
+ * @param[in] directory     True when the entry is a directory.
+ * @param[in] first_cluster First cluster from the host entry.
+ * @param[in] size          Data length from the host entry.
+ * @param[in] host_slot     Absolute slot the host entry starts at.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_sync_entry(uint32_t parent, const char *name, bool directory,
 	uint32_t first_cluster, uint64_t size, uint32_t host_slot)
 {
@@ -381,6 +538,21 @@ static int proxy_sync_entry(uint32_t parent, const char *name, bool directory,
 
 
 
+/**
+ * @brief Extract the name of a host entry from its secondary entries.
+ *
+ * @details The length lives in the stream entry, and the characters are
+ * gathered from the following 0xC1 name entries, 15 code units each. The
+ * gather stops at the requested length, and the entry is rejected when a
+ * secondary entry is not a name entry or when fewer characters than the length
+ * are available inside the window.
+ *
+ * @param[in]  sector      Window holding the entry group.
+ * @param[in]  slot        Slot of the stream entry inside @p sector.
+ * @param[in]  secondaries Number of secondary entries in the group.
+ * @param[out] name        Buffer receiving the UTF-8 name.
+ * @return True when a complete name was decoded.
+ */
 static bool proxy_entry_name(const uint8_t *sector, uint32_t slot, uint32_t secondaries,
 	char name[VFS_NAME_MAX + 1])
 {
@@ -406,6 +578,19 @@ static bool proxy_entry_name(const uint8_t *sector, uint32_t slot, uint32_t seco
 }
 
 
+/**
+ * @brief Mark the neighbour entry the host deleted.
+ *
+ * @details The host clears the in-use bit of a stream entry when it deletes an
+ * object. The object is found by cluster first and by name second, and only
+ * the node that still lives at exactly this slot under this parent is marked:
+ * the host may already have written the object's new entry before this one.
+ *
+ * @param[in] parent        Parent node index.
+ * @param[in] sector        Contents of the previous sector.
+ * @param[in] slot          Slot of the deleted entry inside @p sector.
+ * @param[in] absolute_slot Absolute slot number of the deleted entry.
+ */
 static void proxy_mark_removed(uint32_t parent, const uint8_t *sector, uint32_t slot, uint32_t absolute_slot)
 {
 	uint32_t first_cluster;
@@ -429,6 +614,24 @@ static void proxy_mark_removed(uint32_t parent, const uint8_t *sector, uint32_t 
 }
 
 
+/**
+ * @brief Parse one directory sector the host wrote and sync the entries it holds.
+ *
+ * @details The flow is:
+ * 1. flush queued data so the directory is in order;
+ * 2. read back the previous sector, because the host clears an entry's in-use
+ *    bit in place and that delete must be seen;
+ * 3. build a window of [kept head of a cut group][new sector], so an entry
+ *    group straddling the sector edge can be completed;
+ * 4. for each stream entry, note the deletes, skip groups that are unchanged
+ *    copies of what the host was shown, and cut or sync the rest;
+ * 5. rebuild the cluster index once the sector is processed.
+ *
+ * @param[in] parent Parent node index.
+ * @param[in] offset Byte offset of the sector inside the directory.
+ * @param[in] data   New sector contents.
+ * @return 0 on success, or a negative errno.
+ */
 static int proxy_write_directory_inner(uint32_t parent, uint64_t offset, const uint8_t data[PROXY_SECTOR_SIZE])
 {
 	/* [kept head of a cut group][sector written][sector after]; only this write can complete a cut group. */
@@ -515,6 +718,14 @@ static int proxy_write_directory_inner(uint32_t parent, uint64_t offset, const u
 }
 
 
+/**
+ * @brief Parse one directory sector the host wrote, with directory timing.
+ *
+ * @param[in] parent Parent node index.
+ * @param[in] offset Byte offset of the sector inside the directory.
+ * @param[in] data   New sector contents.
+ * @return 0 on success, or a negative errno.
+ */
 int proxy_write_directory(uint32_t parent, uint64_t offset, const uint8_t data[PROXY_SECTOR_SIZE])
 {
 	uint64_t begin = proxy_time_begin();

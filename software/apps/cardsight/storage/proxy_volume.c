@@ -1,9 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* The volume's own layout: boot sector, FAT, allocation bitmap, up-case table and cluster map. */
+/**
+ * @file proxy_volume.c
+ * @brief The volume's own layout: boot sector, FAT, bitmap, up-case table and cluster map.
+ */
 
 #include "proxy_internal.h"
 
 
+/**
+ * @brief Set or clear the allocation bit of one cluster.
+ *
+ * @details Cluster numbers outside the volume and a missing bitmap are
+ * ignored, which lets the caller mark a range without bounds checks of its
+ * own.
+ *
+ * @param[in] cluster Cluster number.
+ * @param[in] used    True to mark the cluster used.
+ */
 static void proxy_bitmap_set(uint32_t cluster, bool used)
 {
 	uint32_t bit;
@@ -20,6 +33,13 @@ static void proxy_bitmap_set(uint32_t cluster, bool used)
 }
 
 
+/**
+ * @brief Fold one byte into the exFAT rotating 32-bit checksum.
+ *
+ * @param[in] checksum Current checksum.
+ * @param[in] value    Byte to add.
+ * @return The updated checksum.
+ */
 static uint32_t proxy_checksum32(uint32_t checksum, uint8_t value)
 {
 	return ((checksum & 1U) != 0U ? 0x80000000U : 0U) +
@@ -27,6 +47,18 @@ static uint32_t proxy_checksum32(uint32_t checksum, uint8_t value)
 }
 
 
+/**
+ * @brief Build the up-case table the view advertises.
+ *
+ * @details Each UTF-16 code unit is mapped through the source's upper-case
+ * conversion. Runs of 128 or more units that map to themselves are compressed
+ * into the exFAT identity-run encoding (0xFFFF followed by the run length),
+ * which is why the builder is a small state machine. The checksum is computed
+ * over the bytes exactly as they are stored. The table always fills all 65536
+ * code units before the loop ends at the wrap to zero.
+ *
+ * @return 0 on success, or -ENOMEM.
+ */
 static int proxy_build_upcase(void)
 {
 	uint16_t source = 0U;
@@ -81,6 +113,17 @@ static int proxy_build_upcase(void)
 }
 
 
+/**
+ * @brief Give one node its clusters from the unallocated tail.
+ *
+ * @details A directory takes one cluster; a file takes as many clusters as its
+ * size needs. The clusters are taken contiguously from @c next_cluster, marked
+ * in the bitmap, added to the cluster index, and the tail is advanced. A node
+ * with no size gets no cluster at all.
+ *
+ * @param[in] index Node index to allocate for.
+ * @return 0 on success, or -ENOSPC when the view has no room left.
+ */
 int proxy_allocate_node_clusters(uint32_t index)
 {
 	struct proxy_node *node = &proxy.nodes[index];
@@ -106,10 +149,19 @@ int proxy_allocate_node_clusters(uint32_t index)
 }
 
 
-/*
- * The shape of the view: the cluster counts, where the FAT, the bitmap, the up-case table and the
- * root directory sit, and how many sectors the volume spans. The nodes are not placed yet, so the
- * layout file can describe the finished volume before its clusters are handed out.
+/**
+ * @brief Size the view and place its FAT, bitmap, up-case table and root cluster.
+ *
+ * @details The shape of the view: the cluster counts, where the FAT, the
+ * bitmap, the up-case table and the root directory sit, and how many sectors
+ * the volume spans. The nodes are not placed yet, so the layout file can
+ * describe the finished volume before its clusters are handed out. The view is
+ * sized from the source disk plus one directory cluster and one data cluster
+ * per possible index entry, with slack; the up-case table is built first so
+ * its length is known. The FAT is rounded to whole sectors and the data area
+ * is aligned to a cluster boundary after it.
+ *
+ * @return 0 on success, or a negative errno.
  */
 int proxy_compute_geometry(void)
 {
@@ -146,7 +198,17 @@ int proxy_compute_geometry(void)
 }
 
 
-/* Every node owns its clusters before a host reads the allocation bitmap. */
+/**
+ * @brief Hand clusters to every node before a host reads the allocation bitmap.
+ *
+ * @details The bitmap, the up-case table and the root directory are placed
+ * first at fixed cluster numbers and marked used. The root node is entered in
+ * the cluster index, @c layout_ready is raised so later nodes allocate as they
+ * are added, and every remaining node is allocated in index order. The cluster
+ * index is rebuilt once the extents are final.
+ *
+ * @return 0 on success, or a negative errno.
+ */
 int proxy_allocate_clusters(void)
 {
 	int result = 0;
@@ -174,6 +236,16 @@ int proxy_allocate_clusters(void)
 }
 
 
+/**
+ * @brief Find the node that owns a cluster.
+ *
+ * @details The cluster-sorted index is searched with binary search for the
+ * node whose [first_cluster, first_cluster + cluster_count) range contains the
+ * cluster.
+ *
+ * @param[in] cluster Cluster number.
+ * @return The node index, or PROXY_INVALID_NODE.
+ */
 uint32_t proxy_cluster_node(uint32_t cluster)
 {
 	uint32_t low = 0U;
@@ -196,6 +268,18 @@ uint32_t proxy_cluster_node(uint32_t cluster)
 }
 
 
+/**
+ * @brief FAT chain value for one cluster of a system area.
+ *
+ * @details Returns the next cluster when the cluster is inside [first,
+ * first + count), the end-of-chain marker for the last cluster of the range,
+ * and zero when the cluster is outside it.
+ *
+ * @param[in] cluster Cluster number.
+ * @param[in] first   First cluster of the system area.
+ * @param[in] count   Number of clusters in the system area.
+ * @return The chain value, or zero when the cluster is not in the area.
+ */
 static uint32_t proxy_system_chain(uint32_t cluster, uint32_t first, uint32_t count)
 {
 	if (cluster < first || cluster >= first + count) {
@@ -205,6 +289,17 @@ static uint32_t proxy_system_chain(uint32_t cluster, uint32_t first, uint32_t co
 }
 
 
+/**
+ * @brief Return the FAT entry for a cluster.
+ *
+ * @details Entries zero and one are the reserved media and end-of-chain
+ * values. The bitmap, the up-case table and the root directory are chained in
+ * their own runs; every other cluster returns zero, because objects are
+ * contiguous streams and their FAT chain is not used.
+ *
+ * @param[in] cluster Cluster number.
+ * @return The chain value stored in the FAT.
+ */
 uint32_t proxy_fat_entry(uint32_t cluster)
 {
 	uint32_t value;
@@ -230,6 +325,19 @@ uint32_t proxy_fat_entry(uint32_t cluster)
 }
 
 
+/**
+ * @brief Build one sector of the exFAT boot region.
+ *
+ * @details Records 1 through 8 are empty sectors carrying only the 0x55AA
+ * signature. Record 0 holds the main boot sector: jump stub, "EXFAT   " file
+ * system name, volume length, FAT and data offsets, cluster count, root
+ * cluster, volume serial number, version, volume flags, the sector/cluster
+ * geometry and the used-percentage field, which is computed from the clusters
+ * already handed out. Every built sector ends with the signature.
+ *
+ * @param[in]  record Boot record number, 0 through 11.
+ * @param[out] sector Sector buffer to fill.
+ */
 void proxy_boot_record(uint32_t record, uint8_t sector[PROXY_SECTOR_SIZE])
 {
 	memset(sector, 0, PROXY_SECTOR_SIZE);
@@ -273,6 +381,16 @@ void proxy_boot_record(uint32_t record, uint8_t sector[PROXY_SECTOR_SIZE])
 }
 
 
+/**
+ * @brief Compute the checksum of the first eleven boot records.
+ *
+ * @details The volume flags and the used-percentage byte of the main boot
+ * sector are excluded, as exFAT requires, and the remaining bytes of records 0
+ * to 10 are folded into the checksum. The result fills the checksum sector
+ * that follows them.
+ *
+ * @return The boot region checksum.
+ */
 uint32_t proxy_boot_checksum(void)
 {
 	uint8_t sector[PROXY_SECTOR_SIZE];
@@ -291,7 +409,18 @@ uint32_t proxy_boot_checksum(void)
 }
 
 
-/* Clusters the host just freed hold no data worth keeping: drop what was waiting for them. */
+/**
+ * @brief Drop cached data for clusters the host just marked free.
+ *
+ * @details For every bit that changed from used to free, the sixteen sectors
+ * of the cluster are dropped from the pending table and a staging run that
+ * starts at the cluster is released. Clusters the host freed hold no data
+ * worth keeping.
+ *
+ * @param[in] byte_offset Offset of the bitmap byte the write starts at.
+ * @param[in] incoming    Bytes the host wrote.
+ * @param[in] length      Number of bytes to examine.
+ */
 void proxy_bitmap_freed(uint64_t byte_offset, const uint8_t *incoming, size_t length)
 {
 	for (size_t index = 0U; index < length; index++) {

@@ -1,21 +1,43 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/* The application state, the worker that runs one request at a time, and what it posts to the UI. */
+/**
+ * @file app.c
+ * @brief Application state, the request worker and the UI notifications.
+ *
+ * Keeps one request in flight, serialises card access, and posts refresh
+ * notifications to the LVGL thread. The worker also polls the card slot and
+ * the USB statistics so the UI reflects insertions, removals and throughput
+ * without the UI thread touching the card.
+ */
 
 #include "app/app_internal.h"
 
-/* The state every module reads, and the queue the UI sends requests through. */
+/** @brief The state every module reads; protected by @c app_lock. */
 struct cardsight_state app;
+/** @brief Lock guarding @c app. */
 struct mutex app_lock;
+/** @brief Queue the UI sends requests through; the worker drains it. */
 struct message_queue requests;
 
 
+/**
+ * @brief Request one UI refresh without waiting for the LVGL task.
+ *
+ * @details The post is best-effort: a full LVGL queue drops this refresh,
+ * which is acceptable because the caller posts another on the next event.
+ */
 static void app_post_refresh(void)
 {
 	(void)lvgl_port_post(cardsight_ui_refresh, NULL);
 }
 
 
-/* The last refresh of a request must not be lost to a full queue, or the banner never clears. */
+/**
+ * @brief Request a UI refresh, retrying until the LVGL queue accepts it.
+ *
+ * @details The last refresh of a request must not be lost to a full queue, or
+ * the banner never clears. The function retries once every 10 ms for up to one
+ * second and then gives up rather than block the worker forever.
+ */
 static void app_post_refresh_final(void)
 {
 	for (uint32_t attempt = 0U; attempt < 100U; attempt++) {
@@ -27,6 +49,12 @@ static void app_post_refresh_final(void)
 }
 
 
+/**
+ * @brief Translate an operation result into the text shown to the user.
+ *
+ * @param[in] result Result code of the operation.
+ * @return Localized message describing the result.
+ */
 static const char *failure_text(int result)
 {
 	switch (result) {
@@ -48,9 +76,17 @@ static const char *failure_text(int result)
 }
 
 
-/*
- * A card whose volumes all fail to probe is inserted but unreadable: report the first failure
- * with its device name so the sheet can say which partition it was.
+/**
+ * @brief Scan the card and report the first volume that failed to probe.
+ *
+ * @details A card whose volumes all fail to probe is inserted but unreadable:
+ * report the first failure with its device name so the sheet can say which
+ * partition it was. The partition statuses are inspected under @c app_lock
+ * after @c card_scan() has published them.
+ *
+ * @param[out] detail Buffer receiving "<device> <status>" for the failing volume.
+ * @param[in]  size   Size of @p detail in bytes.
+ * @return 0 on success, or a negative errno describing the first failure.
  */
 static int card_scan_check(char *detail, size_t size)
 {
@@ -79,12 +115,26 @@ static int card_scan_check(char *detail, size_t size)
 	return result;
 }
 
+/**
+ * @brief Post a refresh of the live runtime values to the LVGL task.
+ */
 void app_post_refresh_runtime(void)
 {
 	(void)lvgl_port_post(cardsight_ui_runtime, NULL);
 }
 
 
+/**
+ * @brief Queue one request for the worker and mark the application busy.
+ *
+ * @details The state lock is taken only to claim the busy flag and record the
+ * request, then released before touching the queue. When the queue rejects the
+ * request the busy flag is cleared again and the reason is published, so the
+ * UI never waits on a request that will not run. A refresh is posted either
+ * way so the new operation text appears.
+ *
+ * @param[in] request Request to copy into the queue.
+ */
 void send_request(const struct cardsight_request *request)
 {
 	mutex_lock_timeout(&app_lock, WAIT_FOREVER);
@@ -109,6 +159,16 @@ void send_request(const struct cardsight_request *request)
 }
 
 
+/**
+ * @brief Start the exFAT proxy view and expose it over USB mass storage.
+ *
+ * @details The proxy is started first; the USB device is only started once the
+ * view exists. If the USB start fails the proxy is torn down again so the next
+ * attempt starts from a clean state.
+ *
+ * @param[in] selected Bit mask of source partitions to expose.
+ * @return 0 on success, or the error from the proxy or the USB driver.
+ */
 static int start_proxy(uint32_t selected)
 {
 	const struct storage_proxy_config config = {
@@ -127,6 +187,24 @@ static int start_proxy(uint32_t selected)
 }
 
 
+/**
+ * @brief The application task: owns the card, runs requests and polls live state.
+ *
+ * @details Start-up scans the card once and records a failure only when a card
+ * is actually present. The main loop then repeats four phases:
+ * - watch the slot detection flag and the MMC probe error, so a card that is
+ *   being identified or that failed identification is reflected in the UI;
+ * - wait up to 200 ms for a request and run exactly one, translating its
+ *   result into the operation text and error detail;
+ * - notice a card insertion or removal and tear down whatever was serving the
+ *   old card before rescanning;
+ * - while USB mass storage runs, sample its counters once per second and
+ *   compute the read and write rates.
+ * All shared state is written under @c app_lock and published with a UI
+ * refresh after the lock is released.
+ *
+ * @param[in] argument Unused task argument.
+ */
 static void worker(void *argument)
 {
 	struct cardsight_request request;
@@ -155,6 +233,7 @@ static void worker(void *argument)
 		}
 	}
 	last_present = card_disk_present();
+	/* Nothing can be posted before LVGL is up; its queue would reject the posts. */
 	while (!lvgl_port_ready()) {
 		msleep(20);
 	}
@@ -250,6 +329,7 @@ static void worker(void *argument)
 			} else if (request.type == CARDSIGHT_REQUEST_LAYOUT) {
 				result = usb_mass_storage_running() ? -EBUSY : layout_apply(&request);
 			}
+			/* The card now holds something else: re-read its table and partitions. */
 			if (request.type == CARDSIGHT_REQUEST_FORMAT || request.type == CARDSIGHT_REQUEST_LAYOUT) {
 				(void)card_scan();
 			}
@@ -345,6 +425,13 @@ static void worker(void *argument)
 }
 
 
+/**
+ * @brief Create the state lock, the request queue and the worker task.
+ *
+ * @details A failure to create the lock or the queue leaves the application
+ * uninitialised and is logged; a failure to create the task is logged only,
+ * because the shell still works without the worker.
+ */
 void cardsight_app_init(void)
 {
 	memset(&app, 0, sizeof(app));
@@ -360,6 +447,14 @@ void cardsight_app_init(void)
 }
 
 
+/**
+ * @brief Copy the shared state for the UI to render.
+ *
+ * @details The copy is made under @c app_lock, then the USB running flag is
+ * refreshed outside the lock because it is owned by the USB driver.
+ *
+ * @param[out] state Snapshot destination.
+ */
 void cardsight_snapshot(struct cardsight_state *state)
 {
 	mutex_lock_timeout(&app_lock, WAIT_FOREVER);

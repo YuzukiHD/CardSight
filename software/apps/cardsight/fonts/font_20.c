@@ -1,3 +1,9 @@
+/**
+ * @file font_20.c
+ * @brief Generated data: the 20 px CardSight UI font.
+ *
+ * Generated LVGL font data for the 20 px glyph subset used by the CardSight UI.
+ */
 /*******************************************************************************
  * Size: 20 px
  * Bpp: 4

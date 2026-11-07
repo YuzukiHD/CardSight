@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * PC renderer for the CardSight UI: the real LVGL, pages and glass material are built against
- * small host stubs, rendered to an in-memory RGB565 frame and written as PPM for inspection.
+/**
+ * @file ui_sim.c
+ * @brief PC renderer for the CardSight UI.
+ *
+ * The real LVGL, pages, and glass material are built against small host stubs,
+ * rendered to an in-memory RGB888 frame, and written as PPM files for visual
+ * inspection. The fixture fills a model with a 32 GB card holding three
+ * partitions and a representative directory listing.
  */
 
 #include "ui/ui_internal.h"
@@ -12,18 +17,36 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** @brief Simulated panel width in pixels. */
 #define SIM_WIDTH  240
+/** @brief Simulated panel height in pixels. */
 #define SIM_HEIGHT 284
 
+/** @brief Model snapshot returned to the UI by cardsight_snapshot(). */
 static struct cardsight_state model;
+/** @brief Render target: a full RGB888 frame, aligned for the draw code. */
 static uint8_t framebuffer[SIM_WIDTH * SIM_HEIGHT * 3U] __attribute__((aligned(64)));
+/** @brief Simulated LVGL tick in milliseconds, advanced by the test. */
 static uint32_t tick_ms;
 
+/**
+ * @brief LVGL tick callback backed by the simulated clock.
+ *
+ * @return Current simulated time in milliseconds.
+ */
 static uint32_t sim_tick(void)
 {
 	return tick_ms;
 }
 
+/**
+ * @brief Host implementation of the kernel logger; writes to stderr.
+ *
+ * @param[in] level  Log level; ignored.
+ * @param[in] module Module name; ignored.
+ * @param[in] format printf-style message format.
+ * @param[in] ...    Arguments for @p format.
+ */
 void log_print(int level, const char *module, const char *format, ...)
 {
 	va_list arguments;
@@ -35,16 +58,37 @@ void log_print(int level, const char *module, const char *format, ...)
 	va_end(arguments);
 }
 
+/**
+ * @brief Host implementation of the application snapshot.
+ *
+ * @details Copies the fixture model so the UI sees a stable card state.
+ *
+ * @param[out] state Snapshot destination.
+ */
 void cardsight_snapshot(struct cardsight_state *state)
 {
 	*state = model;
 }
 
+/**
+ * @brief Host stub for the application request queue.
+ *
+ * @param[in] request Request that would be sent; ignored.
+ */
 void send_request(const struct cardsight_request *request)
 {
 	(void)request;
 }
 
+/**
+ * @brief Host stub reporting the simulated panel geometry.
+ *
+ * @details Fills the info with SIM_WIDTH x SIM_HEIGHT, a 16-bit swapped
+ *          framebuffer stride, and success.
+ *
+ * @param[out] info Display information to fill.
+ * @return 0.
+ */
 int sunxi_display_get_info(struct sunxi_display_info *info)
 {
 	memset(info, 0, sizeof(*info));
@@ -58,6 +102,15 @@ int sunxi_display_get_info(struct sunxi_display_info *info)
 	return 0;
 }
 
+/**
+ * @brief LVGL flush callback; the full frame is already in @c framebuffer.
+ *
+ * @details Does not copy anything and immediately marks the display ready.
+ *
+ * @param[in] display Display being flushed.
+ * @param[in] area    Changed area; ignored.
+ * @param[in] pixels  Source pixels; ignored.
+ */
 static void flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 {
 	(void)area;
@@ -65,13 +118,27 @@ static void flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels)
 	lv_display_flush_ready(display);
 }
 
+/**
+ * @brief Fill the model with a representative 32 GB card.
+ *
+ * @details Sets a 32 GB card with a valid identity, three 20-million-sector
+ *          partitions formatted as FAT32, exFAT, and ext4 (the third read-only),
+ *          and a file listing that includes a very long UTF-8 name, several
+ *          directories, and a mix of file sizes.
+ */
 static void fixture(void)
 {
+	/* one filesystem per fixture partition */
 	static const char *const types[] = { "FAT32", "exFAT", "ext4" };
+	/* partition labels shown in the fixture */
 	static const char *const labels[] = { "BOOT", "PHOTOS", "LINUX" };
+	/* the directory listing: long UTF-8, directories, and varied sizes */
 	static const struct {
+		/** @brief Entry name, including one very long UTF-8 name. */
 		const char *name;
+		/** @brief Entry size in bytes. */
 		uint64_t size;
+		/** @brief True for directory entries. */
 		bool dir;
 	} files[] = {
 		{ "文件文件文件文件文件文件文件文件文件文件文件文件.txt", 88123U, false },
@@ -123,8 +190,18 @@ static void fixture(void)
 	}
 }
 
+/**
+ * @brief Write the framebuffer as a binary PPM file.
+ *
+ * @details Emits a P6 header and copies each pixel in RGB order, swapping the
+ *          LVGL BGR byte order. Per-row conversion goes through a small static
+ *          row buffer. Errors are reported with perror and do not abort.
+ *
+ * @param[in] path Output file path.
+ */
 static void save_ppm(const char *path)
 {
+	/** @brief Reused scanline buffer for the RGB-to-PPM channel swap. */
 	static uint8_t row[SIM_WIDTH * 3U];
 	FILE *file = fopen(path, "wb");
 
@@ -147,11 +224,26 @@ static void save_ppm(const char *path)
 	printf("wrote %s\n", path);
 }
 
+/**
+ * @brief Render every page and interaction scene to /tmp as PPM files.
+ *
+ * @details Initialises LVGL in full-render mode onto the static framebuffer,
+ *          builds the fixture, and renders each page. It then exercises the
+ *          error sheet, the detecting overlay, Files navigation, a pressed
+ *          button, the layout editor, a scrolled Info page, and the proxy row
+ *          selection with its disabled state.
+ *
+ * @return 0.
+ */
 int main(void)
 {
+	/* pages and interaction states to render */
 	static const struct {
+		/** @brief Scene name used in the output file name. */
 		const char *name;
+		/** @brief Page to show. */
 		enum cardsight_mode mode;
+		/** @brief True to render the Files page in directory view. */
 		bool files_detail;
 	} scenes[] = {
 		{ "direct", CARDSIGHT_DIRECT, false },

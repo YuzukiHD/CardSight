@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-/*
- * Dump the LVGL screen over the serial console: an RGB565 snapshot is run-length encoded and
- * printed as base64, so the UI can be inspected without a camera. The capture itself runs in the
- * LVGL task; the shell only encodes and prints the result.
+/**
+ * @file screenshot.c
+ * @brief Serial-console screen dump for inspecting the UI without a camera.
+ *
+ * An RGB565 snapshot of the active LVGL screen is run-length encoded and
+ * printed as base64 between "SHOT" and "END" markers. The capture itself runs
+ * in the LVGL task; the shell command only waits, encodes, and prints the
+ * result.
  */
 
 #include <gui/lvgl_port.h>
@@ -15,20 +19,42 @@
 #include <stdlib.h>
 #include <string.h>
 
+/** @brief Largest screen width the static capture buffers can hold. */
 #define SHOT_MAX_WIDTH	240U
+/** @brief Largest screen height the static capture buffers can hold. */
 #define SHOT_MAX_HEIGHT 284U
 
 /* Static buffers: the capture runs after the UI has churned the C library heap for a while, and
  * a 136 KiB contiguous allocation is not guaranteed to be available any more. */
+/** @brief RGB565 pixel buffer written by the snapshot; aligned for the draw code. */
 static uint8_t shot_pixels[SHOT_MAX_WIDTH * SHOT_MAX_HEIGHT * 2U] __attribute__((aligned(64)));
+/** @brief Run-length encoded bytes of the last capture, ready for base64 printing. */
 static uint8_t shot_encoded[SHOT_MAX_WIDTH * SHOT_MAX_HEIGHT * 3U];
+/**
+ * @brief Shared state between the shell command and the LVGL-task capture.
+ */
 static struct {
+	/** @brief Captured screen width in pixels. */
 	uint32_t width;
+	/** @brief Captured screen height in pixels. */
 	uint32_t height;
+	/** @brief Outcome: 0 ok, 1 screen too large, 2 render failed. */
 	volatile int stage; /* 0: ok, 1: screen too large, 2: render failed */
+	/** @brief Set when the capture has finished, successfully or not. */
 	volatile bool done;
 } capture;
 
+/**
+ * @brief Capture callback that runs inside the LVGL task.
+ *
+ * @details Waits for the port to go idle, rejects screens larger than the
+ *          static buffers, then initialises a draw buffer over @c shot_pixels
+ *          and snapshots the active screen into it as RGB565. The outcome is
+ *          published through @c capture.stage and @c capture.done, which the
+ *          shell command polls.
+ *
+ * @param[in] argument Unused; posted via lvgl_port_post().
+ */
 static void capture_screen(void *argument)
 {
 	lv_obj_t *screen = lv_screen_active();
@@ -40,6 +66,7 @@ static void capture_screen(void *argument)
 	lvgl_port_wait_idle();
 	width = (uint32_t)lv_obj_get_width(screen);
 	height = (uint32_t)lv_obj_get_height(screen);
+	/* refuse screens the static buffers cannot hold */
 	if (width == 0U || height == 0U || width > SHOT_MAX_WIDTH || height > SHOT_MAX_HEIGHT) {
 		capture.stage = 1;
 		capture.done = true;
@@ -55,6 +82,22 @@ static void capture_screen(void *argument)
 	capture.done = true;
 }
 
+/**
+ * @brief Run-length encode an RGB565 image into count/colour triples.
+ *
+ * @details Scans rows in order and emits (count, low byte, high byte) triples.
+ *          A run ends at 255 pixels, on a colour change, or at the end of the
+ *          image. The encoder returns 0 rather than truncating when the output
+ *          cannot hold the next triple.
+ *
+ * @param[in]  pixels   RGB565 source rows.
+ * @param[in]  width    Image width in pixels.
+ * @param[in]  height   Image height in pixels.
+ * @param[in]  stride   Bytes between successive rows.
+ * @param[out] output   Buffer receiving the encoded triples.
+ * @param[in]  capacity Size of @p output in bytes.
+ * @return Number of bytes written, or 0 when the output buffer is too small.
+ */
 static size_t rle_encode(const uint8_t *pixels, uint32_t width, uint32_t height, uint32_t stride,
 	uint8_t *output, size_t capacity)
 {
@@ -67,6 +110,7 @@ static size_t rle_encode(const uint8_t *pixels, uint32_t width, uint32_t height,
 		const uint8_t *row = pixels + (size_t)y * stride;
 
 		for (uint32_t x = 0U; x < width; x++) {
+			/* RGB565 is little-endian in the draw buffer */
 			uint16_t color = (uint16_t)(row[x * 2U] | (row[x * 2U + 1U] << 8));
 
 			if (!started) {
@@ -87,6 +131,7 @@ static size_t rle_encode(const uint8_t *pixels, uint32_t width, uint32_t height,
 			}
 		}
 	}
+	/* flush the final run */
 	if (started) {
 		if (used + 3U > capacity) {
 			return 0U;
@@ -98,8 +143,19 @@ static size_t rle_encode(const uint8_t *pixels, uint32_t width, uint32_t height,
 	return used;
 }
 
+/**
+ * @brief Print a byte buffer as base64 with 96-column line wrapping.
+ *
+ * @details Emits four characters per three input bytes, padding the final
+ *          group with '=' after a newline every 96 columns and a final newline
+ *          when the last line is partial.
+ *
+ * @param[in] data   Bytes to encode.
+ * @param[in] length Number of bytes in @p data.
+ */
 static void print_base64(const uint8_t *data, size_t length)
 {
+	/** @brief Base64 alphabet. */
 	static const char table[] =
 		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 	uint32_t column = 0U;
@@ -129,6 +185,22 @@ static void print_base64(const uint8_t *data, size_t length)
 	}
 }
 
+/**
+ * @brief Shell command that captures, encodes, and prints the screen.
+ *
+ * @details Posts capture_screen() to the LVGL task and polls @c capture.done
+ *          for up to three seconds. On success it encodes the pixels, prints
+ *          "SHOT <width> <height> <bytes>", emits the base64 payload, and ends
+ *          with "END".
+ *
+ * @param[in] argc Unused argument count.
+ * @param[in] argv Unused argument vector.
+ * @retval 0        The image was printed.
+ * @retval -EAGAIN  The LVGL port was not ready.
+ * @retval -ETIMEDOUT The capture did not finish in time.
+ * @retval -ENOMEM  The screen was too large or rendering failed.
+ * @retval -EIO     The encoded image overflowed the output buffer.
+ */
 static int command_screenshot(int argc, char **argv)
 {
 	uint32_t width;
@@ -143,6 +215,7 @@ static int command_screenshot(int argc, char **argv)
 		printf("lvgl not ready\n");
 		return -EAGAIN;
 	}
+	/* poll until the LVGL task finishes or the three-second budget expires */
 	for (uint32_t waited = 0U; waited < 3000U && !capture.done; waited += 10U) {
 		msleep(10U);
 	}
@@ -166,4 +239,5 @@ static int command_screenshot(int argc, char **argv)
 	printf("END\n");
 	return 0;
 }
+/** @brief Registers the screenshot command with the shell. */
 SHELL_CMD(screenshot, "dump the screen as RLE/base64", command_screenshot);
