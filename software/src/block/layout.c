@@ -229,6 +229,57 @@ static int write_gpt(struct gendisk *disk, const struct blk_partition_layout_ent
 	return result;
 }
 
+/*
+ * Erase the partition table: zero the MBR, the primary GPT header and its entry array, and the
+ * backup GPT copy at the end of the disk. The file data itself is left where it is.
+ */
+int blk_erase_partition_table(struct gendisk *disk)
+{
+	int result;
+
+	if (disk == NULL || !disk->registered) {
+		return -ENODEV;
+	}
+	if (disk->logical_block_size != BLOCK_SECTOR_SIZE) {
+		return -ENOTSUP;
+	}
+	blk_lock();
+	if (disk_has_mounts(disk)) {
+		result = -EBUSY;
+	} else {
+		memset(layout_entries, 0, GPT_ENTRY_SECTORS * BLOCK_SECTOR_SIZE);
+		result = bdev_write(disk->part0, 0U, layout_entries, 1U);
+		if (result == 0) {
+			result = bdev_write(disk->part0, 1U, layout_entries, 1U);
+		}
+		if (result == 0) {
+			result = bdev_write(disk->part0, 2U, layout_entries, GPT_ENTRY_SECTORS);
+		}
+		if (result == 0 && disk->capacity > GPT_ENTRY_SECTORS + 3U) {
+			/* backup entry array and its header, at the end of the disk */
+			uint64_t tail = disk->capacity - (GPT_ENTRY_SECTORS + 1U);
+
+			result = bdev_write(disk->part0, tail, layout_entries, GPT_ENTRY_SECTORS);
+			if (result == 0) {
+				result = bdev_write(disk->part0, disk->capacity - 1U, layout_entries, 1U);
+			}
+		}
+		if (result == 0) {
+			result = bdev_flush(disk->part0);
+		}
+		if (result == 0) {
+			/* a blank disk has no table: the scan returns -ENOENT, not an error */
+			blk_drop_partitions(disk);
+			result = blk_scan_partitions(disk);
+			if (result == -ENOENT) {
+				result = 0;
+			}
+		}
+	}
+	blk_unlock();
+	return result;
+}
+
 int blk_write_partition_layout(struct gendisk *disk, enum blk_partition_table_type table,
 	const struct blk_partition_layout_entry *entries, uint32_t count)
 {

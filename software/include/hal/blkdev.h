@@ -124,6 +124,9 @@ struct blk_partition_layout_entry {
  * MBR. The first entry starts at sector 2048. -ENOSPC when the sizes do not fit, -EBUSY while
  * a partition is mounted.
  */
+/* Erase the MBR and both GPT copies, leaving the card without a partition table. */
+int blk_erase_partition_table(struct gendisk *disk);
+
 int blk_write_partition_layout(struct gendisk *disk, enum blk_partition_table_type table,
 	const struct blk_partition_layout_entry *entries, uint32_t count);
 

@@ -20,6 +20,22 @@ static bool layout_fits(const struct cardsight_request *request, uint64_t card_s
 }
 
 
+int erase_card(void)
+{
+	struct block_device *bdev = bdev_open_by_name(CONFIG_STORAGE_PROXY_SOURCE_DISK);
+	int result;
+
+	if (bdev == NULL || !bdev_is_whole(bdev)) {
+		if (bdev != NULL) {
+			bdev_close(bdev);
+		}
+		return -ENODEV;
+	}
+	result = blk_erase_partition_table(bdev->bd_disk);
+	bdev_close(bdev);
+	return result;
+}
+
 int layout_apply(const struct cardsight_request *request)
 {
 	struct block_device *bdev = bdev_open_by_name(CONFIG_STORAGE_PROXY_SOURCE_DISK);

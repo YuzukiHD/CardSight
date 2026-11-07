@@ -22,6 +22,7 @@ static void ui_clear_page_refs(void)
 	ui.format_dialog = NULL;
 	ui.settings_dialog = NULL;
 	ui.error_dialog = NULL;
+	ui.erase_dialog = NULL;
 	ui.direct_status = NULL;
 	ui.direct_status_chip = NULL;
 	ui.rate_read = NULL;
@@ -424,6 +425,8 @@ static const char *error_title(enum cardsight_request_type request)
 		return "连接失败";
 	case CARDSIGHT_REQUEST_STOP:
 		return "停止失败";
+	case CARDSIGHT_REQUEST_ERASE:
+		return "擦除失败";
 	default:
 		return "操作失败";
 	}
