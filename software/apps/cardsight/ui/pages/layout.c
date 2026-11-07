@@ -111,7 +111,7 @@ void build_layout_editor(void)
 	label = make_label(card, capacity, UI_TEXT);
 	lv_obj_align(label, LV_ALIGN_TOP_RIGHT, -14, 122);
 
-	label = make_label(card, "将清除整张卡数据", UI_DANGER);
+	label = make_label(card, "将重建分区表并快速格式化新分区", UI_DANGER);
 	lv_obj_set_pos(label, 14, 146);
 }
 
