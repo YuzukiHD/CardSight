@@ -172,9 +172,13 @@ static int sd_execute_tuning(void)
 	uint32_t best_start = 0U;
 	uint32_t best_length = 0U;
 	int first_error = 0;
+	/* A card that stopped answering turns every read into a one second timeout and the grid
+	 * is 768 reads: cap the whole scan so identification cannot stall for minutes. */
+	uint64_t deadline = ktime_get_ms() + 2000U;
+	bool aborted = false;
 
 	sunxi_mmc_set_quiet(true);
-	for (uint32_t phase = 0U; phase < TUNE_PHASES; phase++) {
+	for (uint32_t phase = 0U; phase < TUNE_PHASES && !aborted; phase++) {
 		uint32_t run = 0U;
 		uint32_t run_start = 0U;
 		uint32_t row_length = 0U;
@@ -184,6 +188,21 @@ static int sd_execute_tuning(void)
 			bool pass = true;
 			int error = 0;
 
+			if (!sunxi_mmc_present()) {
+				/* the card left the slot: stop at once and fall back */
+				if (first_error == 0) {
+					first_error = -ENODEV;
+				}
+				aborted = true;
+				break;
+			}
+			if (ktime_get_ms() > deadline) {
+				if (first_error == 0) {
+					first_error = -ETIMEDOUT;
+				}
+				aborted = true;
+				break;
+			}
 			sunxi_mmc_tune_point(phase, delay);
 			for (uint32_t repeat = 0U; repeat < TUNE_REPEAT; repeat++) {
 				error = sd_tune_read();
