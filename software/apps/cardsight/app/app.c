@@ -275,6 +275,9 @@ static void worker(void *argument)
 				app.error = 0;
 				app.card_error[0] = '\0';
 				mutex_unlock(&app_lock);
+				/* The info, the partitions and the capacity belong to the card that is
+				 * gone; a rescan of the empty slot clears them without an error. */
+				(void)card_scan();
 			}
 			pr_info("card %s\n", last_present ? "inserted" : "removed");
 			if (last_present) {
