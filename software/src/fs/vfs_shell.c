@@ -198,3 +198,41 @@ static int command_write(int argc, char **argv)
 	return result < 0 ? fail("write", argv[1], result) : 0;
 }
 SHELL_CMD(write, "write <path> <text>", command_write);
+
+/**
+ * @brief Remove one file from the VFS.
+ *
+ * @param[in] argc Argument count, at least two.
+ * @param[in] argv Argument vector; @c argv[1] is the path.
+ * @return 0 on success, or the VFS error.
+ */
+static int command_remove(int argc, char **argv)
+{
+	int result;
+
+	if (argc < 2) {
+		return -EINVAL;
+	}
+	result = vfs_unlink(argv[1]);
+	return result < 0 ? fail("rm", argv[1], result) : 0;
+}
+SHELL_CMD(rm, "rm <path>", command_remove);
+
+/**
+ * @brief Remove one empty directory from the VFS.
+ *
+ * @param[in] argc Argument count, at least two.
+ * @param[in] argv Argument vector; @c argv[1] is the path.
+ * @return 0 on success, or the VFS error.
+ */
+static int command_rmdir(int argc, char **argv)
+{
+	int result;
+
+	if (argc < 2) {
+		return -EINVAL;
+	}
+	result = vfs_rmdir(argv[1]);
+	return result < 0 ? fail("rmdir", argv[1], result) : 0;
+}
+SHELL_CMD(rmdir, "rmdir <path>", command_rmdir);

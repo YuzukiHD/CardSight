@@ -484,10 +484,12 @@ struct proxy_lazy {
 	uint32_t tail_first;
 	/** @brief Number of free clusters the host sees as the tail. */
 	uint32_t tail_clusters;
-	/** @brief Root entries that represent partition folders. */
-	struct proxy_lazy_root_entry root_entries[PROXY_LAZY_PARTITIONS];
+	/** @brief Root entries that represent partition folders and host helpers. */
+	struct proxy_lazy_root_entry root_entries[PROXY_LAZY_PARTITIONS + 1U];
 	/** @brief Number of entries in @c root_entries. */
 	uint32_t root_entry_count;
+	/** @brief First root slot reserved for the host; system and folder slots stay read-only. */
+	uint32_t root_host_slot;
 	/** @brief Host-changed entries that survive cache eviction. */
 	struct proxy_lazy_overlay *overlay;
 	/** @brief Number of live overlay records. */
@@ -4246,15 +4248,43 @@ static int lazy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_LA
 	if (cluster >= lazy.upcase_cluster && cluster < lazy.upcase_cluster + lazy.upcase_clusters) {
 		return -EROFS;
 	}
-	if (cluster >= lazy.root_cluster && cluster < lazy.root_cluster + lazy.root_clusters) {
-		return -EROFS; /* the system slots and partition folders are synthesized */
-	}
 	if (lazy_range_find(cluster, &range) == 0) {
 		if (range.kind == PROXY_LAZY_RANGE_DIRECTORY) {
 			uint64_t offset = ((uint64_t)range.offset +
 				(cluster - range.base)) * PROXY_LAZY_CLUSTER_SIZE +
 				(uint64_t)sector_in_cluster * PROXY_LAZY_SECTOR_SIZE;
 
+			if (range.dir_id == PROXY_LAZY_ROOT_ID) {
+				uint8_t current[PROXY_LAZY_SECTOR_SIZE];
+				uint32_t first_slot = (uint32_t)(offset / 32U);
+
+				memset(current, 0, sizeof(current));
+				for (uint32_t slot = 0U; slot < PROXY_LAZY_SLOTS_PER_SECTOR; slot++) {
+					int result = lazy_render_root_slot(first_slot + slot,
+						current + slot * 32U);
+
+					if (result != 0) {
+						return result;
+					}
+				}
+				/*
+				 * The system and partition-folder slots are synthesized and stay
+				 * read-only. Slots from root_host_slot on are the host's metadata
+				 * area (System Volume Information and anything else Windows adds);
+				 * accept those writes without persisting them, because the root
+				 * entry is already rendered from a real backing directory.
+				 */
+				for (uint32_t slot = 0U; slot < PROXY_LAZY_SLOTS_PER_SECTOR; slot++) {
+					uint32_t absolute = first_slot + slot;
+
+					if (absolute < lazy.root_host_slot &&
+					    memcmp(current + slot * 32U, data + slot * 32U, 32U) != 0) {
+						pr_warn("lazy: root system slot %u changed\n", absolute);
+						return -EROFS;
+					}
+				}
+				return 0;
+			}
 			return lazy_write_directory(range.dir_id, offset, data);
 		}
 		{
@@ -5130,6 +5160,40 @@ static int lazy_create_partition_folders(void)
 		slot += lazy_name_entries(name);
 		lazy.root_entry_count++;
 	}
+	lazy.root_host_slot = slot;
+#ifndef STORAGE_PROXY_HOST_TEST
+	/*
+	 * Windows creates "System Volume Information" in the root of every volume
+	 * it mounts read-write. Give that entry a real backing directory on the
+	 * first selected partition so the mount does not fight a read-only root;
+	 * the entry is rendered as part of the synthetic root. The host test keeps
+	 * its source tree pristine and does not exercise the Windows root helper.
+	 */
+	for (uint32_t partition = 0U; partition < PROXY_LAZY_PARTITIONS; partition++) {
+		struct proxy_lazy_partition *part = &lazy.partitions[partition];
+		char path[VFS_PATH_MAX];
+		uint32_t identifier;
+		const char *helper = "System Volume Information";
+
+		if (!part->selected || !part->mounted || part->mount[0] == '\0') {
+			continue;
+		}
+		snprintf(path, sizeof(path), "%s/%s", part->mount, helper);
+		(void)vfs_mkdir(path); /* -EEXIST is fine: the directory may already be there */
+		identifier = lazy_dir_alloc(helper);
+		if (identifier == UINT32_MAX) {
+			break;
+		}
+		lazy.dirs[identifier].parent = part->dir_id;
+		lazy.dirs[identifier].partition = partition;
+		lazy.root_entries[lazy.root_entry_count].dir_id = identifier;
+		lazy.root_entries[lazy.root_entry_count].slot = slot;
+		lazy.root_entries[lazy.root_entry_count].entries = lazy_name_entries(helper);
+		slot += lazy_name_entries(helper);
+		lazy.root_entry_count++;
+		break;
+	}
+#endif
 	lazy.dirs[PROXY_LAZY_ROOT_ID].entry_count = slot + 1U;
 	return 0;
 }
@@ -5606,9 +5670,9 @@ static uint32_t lazy_default_mask(const char *source_disk)
  * @brief Entry point of the lazyproxy shell command.
  *
  * @details Subcommands: "start <disk> [mask]" starts the view, "stop" stops
- * it, "usb on|off" exports it as a read-only USB mass storage device, and
- * "status" prints the geometry, reservations, directory and cache usage and
- * the last error. With no argument it behaves like "status".
+ * it, "usb on|rw|off" exports it as a read-only or read-write USB mass storage
+ * device, and "status" prints the geometry, reservations, directory and cache
+ * usage and the last error. With no argument it behaves like "status".
  *
  * @param[in] argc Argument count.
  * @param[in] argv Argument vector.
@@ -5638,7 +5702,8 @@ static int command_lazyproxy(int argc, char **argv)
 			printf("lazy proxy USB stopped: %d\n", result);
 			return result;
 		}
-		if (strcmp(argv[2], "on") == 0) {
+		if (strcmp(argv[2], "on") == 0 || strcmp(argv[2], "rw") == 0) {
+			bool read_only = strcmp(argv[2], "on") == 0;
 			int result;
 
 			if (!lazy.running) {
@@ -5647,7 +5712,7 @@ static int command_lazyproxy(int argc, char **argv)
 			if (usb_mass_storage_running()) {
 				return -EBUSY;
 			}
-			usb_mass_storage_force_read_only(true);
+			usb_mass_storage_force_read_only(read_only);
 			result = usb_mass_storage_start_device(PROXY_LAZY_DISK_NAME);
 			lazy.usb_active = result == 0;
 			printf("lazy proxy USB %s: %d\n", result == 0 ? "started" : "failed", result);
@@ -5690,12 +5755,12 @@ static int command_lazyproxy(int argc, char **argv)
 		}
 		return 0;
 	}
-	printf("lazyproxy [start <disk> [mask]|stop|usb on|off|status]\n");
+	printf("lazyproxy [start <disk> [mask]|stop|usb on|rw|off|status]\n");
 	return -EINVAL;
 }
 
 /** @brief Register @c lazyproxy as a shell command with its usage text. */
-SHELL_CMD(lazyproxy, "lazyproxy [start <disk> [mask]|stop|usb on|off|status]: lazy proxy", command_lazyproxy);
+SHELL_CMD(lazyproxy, "lazyproxy [start <disk> [mask]|stop|usb on|rw|off|status]: lazy exFAT proxy", command_lazyproxy);
 #endif
 
 /**
