@@ -117,12 +117,18 @@ static inline int mutex_unlock(struct mutex *lock)
 #define PROXY_INVALID_NODE UINT32_MAX
 /** @brief Size of the staging/batch buffer, in bytes. */
 #define PROXY_WRITE_BUFFER (128U * 1024U)
-/* Data that arrives before its directory entry waits here; 4 MiB covers a normal copy burst. */
-/** @brief Maximum number of sectors kept in RAM while their directory entry is missing (4 MiB). */
+/* Data that arrives before its directory entry waits here; the table is 520 B per sector. */
+#ifndef PROXY_PENDING_MAX
+/** @brief Maximum number of sectors kept in RAM while their directory entry is missing (512 KiB). */
 #define PROXY_PENDING_MAX 1024U
+#endif
 /* Data of a file whose directory entry has not arrived is staged on the source card past this much RAM. */
 /** @brief Number of staging runs that can be open at once. */
 #define PROXY_RUNS 8U
+#ifndef PROXY_LOCK_TIMEOUT_MS
+/** @brief Longest a block device callback waits for the proxy lock, in milliseconds. */
+#define PROXY_LOCK_TIMEOUT_MS 2000
+#endif
 /** @brief Clusters past the end of a run that still count as belonging to it. */
 #define PROXY_RUN_GAP 64U
 /** @brief Prefix of the staging files written next to the source files. */
@@ -350,6 +356,12 @@ struct storage_proxy {
 	uint32_t split_slots;
 	/** @brief True when the view is started. */
 	bool running;
+	/** @brief True when no write or delete is pending. */
+	bool clean;
+	/** @brief True once the block device callbacks may run. */
+	volatile bool armed;
+	/** @brief Block device callbacks currently in flight. */
+	volatile uint32_t callbacks;
 	/** @brief True after the source card was removed; its volumes may only be torn down. */
 	volatile bool source_lost;
 	/** @brief True when the view refuses writes. */
@@ -411,6 +423,12 @@ struct proxy_statistics {
 	uint32_t stage;
 	/** @brief Last error an entry sync returned. */
 	int last_sync_error;
+	/** @brief Times the node index reached its configured limit. */
+	uint32_t index_full;
+	/** @brief Times the string arena ran out. */
+	uint32_t strings_full;
+	/** @brief Times a directory exceeded its advertised slot capacity. */
+	uint32_t dir_capacity_exceeded;
 };
 
 /* The single view and its counters, defined in storage_proxy.c. */
@@ -418,6 +436,29 @@ struct proxy_statistics {
 extern struct storage_proxy proxy;
 /** @brief Counters and timings of @c proxy. */
 extern struct proxy_statistics proxy_stats;
+
+/**
+ * @brief Enter a block device callback, refusing new ones once stop began.
+ *
+ * @return True when the callback may run; the caller must call
+ *         @ref proxy_armed_leave() before returning.
+ */
+static inline bool proxy_armed_enter(void)
+{
+	if (!__atomic_load_n(&proxy.armed, __ATOMIC_SEQ_CST)) {
+		return false;
+	}
+	(void)__atomic_add_fetch(&proxy.callbacks, 1U, __ATOMIC_SEQ_CST);
+	return true;
+}
+
+/**
+ * @brief Leave a block device callback entered with @ref proxy_armed_enter().
+ */
+static inline void proxy_armed_leave(void)
+{
+	(void)__atomic_sub_fetch(&proxy.callbacks, 1U, __ATOMIC_SEQ_CST);
+}
 /** @brief Block device operations the view registers under @c PROXY_DISK_NAME. */
 extern const struct block_device_operations proxy_disk_operations;
 

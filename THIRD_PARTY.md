@@ -23,6 +23,11 @@ carries this board). `git submodule update --init --recursive` prepares them.
   `CONFIG_USBDEV_MSC_EXTERNAL_BUFFER`（导出保留的片上 SRAM 作为传输缓冲）。
 - FatFs 的 submodule 保持上游原样；本项目的 `ffconf.h` 在 `software/src/fs/fatfs/ffconf.h`，构建时
   FatFs 源被复制到 `software/build/fatfs/` 并覆盖配置（`ff.c` 用引号包含 `ffconf.h`，同目录优先）。
+- lwext4 的 submodule 保持上游原样；新版 `mke2fs` 默认启用的 `metadata_csum_seed`
+  （incompat `0x2000`）上游并不支持，会以 `ENOTSUP` 拒绝挂载。本板的支持补丁在
+  `software/patches/lwext4/0001-csum-seed.patch`，构建时应用到 `software/build/lwext4/` 的副本上
+  （`software/cmake/lwext4.cmake`），不修改 submodule。补丁识别该特性，并让文件系统元数据
+  校验和从超级块的 `s_checksum_seed` 取种子；未设置该特性时仍使用 UUID，行为不变。
 - `software/third_party/SyterKit` 内含有厂家预编译的 DRAM/PSRAM 初始化库
   （`soc/sun252iw1/lib/*.a`）。这些二进制随 SyterKit 一起分发，不属于本仓库源码；
   发布源码包时按 SyterKit 自身的许可与说明处理，不在本仓库的源码 tarball 中重新打包。

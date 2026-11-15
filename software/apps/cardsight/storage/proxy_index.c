@@ -244,18 +244,21 @@ uint32_t proxy_add_node(uint32_t parent, const char *name, bool directory,
 
 	if (proxy.node_count >= CONFIG_STORAGE_PROXY_MAX_ENTRIES) {
 		proxy.truncated = true;
+		proxy_stats.index_full++;
 		return PROXY_INVALID_NODE;
 	}
 	proxy_unique_name(parent, name, display, sizeof(display));
 	name_offset = proxy_store_string(display);
 	if (name_offset == UINT32_MAX) {
 		proxy.truncated = true;
+		proxy_stats.strings_full++;
 		return PROXY_INVALID_NODE;
 	}
 	if (source_data != NULL) {
 		source_offset = proxy_store_string(source_data);
 		if (source_offset == UINT32_MAX) {
 			proxy.truncated = true;
+			proxy_stats.strings_full++;
 			return PROXY_INVALID_NODE;
 		}
 	}
@@ -294,12 +297,12 @@ uint32_t proxy_add_node(uint32_t parent, const char *name, bool directory,
  * @param[in] parent  Node index of the containing directory.
  * @param[in] name    Name of the file inside the view.
  * @param[in] message Text the file returns when read.
- * @return 0 on success, or -ENOMEM.
+ * @return 0 on success, or -ENOSPC when the index or arena is full.
  */
 int proxy_add_message(uint32_t parent, const char *name, const char *message)
 {
 	return proxy_add_node(parent, name, false, PROXY_SOURCE_MEMORY,
-			      message, strlen(message)) == PROXY_INVALID_NODE ? -ENOMEM : 0;
+			      message, strlen(message)) == PROXY_INVALID_NODE ? -ENOSPC : 0;
 }
 
 
@@ -325,7 +328,7 @@ int proxy_mount_partition(uint32_t partition, uint32_t *root_node)
 	snprintf(name, sizeof(name), "partition%u", partition + 1U);
 	*root_node = proxy_add_node(0U, name, true, PROXY_SOURCE_NONE, NULL, 0U);
 	if (*root_node == PROXY_INVALID_NODE) {
-		return -ENOMEM;
+		return -ENOSPC;
 	}
 	result = vfs_mount_ex(part->device, part->mount, NULL, proxy.read_only ? VFS_MOUNT_READ_ONLY : 0U);
 	part->status = result;

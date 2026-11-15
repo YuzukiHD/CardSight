@@ -196,6 +196,8 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 		mutex_unlock(&proxy.lock);
 		return -EBUSY;
 	}
+	(void)__atomic_store_n(&proxy.armed, false, __ATOMIC_SEQ_CST);
+	proxy.callbacks = 0U;
 	source_bdev = bdev_open_by_name(source_disk);
 	if (source_bdev == NULL) {
 		mutex_unlock(&proxy.lock);
@@ -249,6 +251,7 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 	proxy.write_length = 0U;
 	proxy.split_slots = 0U;
 	proxy.source_lost = false;
+	proxy.clean = true;
 	proxy.cached_node = PROXY_INVALID_NODE;
 	proxy.node_count = 1U;
 	proxy.nodes[0].parent = 0U;
@@ -310,8 +313,11 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 	proxy.disk->capacity = proxy.total_sectors;
 	proxy.disk->logical_block_size = PROXY_SECTOR_SIZE;
 	proxy.disk->flags = proxy.read_only ? GENHD_FL_RDONLY : 0U;
+	/* add_disk() reads the new disk's partition table through these callbacks. */
+	(void)__atomic_store_n(&proxy.armed, true, __ATOMIC_SEQ_CST);
 	result = add_disk(proxy.disk);
 	if (result != 0) {
+		(void)__atomic_store_n(&proxy.armed, false, __ATOMIC_SEQ_CST);
 		put_disk(proxy.disk);
 		proxy.disk = NULL;
 		goto fail;
@@ -327,6 +333,7 @@ int storage_proxy_start_config(const struct storage_proxy_config *config)
 	mutex_unlock(&proxy.lock);
 	return 0;
 fail:
+	(void)__atomic_store_n(&proxy.armed, false, __ATOMIC_SEQ_CST);
 	proxy_release();
 	mutex_unlock(&proxy.lock);
 	return result;
@@ -385,6 +392,18 @@ void storage_proxy_source_lost(void)
  */
 void storage_proxy_stop(void)
 {
+	/* Refuse new callbacks, then let the ones already inside the block layer return. */
+	(void)__atomic_store_n(&proxy.armed, false, __ATOMIC_SEQ_CST);
+#ifndef STORAGE_PROXY_HOST_TEST
+	{
+		uint64_t deadline = proxy_time_begin() + 2000000ULL;
+
+		while (__atomic_load_n(&proxy.callbacks, __ATOMIC_SEQ_CST) != 0U &&
+		       proxy_time_begin() < deadline) {
+			msleep(10);
+		}
+	}
+#endif
 	mutex_lock_timeout(&proxy.lock, WAIT_FOREVER);
 	if (proxy.running) {
 		if (del_gendisk(proxy.disk) != 0) {

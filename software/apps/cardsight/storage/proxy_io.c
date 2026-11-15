@@ -290,16 +290,18 @@ static int proxy_read_run(uint64_t sector, uint8_t *output, uint32_t count)
 static int proxy_disk_read(struct gendisk *disk, uint64_t sector, void *buffer, uint32_t count)
 {
 	uint8_t *output = buffer;
-	bool locked = proxy.running;
-	int result = 0;
+	int result;
 
 	(void)disk;
-	if (locked) {
-		mutex_lock_timeout(&proxy.lock, WAIT_FOREVER);
+	if (!proxy_armed_enter()) {
+		return -ENODEV;
 	}
-	if (locked) {
-		result = proxy_write_flush();
+	result = mutex_lock_timeout(&proxy.lock, PROXY_LOCK_TIMEOUT_MS);
+	if (result != 0) {
+		proxy_armed_leave();
+		return result;
 	}
+	result = proxy_write_flush();
 	for (uint32_t index = 0U; result == 0 && index < count;) {
 		int served = proxy_read_run(sector + index, output + (size_t)index * PROXY_SECTOR_SIZE, count - index);
 
@@ -309,9 +311,8 @@ static int proxy_disk_read(struct gendisk *disk, uint64_t sector, void *buffer, 
 		}
 		index += (uint32_t)served;
 	}
-	if (locked) {
-		mutex_unlock(&proxy.lock);
-	}
+	mutex_unlock(&proxy.lock);
+	proxy_armed_leave();
 	return result;
 }
 
@@ -466,24 +467,33 @@ static int proxy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_S
 static int proxy_disk_write(struct gendisk *disk, uint64_t sector, const void *buffer, uint32_t count)
 {
 	const uint8_t *input = buffer;
-	int result = 0;
-
-	uint64_t begin = proxy_time_begin();
+	uint64_t begin;
+	int result;
 
 	(void)disk;
-	mutex_lock_timeout(&proxy.lock, WAIT_FOREVER);
+	if (!proxy_armed_enter()) {
+		return -ENODEV;
+	}
+	begin = proxy_time_begin();
+	result = mutex_lock_timeout(&proxy.lock, PROXY_LOCK_TIMEOUT_MS);
+	if (result != 0) {
+		proxy_armed_leave();
+		return result;
+	}
 	for (uint32_t index = 0U; index < count; index++) {
 		result = proxy_write_sector(sector + index, input + (size_t)index * PROXY_SECTOR_SIZE);
 		if (result != 0) {
 			break;
 		}
 	}
+	proxy.clean = false;
 	proxy_stats.sectors += count;
 	if (result != 0 && proxy_stats.write_errors++ < 8U) {
 		pr_warn("proxy: write at sector %llu count %u failed: %d\n", (unsigned long long)sector, (uint32_t)count, result);
 	}
 	mutex_unlock(&proxy.lock);
 	proxy_time_end(&proxy_stats.disk_write, begin);
+	proxy_armed_leave();
 	return result;
 }
 
@@ -503,15 +513,30 @@ static int proxy_disk_flush(struct gendisk *disk)
 	int result;
 
 	(void)disk;
-	mutex_lock_timeout(&proxy.lock, WAIT_FOREVER);
+	if (!proxy_armed_enter()) {
+		return -ENODEV;
+	}
+	result = mutex_lock_timeout(&proxy.lock, PROXY_LOCK_TIMEOUT_MS);
+	if (result != 0) {
+		proxy_armed_leave();
+		return result;
+	}
+	if (proxy.clean) {
+		mutex_unlock(&proxy.lock);
+		proxy_armed_leave();
+		return 0;
+	}
 	result = proxy_write_flush();
 	if (result == 0) {
 		result = proxy_apply_deletes();
 	}
-	if (result != 0) {
+	if (result == 0) {
+		proxy.clean = true;
+	} else {
 		pr_warn("proxy: flush failed: %d\n", result);
 	}
 	mutex_unlock(&proxy.lock);
+	proxy_armed_leave();
 	return result;
 }
 

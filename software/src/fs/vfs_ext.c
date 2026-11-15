@@ -958,6 +958,9 @@ static int ext_vfs_volume_info(void *private_data, struct vfs_volume_info *info)
 	snprintf(info->fstype, sizeof(info->fstype), "%s",
 		(ext4_get32(superblock, features_incompatible) & EXT4_FINCOM_EXTENTS) != 0U ? "ext4" :
 		(ext4_get32(superblock, features_compatible) & EXT4_FCOM_HAS_JOURNAL) != 0U ? "ext3" : "ext2");
+	info->used_inodes = stats.inodes_count > stats.free_inodes_count ?
+		(uint64_t)(stats.inodes_count - stats.free_inodes_count) : 0U;
+	info->cluster_bytes = stats.block_size;
 	return 0;
 }
 

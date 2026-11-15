@@ -323,7 +323,13 @@ static int fat_mount(struct block_device *bdev, uint32_t flags, void **priv)
 	fat->root[1] = ':';
 	result = err_of(f_mount(&fat->fs, fat->root, 1));
 	if (result != 0) {
-		pr_err("mount %s: FatFs %d\n", bdev_name(bdev), (int)result);
+		/*
+		 * A probe tries every type in turn, so a volume of another type is
+		 * expected to fail here; only a real mount attempt is an error.
+		 */
+		if ((flags & VFS_MOUNT_PROBE) == 0U) {
+			pr_err("mount %s: FatFs %d\n", bdev_name(bdev), (int)result);
+		}
 		(void)f_mount(NULL, fat->root, 0);
 		drive[slot] = NULL;
 		free(fat);
@@ -795,6 +801,9 @@ static int fat_volume_info(void *private_data, struct vfs_volume_info *info)
 
 	(void)f_getlabel(fat->root, label, NULL);
 	snprintf(info->label, sizeof(info->label), "%s", label);
+	info->cluster_bytes = (uint32_t)fat->fs.csize * 512U;
+	/* FAT has no inode table; the lazy proxy falls back to a file allowance. */
+	info->used_inodes = 0U;
 	if (type == FS_EXFAT) {
 		snprintf(info->fstype, sizeof(info->fstype), "exfat");
 	} else if (type == FS_FAT32) {

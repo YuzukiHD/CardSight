@@ -36,8 +36,12 @@ void usb_mass_storage_force_read_only(bool read_only);
  * when the block device does not exist.
  */
 int usb_mass_storage_start_device(const char *device_name);
-/** @brief Stop the device stack and release the exported block device. */
-void usb_mass_storage_stop(void);
+/**
+ * @brief Stop the device stack and release the exported block device.
+ *
+ * @return 0 on success, or -ETIMEDOUT when an in-flight transfer did not drain in time.
+ */
+int usb_mass_storage_stop(void);
 
 /**
  * @brief Whether the stack runs and a disk is exported.

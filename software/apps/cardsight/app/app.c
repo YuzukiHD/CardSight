@@ -11,6 +11,8 @@
 
 #include "app/app_internal.h"
 
+#include "storage/proxy_lazy.h"
+
 /** @brief The state every module reads; protected by @c app_lock. */
 struct cardsight_state app;
 /** @brief Lock guarding @c app. */
@@ -160,28 +162,27 @@ void send_request(const struct cardsight_request *request)
 
 
 /**
- * @brief Start the exFAT proxy view and expose it over USB mass storage.
+ * @brief Start the lazy exFAT view and expose it over USB mass storage.
  *
- * @details The proxy is started first; the USB device is only started once the
- * view exists. If the USB start fails the proxy is torn down again so the next
- * attempt starts from a clean state.
+ * @details The lazy engine indexes a source directory only when the host reads
+ * it, so it can expose a full ext4 root without a start-up scan. The view is
+ * started first; USB is only started once the block device exists. A failed
+ * USB start tears the view down again.
  *
  * @param[in] selected Bit mask of source partitions to expose.
  * @return 0 on success, or the error from the proxy or the USB driver.
  */
 static int start_proxy(uint32_t selected)
 {
-	const struct storage_proxy_config config = {
-		.source_disk = CONFIG_STORAGE_PROXY_SOURCE_DISK,
-		.selected_partitions = selected,
-	};
-	int result = storage_proxy_start_config(&config);
+	int result;
 
+	usb_mass_storage_force_read_only(false);
+	result = storage_proxy_lazy_start(CONFIG_STORAGE_PROXY_SOURCE_DISK, selected);
 	if (result == 0) {
-		result = usb_mass_storage_start_device(storage_proxy_device_name());
+		result = usb_mass_storage_start_device(storage_proxy_lazy_device_name());
 	}
 	if (result != 0) {
-		storage_proxy_stop();
+		storage_proxy_lazy_stop();
 	}
 	return result;
 }
@@ -318,7 +319,7 @@ static void worker(void *argument)
 				mutex_unlock(&app_lock);
 			} else if (request.type == CARDSIGHT_REQUEST_STOP) {
 				usb_mass_storage_stop();
-				storage_proxy_stop();
+				storage_proxy_lazy_stop();
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.proxy_active = false;
 				mutex_unlock(&app_lock);
@@ -356,10 +357,9 @@ static void worker(void *argument)
 			last_present = !last_present;
 			if (!last_present) {
 				pr_info("card removed: stopping USB and the proxy\n");
-				storage_proxy_source_lost();
 				usb_mass_storage_stop();
 				pr_info("card removed: USB stopped\n");
-				storage_proxy_stop();
+				storage_proxy_lazy_stop();
 				pr_info("card removed: proxy stopped\n");
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.proxy_active = false;

@@ -446,7 +446,8 @@ static int proxy_sync_entry_inner(uint32_t parent, const char *name, bool direct
 		node_index = proxy_add_unallocated(parent, name, directory, source,
 			source == PROXY_SOURCE_VFS ? path : NULL, size);
 		if (node_index == PROXY_INVALID_NODE) {
-			return -ENOMEM;
+			/* The index or arena is full; the volume stays mounted. */
+			return -ENOSPC;
 		}
 		proxy_adopt_slot(node_index, host_slot);
 	} else {
@@ -470,9 +471,27 @@ static int proxy_sync_entry_inner(uint32_t parent, const char *name, bool direct
 				if (result != 0) {
 					return result;
 				}
-				node->source_offset = proxy_store_string(path);
+				{
+					uint32_t offset = proxy_store_string(path);
+
+					if (offset == UINT32_MAX) {
+						proxy.truncated = true;
+						proxy_stats.strings_full++;
+						return -ENOSPC;
+					}
+					node->source_offset = offset;
+				}
 			}
-			node->name_offset = proxy_store_string(name);
+			{
+				uint32_t offset = proxy_store_string(name);
+
+				if (offset == UINT32_MAX) {
+					proxy.truncated = true;
+					proxy_stats.strings_full++;
+					return -ENOSPC;
+				}
+				node->name_offset = offset;
+			}
 			proxy_reparent(node_index, parent);
 		}
 		proxy_adopt_slot(node_index, host_slot);

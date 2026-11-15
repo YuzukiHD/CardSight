@@ -16,7 +16,9 @@
 
 #include <board/cardsight_board.h>
 #include <hal/blkdev.h>
+#include <hal/delay.h>
 #include <hal/kernel.h>
+#include <hal/ktime.h>
 #include <init.h>
 #include <log.h>
 #include <usb/mass_storage.h>
@@ -164,6 +166,8 @@ static struct {
 	struct mutex lock;		/**< Serialises start and stop. */
 	volatile bool started;		/**< An export has been started. */
 	volatile bool configured;	/**< The host has configured the device. */
+	volatile bool stopping;		/**< Stop is in progress; new transfers return -ENODEV. */
+	volatile uint32_t io_refs;	/**< Class callbacks currently inside the block layer. */
 	volatile int error;		/**< Last error from start or a transfer. */
 	bool read_only;			/**< The volume is exported read-only. */
 	bool force_read_only;		/**< Read-only was requested regardless of the device. */
@@ -263,22 +267,27 @@ void usbd_msc_get_cap(uint8_t busid, uint8_t lun, uint32_t *block_count, uint32_
 int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
 {
 	uint32_t sector_size;
-	int result;
+	int result = -ENODEV;
 
-	if (busid != 0U || lun != 0U || storage.bdev == NULL) {
+	if (busid != 0U || lun != 0U || storage.bdev == NULL || storage.stopping) {
 		return -ENODEV;
 	}
+	(void)__atomic_add_fetch(&storage.io_refs, 1U, __ATOMIC_SEQ_CST);
 	sector_size = bdev_sector_size(storage.bdev);
 	if (length == 0U || length % sector_size != 0U) {
-		return -EINVAL;
+		result = -EINVAL;
+		goto out;
 	}
 	result = bdev_read(storage.bdev, sector, buffer, length / sector_size);
 	if (result != 0) {
 		storage.error = result;
-		return result;
+		goto out;
 	}
 	storage.bytes_read += length;
-	return 0;
+	result = 0;
+out:
+	(void)__atomic_sub_fetch(&storage.io_refs, 1U, __ATOMIC_SEQ_CST);
+	return result;
 }
 
 /**
@@ -297,25 +306,30 @@ int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *b
 int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector, uint8_t *buffer, uint32_t length)
 {
 	uint32_t sector_size;
-	int result;
+	int result = -ENODEV;
 
-	if (busid != 0U || lun != 0U || storage.bdev == NULL) {
+	if (busid != 0U || lun != 0U || storage.bdev == NULL || storage.stopping) {
 		return -ENODEV;
 	}
 	if (storage.read_only) {
 		return -EROFS;
 	}
+	(void)__atomic_add_fetch(&storage.io_refs, 1U, __ATOMIC_SEQ_CST);
 	sector_size = bdev_sector_size(storage.bdev);
 	if (length == 0U || length % sector_size != 0U) {
-		return -EINVAL;
+		result = -EINVAL;
+		goto out;
 	}
 	result = bdev_write(storage.bdev, sector, buffer, length / sector_size);
 	if (result != 0) {
 		storage.error = result;
-		return result;
+		goto out;
 	}
 	storage.bytes_written += length;
-	return 0;
+	result = 0;
+out:
+	(void)__atomic_sub_fetch(&storage.io_refs, 1U, __ATOMIC_SEQ_CST);
+	return result;
 }
 
 /* ---- start and stop ---- */
@@ -398,22 +412,46 @@ out:
 /**
  * @brief Stop the USB export.
  *
- * Does nothing when no export runs. Otherwise the controller is deinitialised, the device is
- * flushed and closed, and the running and configured flags are cleared. Takes the same lock as
- * the start path.
+ * Does nothing when no export runs. Otherwise the stopping flag refuses new transfers, the
+ * function waits a bounded time for the class callbacks already inside the block layer to
+ * return, deinitialises the controller, flushes and closes the device, and clears the running
+ * and configured flags. Takes the same lock as the start path.
+ *
+ * @return 0 on success, or -ETIMEDOUT when a transfer did not drain within two seconds.
  */
-void usb_mass_storage_stop(void)
+int usb_mass_storage_stop(void)
 {
+	int result = 0;
+
 	mutex_lock_timeout(&storage.lock, WAIT_FOREVER);
 	if (storage.started) {
+		uint64_t deadline;
+
+		storage.stopping = true;
+		/*
+		 * Detach the controller first so the host stops queueing new SCSI
+		 * commands; the callback already inside the block layer then finishes
+		 * and the reference count reaches zero.
+		 */
+		(void)usb_dc_deinit(0U);
+		deadline = ktime_get_ms() + 5000U;
+		while (__atomic_load_n(&storage.io_refs, __ATOMIC_SEQ_CST) != 0U) {
+			if (ktime_get_ms() >= deadline) {
+				result = -ETIMEDOUT;
+				break;
+			}
+			msleep(10);
+		}
 		usbd_deinitialize(0U);
 		(void)bdev_flush(storage.bdev);
 		bdev_close(storage.bdev);
 		storage.bdev = NULL;
 		storage.started = false;
 		storage.configured = false;
+		storage.stopping = false;
 	}
 	mutex_unlock(&storage.lock);
+	return result;
 }
 
 /**

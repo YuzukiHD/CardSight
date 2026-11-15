@@ -72,7 +72,7 @@ list(APPEND CS_PLATFORM_SOURCES
     ${CS_FATFS_DIR}/ffsystem.c
 )
 
-file(GLOB CS_LWEXT4_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/third_party/lwext4/src/*.c)
+include(lwext4)
 list(APPEND CS_PLATFORM_SOURCES ${CS_LWEXT4_SOURCES})
 
 # CherryUSB: the upstream submodule plus the board patch series (the MUSB glue and the mass
@@ -135,7 +135,7 @@ target_include_directories(cardsight PRIVATE
     ${CS_ROOT}/src/gui
     ${CS_ROOT}/src/usb
     ${CS_FATFS_DIR}
-    ${CS_ROOT}/third_party/lwext4/include
+    ${CS_LWEXT4_ROOT}/include
     ${CS_ROOT}/third_party/LVGL
     ${CS_USB_ROOT}
     ${CS_USB_ROOT}/class/msc

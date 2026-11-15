@@ -3,7 +3,7 @@
 
 set(CS_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
-file(GLOB LWEXT4_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/third_party/lwext4/src/*.c)
+include(lwext4)
 file(GLOB STORAGE_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/apps/cardsight/storage/*.c)
 
 # FatFs sources are compiled from a copy: our ffconf.h has to win over the submodule's.
@@ -26,7 +26,7 @@ add_library(cs_host_core STATIC
     ${FATFS_DIR}/ff.c
     ${FATFS_DIR}/ffunicode.c
     ${FATFS_DIR}/ffsystem.c
-    ${LWEXT4_SOURCES}
+    ${CS_LWEXT4_SOURCES}
     ${STORAGE_SOURCES}
 )
 
@@ -35,7 +35,7 @@ target_include_directories(cs_host_core PUBLIC
     ${CS_ROOT}/src
     ${CS_ROOT}/apps/cardsight
     ${FATFS_DIR}
-    ${CS_ROOT}/third_party/lwext4/include
+    ${CS_LWEXT4_ROOT}/include
 )
 
 target_compile_definitions(cs_host_core PUBLIC
@@ -69,6 +69,12 @@ target_link_libraries(test_storage_proxy_matrix PRIVATE cs_host_core)
 target_compile_options(test_storage_proxy_matrix PRIVATE ${CARDSIGHT_HOST_WARNINGS})
 
 add_test(NAME storage_proxy_matrix COMMAND test_storage_proxy_matrix)
+
+add_executable(test_lazy_proxy lazy_proxy_test.c)
+target_link_libraries(test_lazy_proxy PRIVATE cs_host_core)
+target_compile_options(test_lazy_proxy PRIVATE ${CARDSIGHT_HOST_WARNINGS})
+
+add_test(NAME lazy_proxy COMMAND test_lazy_proxy)
 
 # The UI simulator builds the real LVGL, pages and glass material against host stubs and writes
 # one PPM per page to /tmp; it is a development tool, not a test.

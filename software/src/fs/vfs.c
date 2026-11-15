@@ -430,9 +430,24 @@ int vfs_mount_ex(const char *blk_name, const char *target, const char *fstype, u
 	} else if (result == 0) {
 		result = -EINVAL;
 		for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
-			if ((fs_types[index]->flags & VFS_FS_NODEV) == 0U &&
-			    fs_types[index]->mount(bdev, flags, &private_data) == 0) {
-				fs = fs_types[index];
+			const struct vfs_fs *candidate = fs_types[index];
+			bool tried = false;
+
+			if ((candidate->flags & VFS_FS_NODEV) != 0U) {
+				continue;
+			}
+			/* fat, fat32 and exfat share one mount hook; probing it once is enough. */
+			for (uint32_t earlier = 0U; earlier < index; earlier++) {
+				if (fs_types[earlier]->mount == candidate->mount) {
+					tried = true;
+					break;
+				}
+			}
+			if (tried) {
+				continue;
+			}
+			if (candidate->mount(bdev, flags | VFS_MOUNT_PROBE, &private_data) == 0) {
+				fs = candidate;
 				result = 0;
 				break;
 			}
@@ -655,12 +670,14 @@ int vfs_format(const char *blk_name, const char *fstype, const char *label, uint
  *
  * @param[in]  blk_name Device name.
  * @param[out] info     Zeroed, then filled with type, label, sizes and the read-only flag.
- * @return 0 on success, -EINVAL, -ENODEV, -EBUSY when the device is in use, or the error from
- *         the file system.
+ * @return 0 on success, -ENODEV, -EBUSY when the device is in use, or the most informative
+ *         mount error when no type recognises the volume.
  *
  * The device is opened and claimed, then every registered device-backed type is tried with a
  * read-only mount until one succeeds. That mount supplies statfs() and volume_info(), and is
  * unmounted again. The claim replaces the VFS lock here: the probe mounts the volume itself.
+ * When every type refuses, the last mount error is returned, with -ENOTSUP taking precedence
+ * over a generic refusal so a recognised-but-unsupported variant is reported as such.
  */
 int vfs_probe(const char *blk_name, struct vfs_volume_info *info)
 {
@@ -678,15 +695,39 @@ int vfs_probe(const char *blk_name, struct vfs_volume_info *info)
 	} else if ((result = bdev_claim_mount(bdev)) != 0) {
 		/* -EBUSY when one of them is already mounted */
 	} else {
+		int mount_error = -EINVAL;
+		bool mounted = false;
+
 		/* try each device-backed type until one recognises the volume */
 		for (uint32_t index = 0U; index < CONFIG_VFS_MAX_FS_TYPES && fs_types[index] != NULL; index++) {
 			const struct vfs_fs *fs = fs_types[index];
 			void *private_data = NULL;
+			bool tried = false;
+			int mount_result;
 
-			if ((fs->flags & VFS_FS_NODEV) != 0U ||
-			    fs->mount(bdev, VFS_MOUNT_READ_ONLY, &private_data) != 0) {
+			if ((fs->flags & VFS_FS_NODEV) != 0U) {
 				continue;
 			}
+			/* fat, fat32 and exfat share one mount hook; probing it once is enough. */
+			for (uint32_t earlier = 0U; earlier < index; earlier++) {
+				if (fs_types[earlier]->mount == fs->mount) {
+					tried = true;
+					break;
+				}
+			}
+			if (tried) {
+				continue;
+			}
+			mount_result = fs->mount(bdev, VFS_MOUNT_READ_ONLY | VFS_MOUNT_PROBE, &private_data);
+			if (mount_result != 0) {
+				/* Keep the last error, but let "unsupported" win: it says the
+				 * format was recognised and only this variant is not handled. */
+				if (mount_result == -ENOTSUP || mount_error != -ENOTSUP) {
+					mount_error = mount_result;
+				}
+				continue;
+			}
+			mounted = true;
 			snprintf(info->fstype, sizeof(info->fstype), "%s", fs->name);
 			snprintf(info->label, sizeof(info->label), "%s", bdev->label);
 			info->read_only = bdev_read_only(bdev) || (fs->flags & VFS_FS_READ_ONLY) != 0U;
@@ -700,6 +741,9 @@ int vfs_probe(const char *blk_name, struct vfs_volume_info *info)
 				(void)fs->umount(private_data);
 			}
 			break;
+		}
+		if (!mounted) {
+			result = mount_error;
 		}
 		bdev_release_mount(bdev);
 	}

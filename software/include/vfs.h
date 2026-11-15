@@ -49,6 +49,8 @@
 #define VFS_FS_READ_ONLY 0x2
 /** @brief Mount flag: mount read only, passed to the type's mount hook. */
 #define VFS_MOUNT_READ_ONLY 0x1
+/** @brief Mount flag: the mount is a probe attempt, so failures are not errors. */
+#define VFS_MOUNT_PROBE 0x2
 
 /**
  * @brief Metadata of a file or directory.
@@ -77,6 +79,8 @@ struct vfs_volume_info {
 	char label[BDEV_LABEL_LEN]; /**< Volume label. */
 	uint64_t total_bytes; /**< Total capacity in bytes. */
 	uint64_t free_bytes; /**< Free space in bytes. */
+	uint64_t used_inodes; /**< Inodes in use, or zero when the type has none. */
+	uint32_t cluster_bytes; /**< Allocation unit of the volume in bytes, or zero when unknown. */
 	bool read_only; /**< Whether the volume is mounted read only. */
 };
 
