@@ -31,6 +31,7 @@
 #include "proxy_lazy.h"
 
 #include <errno.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -129,6 +130,24 @@ static inline int mutex_unlock(struct mutex *lock)
 #define PROXY_LAZY_SECTORS_PER_CLUSTER_U32 ((uint32_t)PROXY_LAZY_SECTORS_PER_CLUSTER)
 /** @brief Slots the root directory needs before any partition folder. */
 #define PROXY_LAZY_ROOT_SYSTEM_SLOTS 3U
+/** @brief Entries between two cancellation checks and progress reports. */
+#define PROXY_LAZY_PROGRESS_INTERVAL 64U
+/** @brief Number of synthesized informational files in the root directory. */
+#define PROXY_LAZY_ROOT_FILES 2U
+/** @brief Size of each synthesized root text file, in bytes (one sector). */
+#define PROXY_LAZY_ROOT_TEXT_BYTES (PROXY_LAZY_SECTOR_SIZE)
+
+/**
+ * @brief Kinds of entry the synthesized root directory renders.
+ */
+enum proxy_lazy_root_kind {
+	/** @brief A partition folder backed by a source directory. */
+	PROXY_LAZY_ROOT_FOLDER,
+	/** @brief The synthesized _LAYOUT.TXT report. */
+	PROXY_LAZY_ROOT_LAYOUT,
+	/** @brief The synthesized _DIR_LIMIT.TXT report. */
+	PROXY_LAZY_ROOT_LIMITS,
+};
 
 #ifndef CONFIG_STORAGE_PROXY_LAZY_MAX_DIRS
 /** @brief Directory headers the view can keep, including the root and partition folders. */
@@ -361,15 +380,21 @@ struct proxy_lazy_range {
 };
 
 /**
- * @brief One entry of the view root, a partition folder.
+ * @brief One entry of the view root: a partition folder or a synthesized file.
  */
 struct proxy_lazy_root_entry {
-	/** @brief Directory identifier of the folder. */
+	/** @brief Directory identifier of the folder; unused for a file. */
 	uint32_t dir_id;
-	/** @brief Absolute first slot of the folder entry. */
+	/** @brief Absolute first slot of the entry group. */
 	uint32_t slot;
 	/** @brief Slots the entry group occupies. */
 	uint32_t entries;
+	/** @brief First cluster of a synthesized file's data, or zero. */
+	uint32_t first_cluster;
+	/** @brief Number of clusters of a synthesized file's data. */
+	uint32_t clusters;
+	/** @brief One of @ref proxy_lazy_root_kind. */
+	uint32_t kind;
 };
 
 /**
@@ -485,7 +510,7 @@ struct proxy_lazy {
 	/** @brief Number of free clusters the host sees as the tail. */
 	uint32_t tail_clusters;
 	/** @brief Root entries that represent partition folders and host helpers. */
-	struct proxy_lazy_root_entry root_entries[PROXY_LAZY_PARTITIONS + 1U];
+	struct proxy_lazy_root_entry root_entries[PROXY_LAZY_PARTITIONS + PROXY_LAZY_ROOT_FILES + 1U];
 	/** @brief Number of entries in @c root_entries. */
 	uint32_t root_entry_count;
 	/** @brief First root slot reserved for the host; system and folder slots stay read-only. */
@@ -544,6 +569,18 @@ struct proxy_lazy {
 	uint32_t cache_entries;
 	/** @brief Bytes currently cached. */
 	uint32_t cache_bytes;
+	/** @brief Entries all LRU caches may hold together. */
+	uint32_t cache_entries_max;
+	/** @brief Bytes all LRU caches may hold together. */
+	uint32_t cache_bytes_max;
+	/** @brief Entries one source directory may expose before it is truncated. */
+	uint32_t dir_max_entries;
+	/** @brief Set to abort a running directory count or load. */
+	volatile bool cancel;
+	/** @brief Directory indexing progress callback, or NULL. */
+	void (*progress_callback)(void *context, uint32_t entries, const char *path);
+	/** @brief Opaque pointer passed to @c progress_callback. */
+	void *progress_context;
 	/** @brief Least recently used cached directory, or PROXY_LAZY_INVALID_DIR. */
 	uint32_t lru_head;
 	/** @brief Most recently used cached directory, or PROXY_LAZY_INVALID_DIR. */
@@ -716,6 +753,45 @@ static inline bool lazy_armed_enter(void)
 static inline void lazy_armed_leave(void)
 {
 	(void)__atomic_sub_fetch(&lazy.callbacks, 1U, __ATOMIC_SEQ_CST);
+}
+
+/**
+ * @brief Report whether a directory count or load should stop.
+ *
+ * @return True when cancellation was requested.
+ */
+static inline bool lazy_cancel_requested(void)
+{
+	return __atomic_load_n(&lazy.cancel, __ATOMIC_SEQ_CST);
+}
+
+/**
+ * @brief Report directory indexing progress to the installed callback.
+ *
+ * @details Called under the view lock. The callback must be short and must not
+ * call back into the proxy except to request cancellation.
+ *
+ * @param[in] entries Number of entries processed so far.
+ * @param[in] path    Source path of the directory being indexed.
+ */
+static void lazy_progress_report(uint32_t entries, const char *path)
+{
+	void (*callback)(void *context, uint32_t entries, const char *path) =
+		lazy.progress_callback;
+
+	if (callback != NULL) {
+		callback(lazy.progress_context, entries, path);
+	}
+}
+
+/**
+ * @brief Restore the configured runtime limits.
+ */
+static void lazy_limits_default(void)
+{
+	lazy.cache_entries_max = CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES;
+	lazy.cache_bytes_max = CONFIG_STORAGE_PROXY_LAZY_CACHE_BYTES;
+	lazy.dir_max_entries = CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES;
 }
 
 /* ---- names and persistent arena ---- */
@@ -1368,13 +1444,25 @@ static int lazy_dir_count(struct proxy_lazy_dir *dir, uint32_t *entries, uint32_
 		vfs_closedir(handle);
 		return -ENOMEM;
 	}
+	if (lazy_cancel_requested()) {
+		vfs_closedir(handle);
+		lazy_free(entry);
+		return -ECANCELED;
+	}
 	result = vfs_readdir(handle, entry);
-	while (result == 0 && found < CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES) {
+	while (result == 0 && found < lazy.dir_max_entries) {
 		size_t name_length = strlen(entry->name) + 1U;
 
 		found++;
 		found_slots += lazy_name_entries(entry->name);
 		found_names += name_length;
+		if (found % PROXY_LAZY_PROGRESS_INTERVAL == 0U) {
+			lazy_progress_report(found, path);
+			if (lazy_cancel_requested()) {
+				result = -ECANCELED;
+				break;
+			}
+		}
 		result = vfs_readdir(handle, entry);
 	}
 	if (result == 0) {
@@ -1423,6 +1511,11 @@ static int lazy_dir_reserve_extent(uint32_t identifier)
 		part = &lazy.partitions[dir->partition];
 		if (part->selected && part->mounted) {
 			result = lazy_dir_count(dir, &entries, &slots, &names);
+			if (result == -ECANCELED) {
+				/* Leave the extent unreserved so a later read starts clean. */
+				lazy.last_error = result;
+				return result;
+			}
 			if (result != 0) {
 				pr_warn("lazy proxy: cannot index %s: %d\n",
 					lazy_dir_name(identifier), result);
@@ -1571,12 +1664,12 @@ static void lazy_cache_evict(uint32_t identifier)
 static int lazy_cache_make_room(uint32_t bytes, uint32_t entries)
 {
 	while (lazy.lru_head != PROXY_LAZY_INVALID_DIR &&
-	       (lazy.cache_bytes + bytes > CONFIG_STORAGE_PROXY_LAZY_CACHE_BYTES ||
-		lazy.cache_entries + entries > CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES)) {
+	       (lazy.cache_bytes + bytes > lazy.cache_bytes_max ||
+		lazy.cache_entries + entries > lazy.cache_entries_max)) {
 		lazy_cache_evict(lazy.lru_head);
 	}
-	if (lazy.cache_bytes + bytes > CONFIG_STORAGE_PROXY_LAZY_CACHE_BYTES ||
-	    lazy.cache_entries + entries > CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES) {
+	if (lazy.cache_bytes + bytes > lazy.cache_bytes_max ||
+	    lazy.cache_entries + entries > lazy.cache_entries_max) {
 		return -ENOSPC;
 	}
 	return 0;
@@ -2084,8 +2177,8 @@ static int lazy_dir_reserve_entry(struct proxy_lazy_dir *dir)
 		return 0;
 	}
 	capacity = dir->entry_capacity == 0U ? 64U : dir->entry_capacity * 2U;
-	if (capacity > CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES) {
-		capacity = CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES;
+	if (capacity > lazy.cache_entries_max) {
+		capacity = lazy.cache_entries_max;
 	}
 	if (capacity <= dir->entry_capacity) {
 		return -ENOSPC;
@@ -2460,6 +2553,9 @@ static int lazy_dir_load(uint32_t identifier)
 		dir->cache_ready = true;
 		return 0;
 	}
+	if (lazy_cancel_requested()) {
+		return -ECANCELED;
+	}
 	result = lazy_dir_reserve_extent(identifier);
 	if (result != 0) {
 		return result;
@@ -2470,13 +2566,19 @@ static int lazy_dir_load(uint32_t identifier)
 		return 0;
 	}
 	maximum = dir->planned_entries;
-	if (maximum > CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES) {
-		maximum = CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES;
+	if (maximum > lazy.dir_max_entries) {
+		maximum = lazy.dir_max_entries;
 	}
 	capacity = maximum + lazy_overlay_dir_count(identifier) +
 		CONFIG_STORAGE_PROXY_LAZY_DIR_ENTRY_SLACK;
-	if (capacity > CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES) {
-		capacity = CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES;
+	if (capacity > lazy.cache_entries_max) {
+		capacity = lazy.cache_entries_max;
+	}
+	if (capacity < maximum) {
+		/* The whole directory cannot fit the global cache; expose what fits. */
+		maximum = capacity;
+		dir->truncated = true;
+		lazy.truncated = true;
 	}
 	if (capacity == 0U) {
 		dir->data_ready = true;
@@ -2533,7 +2635,7 @@ static int lazy_dir_load(uint32_t identifier)
 		goto fail;
 	}
 	result = vfs_readdir(handle, entry);
-	while (result == 0 && count < capacity) {
+	while (result == 0 && count < maximum) {
 		struct proxy_lazy_dirent *item;
 		struct proxy_lazy_overlay *record = lazy_overlay_find_name(identifier,
 			entry->name);
@@ -2600,6 +2702,13 @@ static int lazy_dir_load(uint32_t identifier)
 			item->clusters = (uint32_t)clusters;
 		}
 		count++;
+		if (count % PROXY_LAZY_PROGRESS_INTERVAL == 0U) {
+			lazy_progress_report(count, path);
+			if (lazy_cancel_requested()) {
+				result = -ECANCELED;
+				goto fail;
+			}
+		}
 		result = vfs_readdir(handle, entry);
 	}
 	if (result == 0) {
@@ -2622,6 +2731,11 @@ static int lazy_dir_load(uint32_t identifier)
 
 		if (!record->used || record->dir_id != identifier) {
 			continue;
+		}
+		if (count >= capacity) {
+			dir->truncated = true;
+			lazy.truncated = true;
+			break;
 		}
 		name = lazy.overlay_names + record->name_offset;
 		if (!record->deleted &&
@@ -2729,7 +2843,9 @@ fail:
 	dir->entry_capacity = 0U;
 	dir->name_capacity = 0U;
 	dir->name_used = 0U;
-	pr_warn("lazy proxy: load %s failed: %d\n", lazy_dir_name(identifier), result);
+	if (result != -ECANCELED) {
+		pr_warn("lazy proxy: load %s failed: %d\n", lazy_dir_name(identifier), result);
+	}
 	lazy.last_error = result;
 	return result;
 }
@@ -2904,7 +3020,22 @@ static uint32_t lazy_entry_by_slot(const struct proxy_lazy_dir *dir, uint32_t wa
 }
 
 /**
+ * @brief Return the file name of a synthesized root report.
+ *
+ * @param[in] kind One of @ref proxy_lazy_root_kind that is not a folder.
+ * @return The constant file name.
+ */
+static const char *lazy_root_file_name(uint32_t kind)
+{
+	return kind == PROXY_LAZY_ROOT_LAYOUT ? "_LAYOUT.TXT" : "_DIR_LIMIT.TXT";
+}
+
+/**
  * @brief Render a root directory slot, reserving a partition folder if needed.
+ *
+ * @details System entries and partition folders are synthesized exactly as
+ * before. The two informational files are rendered as ordinary read-only files
+ * whose data comes from @c lazy_root_text().
  *
  * @param[in]  slot  Absolute slot number.
  * @param[out] entry Buffer receiving the 32-byte entry, or zeros.
@@ -2921,14 +3052,24 @@ static int lazy_render_root_slot(uint32_t slot, uint8_t entry[32])
 		const struct proxy_lazy_root_entry *root_entry = &lazy.root_entries[index];
 
 		if (slot >= root_entry->slot && slot < root_entry->slot + root_entry->entries) {
-			struct proxy_lazy_dir *dir = &lazy.dirs[root_entry->dir_id];
-			int result = lazy_dir_reserve_extent(root_entry->dir_id);
-
-			if (result != 0) {
-				return result;
+			if (root_entry->kind != PROXY_LAZY_ROOT_FOLDER) {
+				lazy_render_entry(lazy_root_file_name(root_entry->kind), false,
+					root_entry->first_cluster, root_entry->clusters,
+					PROXY_LAZY_ROOT_TEXT_BYTES, false,
+					slot - root_entry->slot, entry);
+				return 0;
 			}
-			lazy_render_entry(lazy_dir_name(root_entry->dir_id), true, dir->first_cluster,
-				dir->clusters, 0U, dir->chained, slot - root_entry->slot, entry);
+			{
+				struct proxy_lazy_dir *dir = &lazy.dirs[root_entry->dir_id];
+				int result = lazy_dir_reserve_extent(root_entry->dir_id);
+
+				if (result != 0) {
+					return result;
+				}
+				lazy_render_entry(lazy_dir_name(root_entry->dir_id), true,
+					dir->first_cluster, dir->clusters, 0U, dir->chained,
+					slot - root_entry->slot, entry);
+			}
 			return 0;
 		}
 	}
@@ -2994,6 +3135,165 @@ static int lazy_render_directory(uint32_t identifier, uint64_t offset,
 		}
 	}
 	return 0;
+}
+
+/* ---- synthesized root reports ---- */
+
+/**
+ * @brief Append one formatted line to a synthesized report.
+ *
+ * @details The formatter's terminator is replaced by a newline so the next
+ * append continues on the following line.
+ *
+ * @param[out] buffer   Destination buffer.
+ * @param[in]  capacity Size of @p buffer in bytes.
+ * @param[in]  used     Bytes already written.
+ * @param[in]  format   printf format of the line.
+ * @param[in]  ...      Arguments for @p format.
+ * @return The new used byte count, clamped to @p capacity.
+ */
+static size_t lazy_text_add(char *buffer, size_t capacity, size_t used,
+	const char *format, ...)
+{
+	va_list arguments;
+	size_t end;
+	int written;
+
+	if (used >= capacity) {
+		return capacity;
+	}
+	va_start(arguments, format);
+	written = vsnprintf(buffer + used, capacity - used, format, arguments);
+	va_end(arguments);
+	if (written < 0) {
+		return used;
+	}
+	end = used + (size_t)written;
+	if (end < capacity) {
+		buffer[end++] = '\n'; /* Replace the terminator the formatter wrote. */
+	}
+	return end < capacity ? end : capacity;
+}
+
+/**
+ * @brief Render the whole text of one synthesized root report.
+ *
+ * @details The report is regenerated on every read so it reflects the current
+ * directory count, cache usage and truncation state. The buffer is pre-filled
+ * with newlines, so the unused tail is whitespace rather than a NUL terminator
+ * and the file size stays constant.
+ *
+ * @param[in]  kind     One of @ref proxy_lazy_root_kind that is not a folder.
+ * @param[out] buffer   Destination buffer.
+ * @param[in]  capacity Size of @p buffer in bytes; the whole buffer is the file.
+ * @return The file size, which is @p capacity.
+ */
+static uint32_t lazy_root_text(uint32_t kind, char *buffer, size_t capacity)
+{
+	size_t used = 0U;
+
+	memset(buffer, '\n', capacity);
+	if (kind == PROXY_LAZY_ROOT_LAYOUT) {
+		uint32_t reserved = 0U;
+
+		for (uint32_t index = 0U; index < PROXY_LAZY_PARTITIONS; index++) {
+			if (lazy.partitions[index].selected) {
+				reserved += lazy.partitions[index].reserve_clusters;
+			}
+		}
+		used = lazy_text_add(buffer, capacity, used, "LAZYVIEW layout");
+		used = lazy_text_add(buffer, capacity, used, "total_clusters=%u",
+			lazy.total_clusters);
+		used = lazy_text_add(buffer, capacity, used, "reserved_clusters=%u", reserved);
+		used = lazy_text_add(buffer, capacity, used, "tail_first=%u", lazy.tail_first);
+		used = lazy_text_add(buffer, capacity, used, "tail_clusters=%u",
+			lazy.tail_clusters);
+		used = lazy_text_add(buffer, capacity, used, "directories=%u", lazy.dir_count);
+		used = lazy_text_add(buffer, capacity, used, "cache_entries=%u",
+			lazy.cache_entries);
+		used = lazy_text_add(buffer, capacity, used, "cache_entries_max=%u",
+			lazy.cache_entries_max);
+		used = lazy_text_add(buffer, capacity, used, "cache_bytes=%u", lazy.cache_bytes);
+		used = lazy_text_add(buffer, capacity, used, "cache_bytes_max=%u",
+			lazy.cache_bytes_max);
+		used = lazy_text_add(buffer, capacity, used, "dir_max_entries=%u",
+			lazy.dir_max_entries);
+		used = lazy_text_add(buffer, capacity, used, "truncated=%u",
+			lazy.truncated ? 1U : 0U);
+		for (uint32_t index = 0U; index < PROXY_LAZY_PARTITIONS; index++) {
+			const struct proxy_lazy_partition *part = &lazy.partitions[index];
+
+			if (!part->selected) {
+				continue;
+			}
+			used = lazy_text_add(buffer, capacity, used, "p%u_reserved_first=%u",
+				index + 1U, part->reserve_first);
+			used = lazy_text_add(buffer, capacity, used, "p%u_reserved_clusters=%u",
+				index + 1U, part->reserve_clusters);
+		}
+	} else {
+		used = lazy_text_add(buffer, capacity, used, "LAZYVIEW limits");
+		used = lazy_text_add(buffer, capacity, used, "dir_max_entries=%u",
+			lazy.dir_max_entries);
+		used = lazy_text_add(buffer, capacity, used, "proxy.lazy.truncated=%u",
+			lazy.truncated ? 1U : 0U);
+		used = lazy_text_add(buffer, capacity, used, "directories=%u", lazy.dir_count);
+	}
+	(void)used;
+	return (uint32_t)capacity;
+}
+
+/**
+ * @brief Fill one sector of a synthesized root report.
+ *
+ * @param[in]  cluster           View cluster being read.
+ * @param[in]  sector_in_cluster Sector offset inside the cluster.
+ * @param[out] sector            Buffer receiving the sector.
+ * @return One when the cluster belongs to a report, zero otherwise.
+ */
+static int lazy_root_text_read(uint32_t cluster, uint32_t sector_in_cluster,
+	uint8_t sector[PROXY_LAZY_SECTOR_SIZE])
+{
+	for (uint32_t index = 0U; index < lazy.root_entry_count; index++) {
+		const struct proxy_lazy_root_entry *entry = &lazy.root_entries[index];
+		uint64_t offset;
+
+		if (entry->kind == PROXY_LAZY_ROOT_FOLDER ||
+		    cluster < entry->first_cluster ||
+		    cluster >= entry->first_cluster + entry->clusters) {
+			continue;
+		}
+		offset = (uint64_t)(cluster - entry->first_cluster) *
+			PROXY_LAZY_CLUSTER_SIZE +
+			(uint64_t)sector_in_cluster * PROXY_LAZY_SECTOR_SIZE;
+		memset(sector, 0, PROXY_LAZY_SECTOR_SIZE);
+		if (offset == 0U) {
+			/* The report is exactly one sector; later sectors read as zeros. */
+			lazy_root_text(entry->kind, (char *)sector, PROXY_LAZY_SECTOR_SIZE);
+		}
+		return 1;
+	}
+	return 0;
+}
+
+/**
+ * @brief Report whether a view cluster belongs to a synthesized root report.
+ *
+ * @param[in] cluster Cluster number.
+ * @return True when the report owns the cluster.
+ */
+static bool lazy_root_text_contains(uint32_t cluster)
+{
+	for (uint32_t index = 0U; index < lazy.root_entry_count; index++) {
+		const struct proxy_lazy_root_entry *entry = &lazy.root_entries[index];
+
+		if (entry->kind != PROXY_LAZY_ROOT_FOLDER &&
+		    cluster >= entry->first_cluster &&
+		    cluster < entry->first_cluster + entry->clusters) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /* ---- file data ---- */
@@ -3429,6 +3729,14 @@ static int lazy_dir_extend(uint32_t dir_id, uint32_t wanted)
 
 	if (wanted <= dir->clusters) {
 		return 0;
+	}
+	if (dir->truncated) {
+		/*
+		 * The directory hid entries, so growing it would let the host write into
+		 * slots this engine never advertised. Refuse rather than corrupt.
+		 */
+		lazy.last_error = -ENOSPC;
+		return -ENOSPC;
 	}
 	while (dir->clusters < wanted) {
 		struct proxy_lazy_partition *part = &lazy.partitions[dir->partition];
@@ -4146,6 +4454,11 @@ static int lazy_map_directory_cluster(uint32_t dir_id, uint32_t cluster)
 	struct proxy_lazy_dir *dir = &lazy.dirs[dir_id];
 	int result;
 
+	if (dir->truncated) {
+		/* The host is growing a directory whose later entries are invisible. */
+		lazy.last_error = -ENOSPC;
+		return -ENOSPC;
+	}
 	if (cluster != dir->first_cluster + dir->clusters) {
 		dir->chained = true;
 		lazy_dir_parent_chained(dir_id);
@@ -4246,6 +4559,10 @@ static int lazy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_LA
 		return 0;
 	}
 	if (cluster >= lazy.upcase_cluster && cluster < lazy.upcase_cluster + lazy.upcase_clusters) {
+		return -EROFS;
+	}
+	if (lazy_root_text_contains(cluster)) {
+		/* The informational root files are generated; the host cannot change them. */
 		return -EROFS;
 	}
 	if (lazy_range_find(cluster, &range) == 0) {
@@ -4713,6 +5030,9 @@ static int lazy_read_sector(uint64_t sector_number, uint8_t sector[PROXY_LAZY_SE
 		}
 		return 0;
 	}
+	if (lazy_root_text_read(cluster, sector_in_cluster, sector) != 0) {
+		return 0;
+	}
 	if (lazy_range_find(cluster, &range) != 0) {
 		return 0;
 	}
@@ -5128,6 +5448,59 @@ static void lazy_release(void)
 }
 
 /**
+ * @brief Build the synthesized informational files of the root directory.
+ *
+ * @details One cluster per report is taken from the first selected partition's
+ * reservation, so the files have a stable extent and never disturb the tail the
+ * host allocates from. Both reports are read-only and regenerate their text on
+ * every read; a partition that cannot spare a cluster simply omits them.
+ *
+ * @param[in,out] slot Next free absolute root slot.
+ */
+static void lazy_create_root_files(uint32_t *slot)
+{
+	static const struct {
+		const char *name;
+		uint32_t kind;
+	} files[PROXY_LAZY_ROOT_FILES] = {
+		{ "_LAYOUT.TXT", PROXY_LAZY_ROOT_LAYOUT },
+		{ "_DIR_LIMIT.TXT", PROXY_LAZY_ROOT_LIMITS },
+	};
+	uint32_t partition = PROXY_LAZY_PARTITIONS;
+
+	for (uint32_t index = 0U; index < PROXY_LAZY_PARTITIONS; index++) {
+		if (lazy.partitions[index].selected) {
+			partition = index;
+			break;
+		}
+	}
+	if (partition >= PROXY_LAZY_PARTITIONS) {
+		return;
+	}
+	for (uint32_t index = 0U; index < PROXY_LAZY_ROOT_FILES; index++) {
+		struct proxy_lazy_root_entry *entry;
+		uint32_t first;
+		uint32_t clusters;
+
+		if (lazy.root_entry_count >=
+		    sizeof(lazy.root_entries) / sizeof(lazy.root_entries[0])) {
+			return;
+		}
+		if (lazy_alloc_clusters(partition, 1U, &first, &clusters) != 0) {
+			return;
+		}
+		entry = &lazy.root_entries[lazy.root_entry_count++];
+		memset(entry, 0, sizeof(*entry));
+		entry->kind = files[index].kind;
+		entry->slot = *slot;
+		entry->entries = lazy_name_entries(files[index].name);
+		entry->first_cluster = first;
+		entry->clusters = clusters;
+		*slot += entry->entries;
+	}
+}
+
+/**
  * @brief Build the partition folders and their root entries.
  *
  * @return 0 on success, or -ENOSPC when the header table or name arena is full.
@@ -5154,12 +5527,14 @@ static int lazy_create_partition_folders(void)
 		lazy.dirs[identifier].partition = partition;
 		lazy.dirs[identifier].is_partition_root = true;
 		part->dir_id = identifier;
+		lazy.root_entries[lazy.root_entry_count].kind = PROXY_LAZY_ROOT_FOLDER;
 		lazy.root_entries[lazy.root_entry_count].dir_id = identifier;
 		lazy.root_entries[lazy.root_entry_count].slot = slot;
 		lazy.root_entries[lazy.root_entry_count].entries = lazy_name_entries(name);
 		slot += lazy_name_entries(name);
 		lazy.root_entry_count++;
 	}
+	lazy_create_root_files(&slot);
 	lazy.root_host_slot = slot;
 #ifndef STORAGE_PROXY_HOST_TEST
 	/*
@@ -5186,6 +5561,7 @@ static int lazy_create_partition_folders(void)
 		}
 		lazy.dirs[identifier].parent = part->dir_id;
 		lazy.dirs[identifier].partition = partition;
+		lazy.root_entries[lazy.root_entry_count].kind = PROXY_LAZY_ROOT_FOLDER;
 		lazy.root_entries[lazy.root_entry_count].dir_id = identifier;
 		lazy.root_entries[lazy.root_entry_count].slot = slot;
 		lazy.root_entries[lazy.root_entry_count].entries = lazy_name_entries(helper);
@@ -5309,6 +5685,11 @@ int storage_proxy_lazy_start(const char *source_disk, uint32_t selected_partitio
 	memset(lazy.partitions, 0, sizeof(lazy.partitions));
 	lazy.running = false;
 	lazy.truncated = false;
+	(void)__atomic_store_n(&lazy.cancel, false, __ATOMIC_SEQ_CST);
+	if (lazy.cache_entries_max == 0U || lazy.cache_bytes_max == 0U ||
+	    lazy.dir_max_entries == 0U) {
+		lazy_limits_default();
+	}
 	lazy.last_error = 0;
 	lazy.evictions = 0U;
 	lazy.sectors_read = 0U;
@@ -5406,7 +5787,8 @@ int storage_proxy_lazy_start(const char *source_disk, uint32_t selected_partitio
 		lazy.dirs[root_identifier].cache_ready = true;
 		lazy.dirs[root_identifier].extent_ready = true;
 	}
-	root_slots = PROXY_LAZY_ROOT_SYSTEM_SLOTS + selected_count * 3U + 1U;
+	/* Six extra slots hold the two synthesized root report files. */
+	root_slots = PROXY_LAZY_ROOT_SYSTEM_SLOTS + selected_count * 3U + 6U + 1U;
 	lazy.root_clusters = (root_slots + PROXY_LAZY_SLOTS_PER_CLUSTER - 1U) /
 		PROXY_LAZY_SLOTS_PER_CLUSTER;
 	if (lazy.root_clusters == 0U) {
@@ -5467,6 +5849,12 @@ void storage_proxy_lazy_stop(void)
 {
 	int result;
 
+	/*
+	 * A long directory count or load runs under the view lock. Requesting
+	 * cancellation before waiting for callbacks lets the load abort at its next
+	 * progress check instead of making stop time out.
+	 */
+	(void)__atomic_store_n(&lazy.cancel, true, __ATOMIC_SEQ_CST);
 #ifndef STORAGE_PROXY_HOST_TEST
 	if (lazy.usb_active) {
 		/* Quiesce the host first, exactly like the eager view's stop path. */
@@ -5571,6 +5959,82 @@ uint32_t storage_proxy_lazy_cached_bytes(void)
 	}
 	return bytes;
 }
+
+/**
+ * @brief Return the number of entry caches evicted since start.
+ *
+ * @return Eviction count.
+ */
+uint32_t storage_proxy_lazy_cache_evictions(void)
+{
+	uint32_t count = 0U;
+
+	if (mutex_lock_timeout(&lazy.lock, 0) == 0) {
+		count = lazy.evictions;
+		mutex_unlock(&lazy.lock);
+	}
+	return count;
+}
+
+/**
+ * @brief Report whether any index limit made part of the source tree invisible.
+ *
+ * @return True when the view is truncated.
+ */
+bool storage_proxy_lazy_truncated(void)
+{
+	bool truncated = false;
+
+	if (mutex_lock_timeout(&lazy.lock, 0) == 0) {
+		truncated = lazy.truncated;
+		mutex_unlock(&lazy.lock);
+	}
+	return truncated;
+}
+
+/**
+ * @brief Install a directory indexing progress callback.
+ *
+ * @details Set this before starting the view. The callback runs under the view
+ * lock and must only request cancellation through @c storage_proxy_lazy_cancel().
+ *
+ * @param[in] callback Receives the entry count and source path, or NULL.
+ * @param[in] context  Opaque pointer passed to @p callback.
+ */
+void storage_proxy_lazy_set_progress(void (*callback)(void *context, uint32_t entries,
+	const char *path), void *context)
+{
+	lazy.progress_callback = callback;
+	lazy.progress_context = context;
+}
+
+/**
+ * @brief Ask a running directory count or load to stop at its next check.
+ */
+void storage_proxy_lazy_cancel(void)
+{
+	(void)__atomic_store_n(&lazy.cancel, true, __ATOMIC_SEQ_CST);
+}
+
+#ifdef STORAGE_PROXY_HOST_TEST
+/**
+ * @brief Override the runtime cache and directory caps for a host test.
+ *
+ * @param[in] cache_entries   Entries all LRU caches may hold together, or zero.
+ * @param[in] cache_bytes     Bytes all LRU caches may hold together, or zero.
+ * @param[in] dir_max_entries Entries one source directory may expose, or zero.
+ */
+void storage_proxy_lazy_test_limits(uint32_t cache_entries, uint32_t cache_bytes,
+	uint32_t dir_max_entries)
+{
+	lazy.cache_entries_max = cache_entries != 0U ? cache_entries :
+		CONFIG_STORAGE_PROXY_LAZY_CACHE_ENTRIES;
+	lazy.cache_bytes_max = cache_bytes != 0U ? cache_bytes :
+		CONFIG_STORAGE_PROXY_LAZY_CACHE_BYTES;
+	lazy.dir_max_entries = dir_max_entries != 0U ? dir_max_entries :
+		CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES;
+}
+#endif
 
 /**
  * @brief Drop every cached directory entry, keeping extents and the overlay.
@@ -5781,6 +6245,7 @@ static int lazy_proxy_init(void)
 	lazy.lru_head = PROXY_LAZY_INVALID_DIR;
 	lazy.lru_tail = PROXY_LAZY_INVALID_DIR;
 	lazy.clean = true;
+	lazy_limits_default();
 	mutex_init(&lazy.lock);
 	return lazy.lock.handle == NULL ? -ENOMEM : 0;
 }

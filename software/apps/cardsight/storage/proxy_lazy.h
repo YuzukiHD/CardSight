@@ -117,6 +117,62 @@ uint32_t storage_proxy_lazy_cached_entries(void);
 uint32_t storage_proxy_lazy_cached_bytes(void);
 
 /**
+ * @brief Report whether any index limit made part of the source tree invisible.
+ *
+ * @return True when a directory hit its entry cap, the directory table or name
+ *         arena filled up, or a cache could not be made to fit.
+ */
+bool storage_proxy_lazy_truncated(void);
+
+/**
+ * @brief Return the number of entry caches evicted since start.
+ *
+ * @return Eviction count, used by diagnostics and host tests to prove the LRU
+ *         actually had to make room.
+ */
+uint32_t storage_proxy_lazy_cache_evictions(void);
+
+/**
+ * @brief Install a directory indexing progress callback.
+ *
+ * @details The callback runs under the view lock while a source directory is
+ * counted or loaded, once every 64 entries, so it must stay short and must not
+ * call any other function of this interface except
+ * @c storage_proxy_lazy_cancel(). Set the callback before starting the view.
+ *
+ * @param[in] callback Receives the entry count and the source directory path,
+ *                     or NULL to remove the callback.
+ * @param[in] context  Opaque pointer passed to @p callback.
+ */
+void storage_proxy_lazy_set_progress(void (*callback)(void *context, uint32_t entries,
+	const char *path), void *context);
+
+/**
+ * @brief Ask a running directory count or load to stop at its next check.
+ *
+ * @details Safe to call from any context, including from a progress callback.
+ * The interrupted read returns -ECANCELED and leaves no partial cache behind;
+ * a later start clears the flag.
+ */
+void storage_proxy_lazy_cancel(void);
+
+#ifdef STORAGE_PROXY_HOST_TEST
+/**
+ * @brief Override the runtime cache and directory caps for a host test.
+ *
+ * @details The target always uses the CONFIG_STORAGE_PROXY_LAZY_* defaults. A
+ * zero argument keeps the configured default for that cap, which is also how a
+ * test restores the production values.
+ *
+ * @param[in] cache_entries   Entries all LRU caches may hold together.
+ * @param[in] cache_bytes     Bytes all LRU caches may hold together.
+ * @param[in] dir_max_entries Entries one source directory may expose.
+ */
+void storage_proxy_lazy_test_limits(uint32_t cache_entries, uint32_t cache_bytes,
+	uint32_t dir_max_entries);
+#endif
+
+/**
  * @brief Drop every cached directory entry, keeping extents and the overlay.
  *
  * @details A test or diagnostic helper: the next read reloads each directory

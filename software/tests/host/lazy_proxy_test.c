@@ -34,6 +34,10 @@
 #define PARTITION_MIB 64U
 /** @brief Files created in the nested directory that must span several view clusters. */
 #define MANY_FILES 1001U
+/** @brief Files created in the second large directory used to force LRU eviction. */
+#define MANY2_FILES 200U
+/** @brief Files created in the directory that a small entry cap truncates. */
+#define HUGE_FILES 50U
 /** @brief Files created in the second partition's nested directory. */
 #define EXT_FILES 12U
 
@@ -544,6 +548,22 @@ static void build_card(struct gendisk **disk_out)
 		snprintf(path, sizeof(path), "/src1/many/f%04u.bin", index);
 		CHECK(write_pattern(path, size, 1000U + index, 256U) == 0);
 	}
+	CHECK(vfs_mkdir("/src1/many2") == 0);
+	for (uint32_t index = 0U; index < MANY2_FILES; index++) {
+		char path[64];
+		size_t size = 400U + index % 5U;
+
+		snprintf(path, sizeof(path), "/src1/many2/g%03u.bin", index);
+		CHECK(write_pattern(path, size, 6000U + index, 256U) == 0);
+	}
+	CHECK(vfs_mkdir("/src1/huge") == 0);
+	for (uint32_t index = 0U; index < HUGE_FILES; index++) {
+		char path[64];
+		size_t size = 120U + index % 9U;
+
+		snprintf(path, sizeof(path), "/src1/huge/h%04u.bin", index);
+		CHECK(write_pattern(path, size, 7000U + index, 128U) == 0);
+	}
 	CHECK(vfs_mkdir("/src1/tree") == 0);
 	CHECK(vfs_mkdir("/src1/tree/sub") == 0);
 	CHECK(write_pattern("/src1/tree/sub/deep.bin", 40000U, 77U, 4096U) == 0);
@@ -564,6 +584,18 @@ static void build_card(struct gendisk **disk_out)
 }
 
 /**
+ * @brief Read a little-endian 32-bit value.
+ *
+ * @param[in] bytes Four bytes in little-endian order.
+ * @return The decoded value.
+ */
+static uint32_t test_le32(const uint8_t *bytes)
+{
+	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) |
+		((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+
+/**
  * @brief Read a little-endian 64-bit value.
  *
  * @param[in] bytes Eight bytes in little-endian order.
@@ -577,6 +609,78 @@ static uint64_t test_le64(const uint8_t *bytes)
 		value |= (uint64_t)bytes[index] << (index * 8U);
 	}
 	return value;
+}
+
+/**
+ * @brief Find a directory entry in a view directory extent and return its extent.
+ *
+ * @details The whole extent is read in one call and every slot is scanned, so
+ * an entry group that crosses a sector boundary is still found.
+ *
+ * @param[in]  view          Open @c cardview1 block device.
+ * @param[in]  layout        View geometry.
+ * @param[in]  first         First cluster of the directory extent.
+ * @param[in]  clusters      Number of clusters of the directory extent.
+ * @param[in]  name          ASCII name to look for.
+ * @param[out] first_cluster Receives the entry's first cluster, or NULL.
+ * @param[out] entry_clusters Receives the entry's cluster count, or NULL.
+ * @param[out] length        Receives the DataLength, or NULL.
+ * @return True when the entry was found.
+ */
+static bool view_entry_extent(struct block_device *view,
+	const struct storage_proxy_lazy_layout *layout, uint32_t first, uint32_t clusters,
+	const char *name, uint32_t *first_cluster, uint32_t *entry_clusters, uint64_t *length)
+{
+	size_t sectors = (size_t)clusters * 64U;
+	size_t slots = sectors * 16U;
+	size_t name_length = strlen(name);
+	uint8_t *buffer;
+	bool found = false;
+
+	if (sectors == 0U) {
+		return false;
+	}
+	buffer = aligned_alloc(64U, sectors * 512U);
+	if (buffer == NULL) {
+		return false;
+	}
+	if (bdev_read(view, layout->data_start + (uint64_t)(first - 2U) * 64U, buffer,
+		(uint32_t)sectors) != 0) {
+		free(buffer);
+		return false;
+	}
+	for (size_t slot = 0U; slot + 2U < slots; slot++) {
+		const uint8_t *entry = buffer + slot * 32U;
+		const uint8_t *stream = entry + 32U;
+		const uint8_t *name_entry = entry + 64U;
+		bool same = true;
+
+		if (entry[0] != 0x85U || stream[0] != 0xc0U || name_entry[0] != 0xc1U ||
+		    stream[3] != name_length) {
+			continue;
+		}
+		for (size_t index = 0U; same && index < name_length; index++) {
+			same = name_entry[2U + index * 2U] == (uint8_t)name[index] &&
+				name_entry[3U + index * 2U] == 0U;
+		}
+		if (same) {
+			uint64_t data_length = test_le64(stream + 24U);
+
+			if (first_cluster != NULL) {
+				*first_cluster = test_le32(stream + 20U);
+			}
+			if (entry_clusters != NULL) {
+				*entry_clusters = (uint32_t)((data_length + 32767U) / 32768U);
+			}
+			if (length != NULL) {
+				*length = data_length;
+			}
+			found = true;
+			break;
+		}
+	}
+	free(buffer);
+	return found;
 }
 
 /**
@@ -596,44 +700,9 @@ static uint64_t view_entry_length(struct block_device *view,
 	const struct storage_proxy_lazy_layout *layout, uint32_t first, uint32_t clusters,
 	const char *name)
 {
-	size_t sectors = (size_t)clusters * 64U;
-	size_t slots = sectors * 16U;
-	size_t name_length = strlen(name);
-	uint8_t *buffer;
 	uint64_t length = 0U;
 
-	if (sectors == 0U) {
-		return 0U;
-	}
-	buffer = aligned_alloc(64U, sectors * 512U);
-	if (buffer == NULL) {
-		return 0U;
-	}
-	if (bdev_read(view, layout->data_start + (uint64_t)(first - 2U) * 64U, buffer,
-		(uint32_t)sectors) != 0) {
-		free(buffer);
-		return 0U;
-	}
-	for (size_t slot = 0U; slot + 2U < slots; slot++) {
-		const uint8_t *entry = buffer + slot * 32U;
-		const uint8_t *stream = entry + 32U;
-		const uint8_t *name_entry = entry + 64U;
-		bool same = true;
-
-		if (entry[0] != 0x85U || stream[0] != 0xc0U || name_entry[0] != 0xc1U ||
-		    stream[3] != name_length) {
-			continue;
-		}
-		for (size_t index = 0U; same && index < name_length; index++) {
-			same = name_entry[2U + index * 2U] == (uint8_t)name[index] &&
-				name_entry[3U + index * 2U] == 0U;
-		}
-		if (same) {
-			length = test_le64(stream + 24U);
-			break;
-		}
-	}
-	free(buffer);
+	(void)view_entry_extent(view, layout, first, clusters, name, NULL, NULL, &length);
 	return length;
 }
 
@@ -706,6 +775,59 @@ static void check_bitmap(struct block_device *view, const struct storage_proxy_l
 }
 
 /**
+ * @brief Read a whole small text file through the VFS.
+ *
+ * @param[in]  path   File to read.
+ * @param[out] buffer Destination, always NUL-terminated on success.
+ * @param[in]  size   Size of @p buffer in bytes.
+ * @return Bytes read, or a negative errno.
+ */
+static int read_text_file(const char *path, char *buffer, size_t size)
+{
+	int descriptor = vfs_open(path, VFS_O_READ);
+	int result;
+
+	if (descriptor < 0) {
+		return descriptor;
+	}
+	result = vfs_read(descriptor, buffer, size - 1U);
+	vfs_close(descriptor);
+	if (result < 0) {
+		return result;
+	}
+	buffer[result] = '\0';
+	return result;
+}
+
+/**
+ * @brief Open and verify the synthesized root reports.
+ *
+ * @param[in] expect_truncated Whether the limit report must announce truncation.
+ */
+static void check_root_reports(bool expect_truncated)
+{
+	char text[2048];
+
+	memset(text, 0, sizeof(text));
+	CHECK(read_text_file("/lazy/_LAYOUT.TXT", text, sizeof(text)) > 0);
+	CHECK(strstr(text, "total_clusters=") != NULL);
+	CHECK(strstr(text, "reserved_clusters=") != NULL);
+	CHECK(strstr(text, "tail_clusters=") != NULL);
+	CHECK(strstr(text, "cache_entries_max=") != NULL);
+	CHECK(strstr(text, "dir_max_entries=") != NULL);
+
+	memset(text, 0, sizeof(text));
+	CHECK(read_text_file("/lazy/_DIR_LIMIT.TXT", text, sizeof(text)) > 0);
+	CHECK(strstr(text, "dir_max_entries=") != NULL);
+	CHECK(strstr(text, "proxy.lazy.truncated=") != NULL);
+	if (expect_truncated) {
+		CHECK(strstr(text, "proxy.lazy.truncated=1") != NULL);
+	} else {
+		CHECK(strstr(text, "proxy.lazy.truncated=0") != NULL);
+	}
+}
+
+/**
  * @brief Enumerate the view and verify the files and the multi-cluster directory.
  *
  * @param[in] view Open @c cardview1 block device.
@@ -715,9 +837,27 @@ static void check_view_contents(struct block_device *view)
 	struct storage_proxy_lazy_layout layout;
 
 	CHECK(storage_proxy_lazy_layout(&layout) == 0);
-	CHECK(count_entries("/lazy") == 2U);
+	/* Two partition folders plus the two synthesized reports. */
+	CHECK(count_entries("/lazy") == 4U);
 	CHECK(directory_has("/lazy", "partition1"));
 	CHECK(directory_has("/lazy", "partition2"));
+	CHECK(directory_has("/lazy", "_LAYOUT.TXT"));
+	CHECK(directory_has("/lazy", "_DIR_LIMIT.TXT"));
+	check_root_reports(false);
+	/* The synthesized reports are read-only at the block layer. */
+	{
+		uint32_t first = 0U;
+		uint32_t clusters = 0U;
+		uint8_t sector[512];
+
+		CHECK(view_entry_extent(view, &layout, layout.root_cluster,
+			layout.root_clusters, "_LAYOUT.TXT", &first, &clusters, NULL));
+		CHECK(first != 0U);
+		CHECK(clusters > 0U);
+		memset(sector, 0x5a, sizeof(sector));
+		CHECK(bdev_write(view, layout.data_start + (uint64_t)(first - 2U) * 64U,
+			sector, 1U) == -EROFS);
+	}
 	/* The root read reserved both partition folders. */
 	CHECK(storage_proxy_lazy_layout(&layout) == 0);
 	CHECK(layout.partition_root_clusters[0] > 0U);
@@ -725,6 +865,8 @@ static void check_view_contents(struct block_device *view)
 
 	CHECK(directory_has("/lazy/partition1", "seed1.bin"));
 	CHECK(directory_has("/lazy/partition1", "many"));
+	CHECK(directory_has("/lazy/partition1", "many2"));
+	CHECK(directory_has("/lazy/partition1", "huge"));
 	CHECK(directory_has("/lazy/partition1", "tree"));
 	CHECK(directory_has("/lazy/partition1/tree", "sub"));
 	CHECK(directory_has("/lazy/partition1/tree/sub", "deep.bin"));
@@ -917,8 +1059,8 @@ static void check_source_writes(void)
 	};
 
 	CHECK(vfs_mount("mmcblk0p1", "/src1", "fat") == 0);
-	/* seed1.bin, many, tree, moved, edit, rewrite, newdir2, bulk; no stray file. */
-	CHECK(count_entries("/src1") == 8U);
+	/* seed1.bin, many, many2, huge, tree, moved, edit, rewrite, newdir2, bulk. */
+	CHECK(count_entries("/src1") == 10U);
 	CHECK(directory_has("/src1", "moved.bin"));
 	CHECK(!directory_has("/src1", "created.bin"));
 	CHECK(verify_pattern("/src1/moved.bin", 65536U, 4001U) == 0);
@@ -1003,6 +1145,203 @@ static void run_view(struct gendisk *disk)
 }
 
 /**
+ * @brief First sector of the view FAT, fixed at 32 by proxy_lazy.c.
+ */
+#define VIEW_FAT_SECTOR 32U
+
+/** @brief Progress callback invocations seen by the cancellation test. */
+static uint32_t progress_calls;
+
+/**
+ * @brief Progress callback that cancels the running directory walk.
+ *
+ * @param[in] context Opaque pointer; ignored.
+ * @param[in] entries Entries processed so far; ignored.
+ * @param[in] path    Directory path; ignored.
+ */
+static void cancel_progress(void *context, uint32_t entries, const char *path)
+{
+	(void)context;
+	(void)entries;
+	(void)path;
+	progress_calls++;
+	storage_proxy_lazy_cancel();
+}
+
+/**
+ * @brief Write one FAT link through the view's block device.
+ *
+ * @param[in] view    Open @c cardview1 block device.
+ * @param[in] cluster Cluster whose entry is written.
+ * @param[in] next    Next cluster of the chain.
+ * @return 0 on success, or a negative errno.
+ */
+static int view_fat_link(struct block_device *view, uint32_t cluster, uint32_t next)
+{
+	uint64_t sector = VIEW_FAT_SECTOR + (uint64_t)(cluster * 4U) / 512U;
+	size_t offset = (size_t)(cluster * 4U) % 512U;
+	uint8_t buffer[512];
+
+	if (bdev_read(view, sector, buffer, 1U) != 0) {
+		return -EIO;
+	}
+	buffer[offset] = (uint8_t)next;
+	buffer[offset + 1U] = (uint8_t)(next >> 8);
+	buffer[offset + 2U] = (uint8_t)(next >> 16);
+	buffer[offset + 3U] = (uint8_t)(next >> 24);
+	return bdev_write(view, sector, buffer, 1U);
+}
+
+/**
+ * @brief Prove the LRU evicts and reloads directories under a small cache cap.
+ *
+ * @details A cap just above the large directory lets it fit, so loading a
+ * second directory forces an eviction. The evicted directory must then reload
+ * with the same slots and extents: its file bytes are checked afterwards.
+ */
+static void run_cache_eviction(void)
+{
+	struct block_device *view;
+
+	storage_proxy_lazy_test_limits(1100U, 0U, 0U);
+	CHECK(storage_proxy_lazy_start("mmcblk0", 0x03U) == 0);
+	CHECK(vfs_mount_ex("cardview1", "/lazy", NULL, 0U) == 0);
+	view = bdev_open_by_name("cardview1");
+	CHECK(view != NULL);
+
+	storage_proxy_lazy_cache_drop();
+	CHECK(count_entries("/lazy/partition1/many") == MANY_FILES);
+	CHECK(count_entries("/lazy/partition1/many2") == MANY2_FILES);
+	CHECK(storage_proxy_lazy_cached_entries() <= 1100U);
+	CHECK(storage_proxy_lazy_cache_evictions() > 0U);
+	/* The evicted directory must reload into the same extents. */
+	CHECK(verify_pattern("/lazy/partition1/many/f0500.bin",
+		100U + 500U % 13U, 1500U) == 0);
+	CHECK(verify_pattern("/lazy/partition1/many2/g100.bin", 400U, 6100U) == 0);
+	CHECK(storage_proxy_lazy_cached_entries() <= 1100U);
+
+	if (view != NULL) {
+		bdev_close(view);
+	}
+	CHECK(vfs_umount("/lazy") == 0);
+	storage_proxy_lazy_stop();
+	storage_proxy_lazy_test_limits(0U, 0U, 0U);
+}
+
+/**
+ * @brief Prove a small directory cap truncates and refuses writes past the span.
+ *
+ * @details The source holds fifty files, but only the first thirty-two may be
+ * visible. The host then links and writes a cluster the view never advertised,
+ * which must fail instead of reaching the source directory.
+ */
+static void run_truncation(void)
+{
+	struct storage_proxy_lazy_layout layout;
+	struct block_device *view;
+	uint32_t first = 0U;
+	uint32_t clusters = 0U;
+	uint64_t length = 0U;
+
+	storage_proxy_lazy_test_limits(0U, 0U, 32U);
+	CHECK(storage_proxy_lazy_start("mmcblk0", 0x03U) == 0);
+	CHECK(!storage_proxy_lazy_truncated());
+	CHECK(vfs_mount_ex("cardview1", "/lazy", NULL, 0U) == 0);
+	view = bdev_open_by_name("cardview1");
+	CHECK(view != NULL);
+
+	CHECK(count_entries("/lazy/partition1/huge") == 32U);
+	CHECK(storage_proxy_lazy_truncated());
+	check_root_reports(true);
+	CHECK(verify_pattern("/lazy/partition1/huge/h0000.bin", 120U, 7000U) == 0);
+
+	if (view != NULL) {
+		CHECK(storage_proxy_lazy_layout(&layout) == 0);
+		CHECK(view_entry_extent(view, &layout, layout.partition_root_first[0],
+			layout.partition_root_clusters[0], "huge", &first, &clusters,
+			&length));
+		CHECK(first != 0U);
+		CHECK(clusters > 0U);
+		{
+			uint32_t target = layout.tail_first;
+			uint64_t target_sector = layout.data_start +
+				(uint64_t)(target - 2U) * 64U;
+			uint32_t extension = first + clusters - 1U;
+			uint8_t sector[512];
+
+			memset(sector, 0, sizeof(sector));
+			CHECK(view_fat_link(view, extension, target) == 0);
+			/* Growing a truncated directory would hide entries; refuse it. */
+			CHECK(bdev_write(view, target_sector, sector, 1U) == -ENOSPC);
+		}
+		CHECK(bdev_flush(view) == 0);
+	}
+	if (view != NULL) {
+		bdev_close(view);
+	}
+	CHECK(vfs_umount("/lazy") == 0);
+	storage_proxy_lazy_stop();
+	storage_proxy_lazy_test_limits(0U, 0U, 0U);
+
+	/* The refused write must not have touched the source directory. */
+	CHECK(vfs_mount("mmcblk0p1", "/src1", "fat") == 0);
+	CHECK(count_entries("/src1/huge") == HUGE_FILES);
+	CHECK(verify_pattern("/src1/huge/h0049.bin", 120U + 49U % 9U, 7049U) == 0);
+	CHECK(vfs_umount("/src1") == 0);
+}
+
+/**
+ * @brief Prove a progress callback can cancel a long directory walk.
+ *
+ * @details Reading the partition folder counts its child directories. The
+ * callback cancels at the first progress report, so the block read returns
+ * -ECANCELED without caching anything; the view stays running and a later start
+ * clears the flag and indexes normally.
+ */
+static void run_cancel(void)
+{
+	struct storage_proxy_lazy_layout layout;
+	struct block_device *view;
+	uint32_t first = 0U;
+	uint32_t clusters = 0U;
+	uint64_t length = 0U;
+	uint8_t sector[512];
+
+	storage_proxy_lazy_test_limits(0U, 0U, 0U);
+	CHECK(storage_proxy_lazy_start("mmcblk0", 0x03U) == 0);
+	view = bdev_open_by_name("cardview1");
+	CHECK(view != NULL);
+	if (view == NULL) {
+		storage_proxy_lazy_stop();
+		return;
+	}
+	CHECK(storage_proxy_lazy_layout(&layout) == 0);
+	CHECK(view_entry_extent(view, &layout, layout.root_cluster, layout.root_clusters,
+		"partition1", &first, &clusters, &length));
+	CHECK(first != 0U);
+	storage_proxy_lazy_cache_drop();
+
+	progress_calls = 0U;
+	storage_proxy_lazy_set_progress(cancel_progress, NULL);
+	CHECK(bdev_read(view, layout.data_start + (uint64_t)(first - 2U) * 64U,
+		sector, 1U) == -ECANCELED);
+	CHECK(progress_calls > 0U);
+	CHECK(storage_proxy_lazy_running());
+	storage_proxy_lazy_set_progress(NULL, NULL);
+	bdev_close(view);
+	storage_proxy_lazy_stop();
+	CHECK(!storage_proxy_lazy_running());
+
+	/* A fresh start clears the flag and indexes the directory again. */
+	CHECK(storage_proxy_lazy_start("mmcblk0", 0x03U) == 0);
+	CHECK(vfs_mount_ex("cardview1", "/lazy", NULL, 0U) == 0);
+	CHECK(count_entries("/lazy/partition1/many") == MANY_FILES);
+	CHECK(vfs_umount("/lazy") == 0);
+	storage_proxy_lazy_stop();
+	CHECK(!storage_proxy_lazy_running());
+}
+
+/**
  * @brief Run the lazy proxy host test.
  *
  * @return 0 when every check passed, 1 otherwise.
@@ -1020,6 +1359,11 @@ int main(void)
 	run_view(disk);
 	/* A second cycle proves stop released the caches and the sources. */
 	run_view(disk);
+
+	/* Runtime caps, truncation and cancellation, all read-only on the card. */
+	run_cache_eviction();
+	run_truncation();
+	run_cancel();
 
 	/* Write through the view, verify the source, then reload the view. */
 	run_write_view(disk);
