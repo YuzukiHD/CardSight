@@ -27,6 +27,8 @@
 struct storage_proxy_lazy_layout {
 	/** @brief Number of clusters in the view. */
 	uint32_t total_clusters;
+	/** @brief Size of one view cluster in bytes. */
+	uint32_t cluster_bytes;
 	/** @brief First sector of cluster two. */
 	uint32_t data_start;
 	/** @brief First cluster of the allocation bitmap. */
@@ -170,6 +172,25 @@ void storage_proxy_lazy_cancel(void);
  */
 void storage_proxy_lazy_test_limits(uint32_t cache_entries, uint32_t cache_bytes,
 	uint32_t dir_max_entries);
+
+/**
+ * @brief Snapshot the write staging state for a host test.
+ */
+struct storage_proxy_lazy_test_stats {
+	/** @brief Sectors waiting in the RAM pending table. */
+	uint32_t pending_sectors;
+	/** @brief Staging runs currently open. */
+	uint32_t active_runs;
+	/** @brief Sectors written to staging files since start. */
+	uint64_t staged_sectors;
+};
+
+/**
+ * @brief Copy the write staging counters for a host test.
+ *
+ * @param[out] stats Receives the counters.
+ */
+void storage_proxy_lazy_test_stats(struct storage_proxy_lazy_test_stats *stats);
 #endif
 
 /**

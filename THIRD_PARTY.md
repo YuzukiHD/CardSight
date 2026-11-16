@@ -28,6 +28,13 @@ carries this board). `git submodule update --init --recursive` prepares them.
   `software/patches/lwext4/0001-csum-seed.patch`，构建时应用到 `software/build/lwext4/` 的副本上
   （`software/cmake/lwext4.cmake`），不修改 submodule。补丁识别该特性，并让文件系统元数据
   校验和从超级块的 `s_checksum_seed` 取种子；未设置该特性时仍使用 UUID，行为不变。
+  `0002-inode-by-number.patch` 增加按 inode 号读取 inode 的接口；VFS 的 ext 目录枚举用它
+  替代逐条整路径解析，千文件目录的首次打开从约 10 秒降到 1 秒以内。`0003-mkfs-last-group.patch`
+  修正小于一个 block group 的卷：最后一个不完整 group 原先按整组计空闲块，超级块的
+  `free_blocks_count` 会大于卷总块数。补丁按文件名顺序应用，新增改动只需在
+  `software/patches/lwext4/` 加一个编号文件。
+- lwext4 的块缓存提高到 64 个 4 KiB 块（`software/cmake/lwext4.cmake`），避免大目录
+  枚举时目录块和 inode 表块互相驱逐；每个已挂载 ext 卷约占 256 KiB 堆。
 - `software/third_party/SyterKit` 内含有厂家预编译的 DRAM/PSRAM 初始化库
   （`soc/sun252iw1/lib/*.a`）。这些二进制随 SyterKit 一起分发，不属于本仓库源码；
   发布源码包时按 SyterKit 自身的许可与说明处理，不在本仓库的源码 tarball 中重新打包。

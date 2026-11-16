@@ -70,15 +70,14 @@ struct ext_file {
 };
 
 /**
- * @brief An open directory: the mount, the library directory, and its VFS path.
+ * @brief An open directory: the mount and the library directory object.
  *
- * The path is kept because lwext4 entries carry only a name, while the metadata lookup of
- * vfs_readdir() needs the full path.
+ * Library entries carry their inode number, so readdir stats each one directly
+ * instead of resolving the name back through the full path.
  */
 struct ext_dir {
 	struct ext_mount *mount;	/**< Mount the directory lives on. */
 	ext4_dir dir;		/**< Library directory object. */
-	char path[VFS_PATH_MAX];	/**< VFS path of the directory, for entry stats. */
 };
 
 /** @brief Mount slots; @c mounted marks the live ones. */
@@ -709,6 +708,50 @@ static int ext_stat_path(struct ext_mount *mount, const char *path, struct vfs_s
 	memset(st, 0, sizeof(*st));
 	st->dir = mode == EXT4_INODE_MODE_DIRECTORY;
 	st->size = st->dir ? 0U : ext4_inode_get_size(superblock, &inode);
+	/* A directory's i_size is the byte length of its directory data. */
+	st->alloc_size = st->dir ? ext4_inode_get_size(superblock, &inode) : 0U;
+	st->read_only = mount->read_only;
+	return 0;
+}
+
+/**
+ * @brief Stat one inode by number.
+ *
+ * @details A directory listing already knows each entry's inode number, so
+ * reading the inode directly avoids resolving the full path for every entry.
+ * On a directory with more than a thousand files that difference is most of
+ * the listing time.
+ *
+ * @param[in]  mount        Mount the inode belongs to.
+ * @param[in]  inode_number Inode number from the directory entry.
+ * @param[out] st           Structure receiving the metadata.
+ * @return 0, -ENOTSUP for an object the VFS cannot represent, or a negative errno.
+ */
+static int ext_stat_inode(struct ext_mount *mount, uint32_t inode_number,
+	struct vfs_stat *st)
+{
+	struct ext4_sblock *superblock;
+	struct ext4_inode inode;
+	uint32_t mode;
+	int result = ext4_raw_inode_fill_index(mount->mount_name, inode_number, NULL, &inode);
+
+	if (result != EOK) {
+		return ext_error(result);
+	}
+	result = ext4_get_sblock(mount->mount_name, &superblock);
+	if (result != EOK) {
+		return ext_error(result);
+	}
+	mode = ext4_inode_get_mode(superblock, &inode) & EXT4_INODE_MODE_TYPE_MASK;
+	if (mode != EXT4_INODE_MODE_DIRECTORY && mode != EXT4_INODE_MODE_FILE &&
+	    mode != EXT4_INODE_MODE_SOFTLINK) {
+		return -ENOTSUP;
+	}
+	memset(st, 0, sizeof(*st));
+	st->dir = mode == EXT4_INODE_MODE_DIRECTORY;
+	st->size = st->dir ? 0U : ext4_inode_get_size(superblock, &inode);
+	/* A directory's i_size is the byte length of its directory data. */
+	st->alloc_size = st->dir ? ext4_inode_get_size(superblock, &inode) : 0U;
 	st->read_only = mount->read_only;
 	return 0;
 }
@@ -841,7 +884,6 @@ static int ext_vfs_opendir(void *private_data, const char *path, void **dir_data
 		return result;
 	}
 	dir->mount = mount;
-	snprintf(dir->path, sizeof(dir->path), "%s", path);
 	*dir_data = dir;
 	return 0;
 }
@@ -860,8 +902,7 @@ static int ext_vfs_readdir(void *dir_data, struct vfs_dirent *entry)
 {
 	struct ext_dir *dir = dir_data;
 	const ext4_direntry *ext_entry;
-	char path[VFS_PATH_MAX];
-	int length;
+	int result;
 
 	/* skip "." and ".." and any entry whose type the VFS cannot represent */
 	for (;;) {
@@ -874,17 +915,9 @@ static int ext_vfs_readdir(void *dir_data, struct vfs_dirent *entry)
 			 (ext_entry->name_length == 2U && ext_entry->name[0] == '.' && ext_entry->name[1] == '.'));
 		memcpy(entry->name, ext_entry->name, ext_entry->name_length);
 		entry->name[ext_entry->name_length] = '\0';
-		if (strcmp(dir->path, "/") == 0) {
-			length = snprintf(path, sizeof(path), "/%s", entry->name);
-		} else {
-			length = snprintf(path, sizeof(path), "%s/%s", dir->path, entry->name);
-		}
-		if (length < 0 || (size_t)length >= sizeof(path)) {
-			return -ENAMETOOLONG;
-		}
-		length = ext_stat_path(dir->mount, path, &entry->st);
-		if (length != -ENOTSUP) {
-			return length;
+		result = ext_stat_inode(dir->mount, ext_entry->inode, &entry->st);
+		if (result != -ENOTSUP) {
+			return result;
 		}
 	}
 }

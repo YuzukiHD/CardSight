@@ -32,6 +32,10 @@
 #define CARD_SECTORS (160U * 2048U)
 /** @brief Size of each simulated source partition in MiB. */
 #define PARTITION_MIB 64U
+/** @brief Cluster size of the lazy view, in bytes. */
+#define VIEW_CLUSTER_BYTES 4096U
+/** @brief Sectors per cluster of the lazy view. */
+#define VIEW_SECTORS_PER_CLUSTER (VIEW_CLUSTER_BYTES / 512U)
 /** @brief Files created in the nested directory that must span several view clusters. */
 #define MANY_FILES 1001U
 /** @brief Files created in the second large directory used to force LRU eviction. */
@@ -631,7 +635,7 @@ static bool view_entry_extent(struct block_device *view,
 	const struct storage_proxy_lazy_layout *layout, uint32_t first, uint32_t clusters,
 	const char *name, uint32_t *first_cluster, uint32_t *entry_clusters, uint64_t *length)
 {
-	size_t sectors = (size_t)clusters * 64U;
+	size_t sectors = (size_t)clusters * VIEW_SECTORS_PER_CLUSTER;
 	size_t slots = sectors * 16U;
 	size_t name_length = strlen(name);
 	uint8_t *buffer;
@@ -644,7 +648,8 @@ static bool view_entry_extent(struct block_device *view,
 	if (buffer == NULL) {
 		return false;
 	}
-	if (bdev_read(view, layout->data_start + (uint64_t)(first - 2U) * 64U, buffer,
+	if (bdev_read(view, layout->data_start +
+		(uint64_t)(first - 2U) * VIEW_SECTORS_PER_CLUSTER, buffer,
 		(uint32_t)sectors) != 0) {
 		free(buffer);
 		return false;
@@ -670,7 +675,8 @@ static bool view_entry_extent(struct block_device *view,
 				*first_cluster = test_le32(stream + 20U);
 			}
 			if (entry_clusters != NULL) {
-				*entry_clusters = (uint32_t)((data_length + 32767U) / 32768U);
+				*entry_clusters = (uint32_t)((data_length + VIEW_CLUSTER_BYTES - 1U) /
+					VIEW_CLUSTER_BYTES);
 			}
 			if (length != NULL) {
 				*length = data_length;
@@ -743,7 +749,8 @@ static void check_bitmap(struct block_device *view, const struct storage_proxy_l
 		return;
 	}
 	memset(bitmap, 0, sectors * 512U);
-	CHECK(bdev_read(view, layout->data_start + (uint64_t)(layout->bitmap_cluster - 2U) * 64U,
+	CHECK(bdev_read(view, layout->data_start +
+		(uint64_t)(layout->bitmap_cluster - 2U) * VIEW_SECTORS_PER_CLUSTER,
 		bitmap, (uint32_t)sectors) == 0);
 	/* System areas and every reservation are used before the volume exists. */
 	for (uint32_t cluster = layout->bitmap_cluster;
@@ -855,7 +862,8 @@ static void check_view_contents(struct block_device *view)
 		CHECK(first != 0U);
 		CHECK(clusters > 0U);
 		memset(sector, 0x5a, sizeof(sector));
-		CHECK(bdev_write(view, layout.data_start + (uint64_t)(first - 2U) * 64U,
+		CHECK(bdev_write(view, layout.data_start +
+			(uint64_t)(first - 2U) * VIEW_SECTORS_PER_CLUSTER,
 			sector, 1U) == -EROFS);
 	}
 	/* The root read reserved both partition folders. */
@@ -879,7 +887,7 @@ static void check_view_contents(struct block_device *view)
 		uint64_t length = view_entry_length(view, &layout, layout.partition_root_first[0],
 			layout.partition_root_clusters[0], "many");
 
-		CHECK(length > (uint64_t)32768U);
+		CHECK(length > (uint64_t)VIEW_CLUSTER_BYTES);
 	}
 
 	CHECK(verify_pattern("/lazy/partition1/seed1.bin", 70000U, 1U) == 0);
@@ -897,13 +905,224 @@ static void check_view_contents(struct block_device *view)
 		uint64_t free_bytes = 0U;
 
 		CHECK(vfs_statfs("/lazy", &total_bytes, &free_bytes) == 0);
-		CHECK(total_bytes == (uint64_t)layout.total_clusters * 32768U);
-		CHECK(free_bytes == (uint64_t)layout.tail_clusters * 32768U);
+		CHECK(total_bytes == (uint64_t)layout.total_clusters * VIEW_CLUSTER_BYTES);
+		CHECK(free_bytes == (uint64_t)layout.tail_clusters * VIEW_CLUSTER_BYTES);
 	}
 }
 
 /** @brief Files created through the view in the bulk directory. */
 #define BULK_FILES 400U
+/** @brief Clusters in the data-first stream that must spill to a staging file. */
+#define ORPHAN_CLUSTERS 256U
+/** @brief Pattern seed of the data-first stream. */
+#define ORPHAN_SEED 6001U
+
+/**
+ * @brief Compute the exFAT name hash of an ASCII file name.
+ *
+ * @param[in] name File name.
+ * @return The 16-bit name hash.
+ */
+static uint16_t exfat_name_hash(const char *name)
+{
+	uint16_t hash = 0U;
+
+	for (const uint8_t *character = (const uint8_t *)name; *character != 0U; character++) {
+		uint16_t value = *character;
+
+		if (value >= (uint16_t)'a' && value <= (uint16_t)'z') {
+			value = (uint16_t)(value - ((uint16_t)'a' - (uint16_t)'A'));
+		}
+		hash = (uint16_t)(((hash & 1U) != 0U ? 0x8000U : 0U) + (hash >> 1) + value);
+	}
+	return hash;
+}
+
+/**
+ * @brief Compute the exFAT entry-set checksum.
+ *
+ * @param[in] group   First entry of the set.
+ * @param[in] entries Number of entries in the set.
+ * @return The checksum stored in bytes 2 and 3 of the file entry.
+ */
+static uint16_t exfat_set_checksum(const uint8_t *group, uint32_t entries)
+{
+	uint16_t sum = 0U;
+
+	for (uint32_t entry = 0U; entry < entries; entry++) {
+		for (uint32_t byte = 0U; byte < 32U; byte++) {
+			if (entry == 0U && (byte == 2U || byte == 3U)) {
+				continue;
+			}
+			sum = (uint16_t)(((sum & 1U) != 0U ? 0x8000U : 0U) + (sum >> 1) +
+				group[entry * 32U + byte]);
+		}
+	}
+	return sum;
+}
+
+/**
+ * @brief Store a little-endian value.
+ *
+ * @param[out] bytes Destination.
+ * @param[in]  value Value to store.
+ * @param[in]  width Number of bytes.
+ */
+static void store_le(uint8_t *bytes, uint64_t value, uint32_t width)
+{
+	for (uint32_t index = 0U; index < width; index++) {
+		bytes[index] = (uint8_t)(value >> (index * 8U));
+	}
+}
+
+/**
+ * @brief Mark one view cluster used or free in the allocation bitmap.
+ *
+ * @param[in,out] view    Open @c cardview1 block device.
+ * @param[in]     layout  View layout.
+ * @param[in]     cluster Cluster to change.
+ * @param[in]     used    New state.
+ */
+static void set_view_bitmap(struct block_device *view,
+	const struct storage_proxy_lazy_layout *layout, uint32_t cluster, bool used)
+{
+	uint64_t bit = (uint64_t)cluster - 2U;
+	uint64_t byte = bit / 8U;
+	uint64_t sector = layout->data_start +
+		(uint64_t)(layout->bitmap_cluster - 2U) * VIEW_SECTORS_PER_CLUSTER + byte / 512U;
+	uint32_t offset = (uint32_t)(byte % 512U);
+	uint8_t data[512];
+
+	CHECK(bdev_read(view, sector, data, 1U) == 0);
+	if (used) {
+		data[offset] |= (uint8_t)(1U << (bit % 8U));
+	} else {
+		data[offset] &= (uint8_t)~(1U << (bit % 8U));
+	}
+	CHECK(bdev_write(view, sector, data, 1U) == 0);
+}
+
+/**
+ * @brief Write a data-first stream into free tail clusters.
+ *
+ * @details The sectors are written without a directory entry, exactly what a
+ * host does before it announces a new file. The pattern is the same one
+ * write_pattern() uses, so the source file can be checked afterwards.
+ *
+ * @param[in,out] view    Open @c cardview1 block device.
+ * @param[in]     layout  View layout.
+ * @param[in]     first   First view cluster.
+ * @param[in]     clusters Number of clusters to fill.
+ * @param[in]     seed    Pattern seed.
+ */
+static void write_orphan_stream(struct block_device *view,
+	const struct storage_proxy_lazy_layout *layout, uint32_t first, uint32_t clusters,
+	uint32_t seed)
+{
+	uint8_t sector[512];
+
+	for (uint32_t cluster = 0U; cluster < clusters; cluster++) {
+		for (uint32_t index = 0U; index < VIEW_SECTORS_PER_CLUSTER; index++) {
+			size_t position = (size_t)cluster * VIEW_CLUSTER_BYTES +
+				(size_t)index * 512U;
+			uint64_t number = layout->data_start +
+				(uint64_t)(first + cluster - 2U) * VIEW_SECTORS_PER_CLUSTER + index;
+
+			for (size_t byte = 0U; byte < 512U; byte++) {
+				sector[byte] = pattern_byte(seed, position + byte);
+			}
+			CHECK(bdev_write(view, number, sector, 1U) == 0);
+		}
+	}
+}
+
+/**
+ * @brief Announce a file that owns a data-first stream.
+ *
+ * @details A free directory sector is located in the first partition folder,
+ * a valid exFAT file entry set is placed in its first three slots and the
+ * sector is written back. The entry makes the proxy claim the staged stream.
+ *
+ * @param[in,out] view    Open @c cardview1 block device.
+ * @param[in]     layout  View layout.
+ * @param[in]     name    File name to create.
+ * @param[in]     first   First view cluster of the file.
+ * @param[in]     size    Valid file size.
+ */
+static void write_orphan_entry(struct block_device *view,
+	const struct storage_proxy_lazy_layout *layout, const char *name, uint32_t first,
+	uint64_t size)
+{
+	uint8_t sector[512];
+	uint64_t number = 0U;
+	uint32_t chosen = UINT32_MAX;
+	uint32_t slot = 0U;
+	uint32_t length = (uint32_t)strlen(name);
+	uint8_t *file;
+	uint8_t *stream;
+	uint8_t *name_entry;
+	uint16_t hash = exfat_name_hash(name);
+	uint16_t sum;
+
+	CHECK(layout->partition_root_first[0] != 0U);
+	CHECK(layout->partition_root_clusters[0] != 0U);
+	for (uint32_t sector_index = 0U;
+	     sector_index < layout->partition_root_clusters[0] * VIEW_SECTORS_PER_CLUSTER &&
+	     chosen == UINT32_MAX; sector_index++) {
+		number = layout->data_start +
+			(uint64_t)(layout->partition_root_first[0] - 2U) *
+			VIEW_SECTORS_PER_CLUSTER + sector_index;
+		CHECK(bdev_read(view, number, sector, 1U) == 0);
+		for (uint32_t candidate = 0U; candidate + 3U <= 16U; candidate++) {
+			bool zero = true;
+
+			for (uint32_t entry = 0U; entry < 3U && zero; entry++) {
+				for (uint32_t byte = 0U; byte < 32U; byte++) {
+					if (sector[(candidate + entry) * 32U + byte] != 0U) {
+						zero = false;
+						break;
+					}
+				}
+			}
+			if (zero) {
+				slot = candidate;
+				chosen = sector_index;
+				break;
+			}
+		}
+	}
+	CHECK(chosen != UINT32_MAX);
+	if (chosen == UINT32_MAX) {
+		return;
+	}
+	file = sector + slot * 32U;
+	stream = file + 32U;
+	name_entry = file + 64U;
+	memset(file, 0, 96U);
+	file[0] = 0x85U;
+	file[1] = 2U;
+	store_le(file + 4U, 0x20U, 2U);
+	stream[0] = 0xc0U;
+	stream[1] = 0x03U;
+	stream[3] = (uint8_t)length;
+	store_le(stream + 4U, hash, 2U);
+	/*
+	 * A preallocating host leaves ValidDataLength at zero and puts the file
+	 * size in DataLength, exactly like fsutil file createnew. The proxy must
+	 * still expose the full size and claim the staged stream.
+	 */
+	store_le(stream + 8U, 0U, 8U);
+	store_le(stream + 20U, first, 4U);
+	store_le(stream + 24U, size, 8U);
+	name_entry[0] = 0xc1U;
+	for (uint32_t index = 0U; index < length; index++) {
+		name_entry[2U + index * 2U] = (uint8_t)name[index];
+	}
+	sum = exfat_set_checksum(file, 3U);
+	file[2] = (uint8_t)sum;
+	file[3] = (uint8_t)(sum >> 8);
+	CHECK(bdev_write(view, number, sector, 1U) == 0);
+}
 
 /**
  * @brief Drive the read-write view: create, edit, rename, delete and reload.
@@ -1005,7 +1224,7 @@ static void run_write_view(struct gendisk *disk)
 			"bulk");
 
 		/* A host-extended directory advertises more than one 32 KiB cluster. */
-		CHECK(length > (uint64_t)32768U);
+		CHECK(length > (uint64_t)VIEW_CLUSTER_BYTES);
 	}
 	/*
 	 * Data that never gets a directory entry: an abandoned write into a free
@@ -1016,11 +1235,41 @@ static void run_write_view(struct gendisk *disk)
 		uint8_t sector[512];
 		uint32_t cluster = layout.tail_first + layout.tail_clusters - 1U;
 		uint64_t number = layout.data_start +
-			(uint64_t)(cluster - 2U) * 64U;
+			(uint64_t)(cluster - 2U) * VIEW_SECTORS_PER_CLUSTER;
 
 		memset(sector, 0x5a, sizeof(sector));
 		CHECK(bdev_write(view, number, sector, 1U) == 0);
 		CHECK(bdev_flush(view) == 0);
+	}
+	/*
+	 * A host that writes megabytes before its final entry: the RAM table holds
+	 * the first sectors and the rest must spill to a staging file on the card.
+	 * The entry then makes the proxy copy the stream into the source file.
+	 */
+	{
+		struct storage_proxy_lazy_test_stats stats;
+		uint32_t first;
+
+		CHECK(storage_proxy_lazy_layout(&layout) == 0);
+		CHECK(layout.tail_clusters > 64U + ORPHAN_CLUSTERS);
+		first = layout.tail_first + layout.tail_clusters - ORPHAN_CLUSTERS - 64U;
+		for (uint32_t cluster = 0U; cluster < ORPHAN_CLUSTERS; cluster++) {
+			set_view_bitmap(view, &layout, first + cluster, true);
+		}
+		write_orphan_stream(view, &layout, first, ORPHAN_CLUSTERS, ORPHAN_SEED);
+		CHECK(bdev_flush(view) == 0);
+		storage_proxy_lazy_test_stats(&stats);
+		CHECK(stats.active_runs == 1U);
+		CHECK(stats.staged_sectors >= 1024U);
+		write_orphan_entry(view, &layout, "orphan.bin", first,
+			(uint64_t)ORPHAN_CLUSTERS * VIEW_CLUSTER_BYTES);
+		CHECK(bdev_flush(view) == 0);
+		storage_proxy_lazy_test_stats(&stats);
+		CHECK(stats.active_runs == 0U);
+		CHECK(stats.staged_sectors >= 1024U);
+		CHECK(directory_has("/lazy/partition1", "orphan.bin"));
+		CHECK(verify_pattern("/lazy/partition1/orphan.bin",
+			(uint64_t)ORPHAN_CLUSTERS * VIEW_CLUSTER_BYTES, ORPHAN_SEED) == 0);
 	}
 
 	/* Evict every cache and prove the overlay reproduces the host's view. */
@@ -1059,11 +1308,13 @@ static void check_source_writes(void)
 	};
 
 	CHECK(vfs_mount("mmcblk0p1", "/src1", "fat") == 0);
-	/* seed1.bin, many, many2, huge, tree, moved, edit, rewrite, newdir2, bulk. */
-	CHECK(count_entries("/src1") == 10U);
+	/* seed1.bin, many, many2, huge, tree, moved, edit, rewrite, newdir2, bulk, orphan.bin. */
+	CHECK(count_entries("/src1") == 11U);
 	CHECK(directory_has("/src1", "moved.bin"));
 	CHECK(!directory_has("/src1", "created.bin"));
 	CHECK(verify_pattern("/src1/moved.bin", 65536U, 4001U) == 0);
+	CHECK(verify_pattern("/src1/orphan.bin", (uint64_t)ORPHAN_CLUSTERS * VIEW_CLUSTER_BYTES,
+		ORPHAN_SEED) == 0);
 	CHECK(!directory_has("/src1", "victim.bin"));
 	CHECK(!directory_has("/src1", "gone"));
 	CHECK(directory_has("/src1", "newdir2"));
@@ -1077,6 +1328,8 @@ static void check_source_writes(void)
 	CHECK(vfs_umount("/src1") == 0);
 
 	CHECK(vfs_mount("mmcblk0p2", "/src2", "ext") == 0);
+	/* lost+found, seed2.bin and nested; a leftover staging file would add one. */
+	CHECK(count_entries("/src2") == 3U);
 	CHECK(verify_pattern("/src2/seed2.bin", 65000U, 2U) == 0);
 	CHECK(vfs_umount("/src2") == 0);
 }
@@ -1095,8 +1348,11 @@ static void run_reload_view(struct gendisk *disk)
 	CHECK(directory_has("/lazy/partition1", "edit.bin"));
 	CHECK(directory_has("/lazy/partition1", "newdir2"));
 	CHECK(directory_has("/lazy/partition1", "bulk"));
+	CHECK(directory_has("/lazy/partition1", "orphan.bin"));
 	CHECK(!directory_has("/lazy/partition1", "victim.bin"));
 	CHECK(verify_pattern("/lazy/partition1/moved.bin", 65536U, 4001U) == 0);
+	CHECK(verify_pattern("/lazy/partition1/orphan.bin",
+		(uint64_t)ORPHAN_CLUSTERS * VIEW_CLUSTER_BYTES, ORPHAN_SEED) == 0);
 	CHECK(verify_pattern("/lazy/partition1/newdir2/inside.bin", 5000U, 4200U) == 0);
 	CHECK(count_entries("/lazy/partition1/bulk") == BULK_FILES);
 	CHECK(verify_pattern("/lazy/partition1/bulk/b199.bin", 200U + 199U % 7U, 5199U) == 0);
@@ -1265,7 +1521,7 @@ static void run_truncation(void)
 		{
 			uint32_t target = layout.tail_first;
 			uint64_t target_sector = layout.data_start +
-				(uint64_t)(target - 2U) * 64U;
+				(uint64_t)(target - 2U) * VIEW_SECTORS_PER_CLUSTER;
 			uint32_t extension = first + clusters - 1U;
 			uint8_t sector[512];
 
@@ -1323,7 +1579,8 @@ static void run_cancel(void)
 
 	progress_calls = 0U;
 	storage_proxy_lazy_set_progress(cancel_progress, NULL);
-	CHECK(bdev_read(view, layout.data_start + (uint64_t)(first - 2U) * 64U,
+	CHECK(bdev_read(view, layout.data_start +
+		(uint64_t)(first - 2U) * VIEW_SECTORS_PER_CLUSTER,
 		sector, 1U) == -ECANCELED);
 	CHECK(progress_calls > 0U);
 	CHECK(storage_proxy_lazy_running());

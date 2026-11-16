@@ -1,0 +1,27 @@
+--- a/src/ext4_mkfs.c
++++ b/src/ext4_mkfs.c
+@@ -357,9 +357,23 @@
+ 		uint64_t bg_start_block = aux_info->first_data_block +
+ 			aux_info->first_data_block + i * info->blocks_per_group;
+ 		uint32_t blk_off = 0;
++		uint32_t group_blocks = info->blocks_per_group;
++		uint64_t group_first = aux_info->first_data_block +
++			(uint64_t)i * info->blocks_per_group;
++
++		/*
++		 * The last group of a volume smaller than one full group is short.
++		 * Counting a whole blocks_per_group for it made the superblock
++		 * advertise more free blocks than the volume holds.
++		 */
++		if (group_first >= aux_info->len_blocks) {
++			group_blocks = 0U;
++		} else if (group_first + group_blocks > aux_info->len_blocks) {
++			group_blocks = (uint32_t)(aux_info->len_blocks - group_first);
++		}
+ 
+ 		bg_desc = (void *)(aux_info->bg_desc_blk + k * dsc_size);
+-		bg_free_blk = info->blocks_per_group -
++		bg_free_blk = group_blocks -
+ 				aux_info->inode_table_blocks;
+ 
+ 		bg_free_blk -= 2;

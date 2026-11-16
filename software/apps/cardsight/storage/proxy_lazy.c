@@ -100,9 +100,11 @@ static inline int mutex_unlock(struct mutex *lock)
 #define PROXY_LAZY_DISK_NAME "cardview1"
 /** @brief Logical and physical sector size of the view, in bytes. */
 #define PROXY_LAZY_SECTOR_SIZE 512U
+/** @brief Sectors-per-cluster shift of the synthesized volume (4 KiB clusters). */
+#define PROXY_LAZY_SECTORS_PER_CLUSTER_SHIFT 3U
 /** @brief Sectors per cluster of the synthesized volume. */
-#define PROXY_LAZY_SECTORS_PER_CLUSTER 64U
-/** @brief Cluster size of the view in bytes (32 KiB). */
+#define PROXY_LAZY_SECTORS_PER_CLUSTER (1U << PROXY_LAZY_SECTORS_PER_CLUSTER_SHIFT)
+/** @brief Cluster size of the view in bytes (4 KiB). */
 #define PROXY_LAZY_CLUSTER_SIZE (PROXY_LAZY_SECTOR_SIZE * PROXY_LAZY_SECTORS_PER_CLUSTER)
 /** @brief Number of boot region sectors before the FAT. */
 #define PROXY_LAZY_BOOT_SECTORS 24U
@@ -174,8 +176,8 @@ enum proxy_lazy_root_kind {
 #define CONFIG_STORAGE_PROXY_LAZY_FILE_ALLOWANCE 1024U
 #endif
 #ifndef CONFIG_STORAGE_PROXY_LAZY_TAIL_CLUSTERS
-/** @brief Largest free tail the host is shown, in 32 KiB clusters. */
-#define CONFIG_STORAGE_PROXY_LAZY_TAIL_CLUSTERS 4096U
+/** @brief Largest free tail the host is shown, in 4 KiB clusters (32 GiB). */
+#define CONFIG_STORAGE_PROXY_LAZY_TAIL_CLUSTERS 8388608U
 #endif
 #ifndef CONFIG_STORAGE_PROXY_LAZY_OVERLAY_MAX
 /** @brief Host-changed entries the view remembers across cache eviction. */
@@ -186,9 +188,23 @@ enum proxy_lazy_root_kind {
 #define CONFIG_STORAGE_PROXY_LAZY_OVERLAY_NAME_BYTES 65536U
 #endif
 #ifndef CONFIG_STORAGE_PROXY_LAZY_PENDING_SECTORS
-/** @brief Sectors of host data that may wait for their directory entry. */
-#define CONFIG_STORAGE_PROXY_LAZY_PENDING_SECTORS 512U
+/** @brief Sectors of host data that may wait in RAM for their directory entry. */
+#define CONFIG_STORAGE_PROXY_LAZY_PENDING_SECTORS 1024U
 #endif
+#ifndef CONFIG_STORAGE_PROXY_LAZY_RUNS
+/** @brief Staging files that may hold host data waiting for its entry. */
+#define CONFIG_STORAGE_PROXY_LAZY_RUNS 4U
+#endif
+#ifndef CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS
+/** @brief Largest span one staging file maps, in view clusters (128 MiB). */
+#define CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS 32768U
+#endif
+#ifndef CONFIG_STORAGE_PROXY_LAZY_RUN_GAP
+/** @brief Clusters a staging run may skip when the host allocates ahead. */
+#define CONFIG_STORAGE_PROXY_LAZY_RUN_GAP 256U
+#endif
+/** @brief Prefix of a staging file, placed in the source partition root. */
+#define PROXY_LAZY_STAGE_PREFIX ".cs-lazy-stage-"
 #ifndef CONFIG_STORAGE_PROXY_LAZY_FAT_ENTRIES
 /** @brief FAT entries the view remembers for fragmented host extents. */
 #define CONFIG_STORAGE_PROXY_LAZY_FAT_ENTRIES 4096U
@@ -442,6 +458,39 @@ struct proxy_lazy_pending_sector {
 };
 
 /**
+ * @brief A staging file that holds host data until its directory entry arrives.
+ *
+ * @details Small bursts wait in the RAM pending table. Beyond that limit the
+ * data is written to a sparse file in the source partition root at the offset
+ * @c (cluster - first_cluster) * 4 KiB + sector * 512, so a stream of hundreds
+ * of megabytes needs card space rather than heap. @c written marks the clusters
+ * that actually hold data; empty gaps are never copied into a file. The run is
+ * released, and its file unlinked, once every written cluster has been claimed.
+ */
+struct proxy_lazy_run {
+	/** @brief True while the slot holds a staging file. */
+	bool used;
+	/** @brief Open descriptor, or -1. */
+	int fd;
+	/** @brief Partition the staging file lives on. */
+	uint32_t partition;
+	/** @brief First view cluster the run maps. */
+	uint32_t first_cluster;
+	/** @brief Number of clusters the run spans. */
+	uint32_t clusters;
+	/** @brief Clusters in the span that hold staged data. */
+	uint8_t written[CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS / 8U];
+	/** @brief Clusters already claimed by a directory entry. */
+	uint8_t claimed[CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS / 8U];
+	/** @brief Clusters the host freed; their staged bytes are stale. */
+	uint8_t dropped[CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS / 8U];
+	/** @brief Position of @c fd, so a sequential stream need not seek. */
+	uint64_t position;
+	/** @brief Source path of the staging file. */
+	char path[VFS_PATH_MAX];
+};
+
+/**
  * @brief One FAT entry the host wrote for a fragmented extent.
  */
 struct proxy_lazy_fat_entry {
@@ -527,6 +576,12 @@ struct proxy_lazy {
 	struct proxy_lazy_pending_sector *pending;
 	/** @brief Number of live pending sectors. */
 	uint32_t pending_count;
+	/** @brief Staging files for data the RAM table could not hold. */
+	struct proxy_lazy_run *runs;
+	/** @brief Host sectors that went to a staging file. */
+	uint64_t staged_sectors;
+	/** @brief Set while a run claim is walking ranges. */
+	bool claiming;
 	/** @brief FAT entries the host wrote for fragmented extents. */
 	struct proxy_lazy_fat_entry *fat_log;
 	/** @brief Number of live FAT log entries. */
@@ -620,6 +675,16 @@ static const struct proxy_lazy_dirent *lazy_sort_entries;
 
 /** @brief Resize a source file; defined with the write path below. */
 static int lazy_truncate_entry(uint32_t dir_id, uint32_t entry_index, uint64_t size);
+/** @brief Write host bytes to one source file; defined with the write path below. */
+static int lazy_write_bytes(uint32_t dir_id, uint32_t entry_index, uint64_t offset,
+	const uint8_t *data, size_t length);
+/** @brief Apply one host directory sector; defined with the write path below. */
+static int lazy_write_directory(uint32_t dir_id, uint64_t offset,
+	const uint8_t data[PROXY_LAZY_SECTOR_SIZE]);
+/** @brief Claim staged clusters whose entries have appeared. */
+static int lazy_claim_runs(void);
+/** @brief Forget staged data of a cluster the host freed. */
+static void lazy_run_drop_cluster(uint32_t cluster);
 
 /* ---- small helpers ---- */
 
@@ -1493,7 +1558,7 @@ static int lazy_dir_count(struct proxy_lazy_dir *dir, uint32_t *entries, uint32_
  * @param[in] identifier Directory identifier.
  * @return 0 on success, or -ENOSPC or -ENOMEM.
  */
-static int lazy_dir_reserve_extent(uint32_t identifier)
+static int lazy_dir_reserve_extent(uint32_t identifier, uint64_t alloc_size)
 {
 	struct proxy_lazy_dir *dir = &lazy.dirs[identifier];
 	struct proxy_lazy_partition *part;
@@ -1509,7 +1574,35 @@ static int lazy_dir_reserve_extent(uint32_t identifier)
 	}
 	if (!dir->extent_ready) {
 		part = &lazy.partitions[dir->partition];
-		if (part->selected && part->mounted) {
+		if (alloc_size != 0U && part->selected && part->mounted) {
+			/*
+			 * ext4 reports the directory data length. An ext4 dirent is at
+			 * least 12 bytes, so alloc_size / 4 is an upper bound on the
+			 * exFAT slots (3 per short entry); sizing from it avoids a
+			 * count-only readdir of every child when the parent is opened.
+			 */
+			uint64_t raw_slots = alloc_size / 4U;
+			uint64_t raw_entries = raw_slots / 3U;
+
+			if (raw_slots == 0U) {
+				raw_slots = 1U;
+			}
+			if (raw_entries == 0U) {
+				raw_entries = 1U;
+			}
+			if (raw_entries > lazy.dir_max_entries) {
+				raw_entries = lazy.dir_max_entries;
+			}
+			if (raw_entries > lazy.cache_entries_max) {
+				raw_entries = lazy.cache_entries_max;
+			}
+			entries = (uint32_t)raw_entries;
+			slots = entries * 3U;
+			if (slots == 0U) {
+				slots = 1U;
+			}
+			names = slots > UINT32_MAX / 16U ? UINT32_MAX : slots * 16U;
+		} else if (part->selected && part->mounted) {
 			result = lazy_dir_count(dir, &entries, &slots, &names);
 			if (result == -ECANCELED) {
 				/* Leave the extent unreserved so a later read starts clean. */
@@ -1997,6 +2090,431 @@ static void lazy_pending_drop_cluster(uint32_t cluster)
 }
 
 /**
+ * @brief Drop unused entries from the front of the pending table.
+ *
+ * @details Migrating a stream to a staging file retires most of the table;
+ * compacting it keeps the RAM limit meaningful for later bursts.
+ */
+static void lazy_pending_compact(void)
+{
+	uint32_t kept = 0U;
+
+	for (uint32_t index = 0U; index < lazy.pending_count; index++) {
+		if (!lazy.pending[index].used) {
+			continue;
+		}
+		if (kept != index) {
+			lazy.pending[kept] = lazy.pending[index];
+		}
+		kept++;
+	}
+	lazy.pending_count = kept;
+}
+
+/**
+ * @brief Report whether the pending table holds any sector of a cluster.
+ *
+ * @param[in] cluster Cluster to look for.
+ * @return True when a sector of the cluster is waiting.
+ */
+static bool lazy_pending_has_cluster(uint32_t cluster)
+{
+	for (uint32_t index = 0U; index < lazy.pending_count; index++) {
+		if (lazy.pending[index].used && lazy.pending[index].cluster == cluster) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * @brief Read one bit of a run's per-cluster bitmap.
+ *
+ * @param[in] bits  Bitmap.
+ * @param[in] index Cluster index inside the run.
+ * @return True when the bit is set.
+ */
+static bool lazy_run_bit(const uint8_t *bits, uint32_t index)
+{
+	return (bits[index / 8U] & (uint8_t)(1U << (index % 8U))) != 0U;
+}
+
+/**
+ * @brief Set one bit of a run's per-cluster bitmap.
+ *
+ * @param[in,out] bits  Bitmap.
+ * @param[in]     index Cluster index inside the run.
+ */
+static void lazy_run_set(uint8_t *bits, uint32_t index)
+{
+	bits[index / 8U] |= (uint8_t)(1U << (index % 8U));
+}
+
+/**
+ * @brief Clear one bit of a run's per-cluster bitmap.
+ *
+ * @param[in,out] bits  Bitmap.
+ * @param[in]     index Cluster index inside the run.
+ */
+static void lazy_run_clear(uint8_t *bits, uint32_t index)
+{
+	bits[index / 8U] &= (uint8_t)~(1U << (index % 8U));
+}
+
+/**
+ * @brief Find the staging run that maps a cluster.
+ *
+ * @param[in] cluster View cluster.
+ * @return The run, or NULL.
+ */
+static struct proxy_lazy_run *lazy_run_find(uint32_t cluster)
+{
+	if (lazy.runs == NULL) {
+		return NULL;
+	}
+	for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+		struct proxy_lazy_run *run = &lazy.runs[index];
+
+		if (!run->used || cluster < run->first_cluster) {
+			continue;
+		}
+		if (cluster - run->first_cluster < run->clusters) {
+			return run;
+		}
+	}
+	return NULL;
+}
+
+/**
+ * @brief Find a run that may absorb a cluster just past its span.
+ *
+ * @details The host may skip a few clusters between two writes while it
+ * allocates ahead, so a small gap is folded into the existing run instead of
+ * starting another staging file.
+ *
+ * @param[in] cluster View cluster.
+ * @return The run with the closest end, or NULL.
+ */
+static struct proxy_lazy_run *lazy_run_extendable(uint32_t cluster)
+{
+	struct proxy_lazy_run *best = NULL;
+
+	if (lazy.runs == NULL) {
+		return NULL;
+	}
+	for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+		struct proxy_lazy_run *run = &lazy.runs[index];
+		uint32_t end;
+
+		if (!run->used || cluster < run->first_cluster) {
+			continue;
+		}
+		end = run->first_cluster + run->clusters;
+		if (cluster < end || cluster - end > CONFIG_STORAGE_PROXY_LAZY_RUN_GAP) {
+			continue;
+		}
+		if (cluster - run->first_cluster >= CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS) {
+			continue;
+		}
+		if (best == NULL || end > best->first_cluster + best->clusters) {
+			best = run;
+		}
+	}
+	return best;
+}
+
+/**
+ * @brief Release one staging run and unlink its file.
+ *
+ * @param[in,out] run Run to release.
+ */
+static void lazy_run_release(struct proxy_lazy_run *run)
+{
+	if (!run->used) {
+		return;
+	}
+	if (run->fd >= 0) {
+		(void)vfs_close(run->fd);
+		run->fd = -1;
+	}
+	(void)vfs_unlink(run->path);
+	run->used = false;
+	run->clusters = 0U;
+	run->position = 0U;
+}
+
+/**
+ * @brief Release every staging run.
+ */
+static void lazy_run_release_all(void)
+{
+	if (lazy.runs == NULL) {
+		return;
+	}
+	for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+		lazy_run_release(&lazy.runs[index]);
+	}
+	lazy.staged_sectors = 0U;
+}
+
+/**
+ * @brief Open a staging file for a stream that begins at a cluster.
+ *
+ * @details Every selected, writable source partition can host the file; the
+ * first one is used. When every slot is busy a claim pass runs first, because
+ * an entry that arrived meanwhile may have retired a run.
+ *
+ * @param[in] first First view cluster of the stream.
+ * @return The run, or NULL when no writable source or no slot is available.
+ */
+static struct proxy_lazy_run *lazy_run_create(uint32_t first)
+{
+	struct proxy_lazy_run *run = NULL;
+	uint64_t best_free = 0U;
+	uint32_t partition = PROXY_LAZY_PARTITIONS;
+
+	if (lazy.runs == NULL) {
+		return NULL;
+	}
+	/* The tail is backed by every source, so stage where the most room is. */
+	for (uint32_t index = 0U; index < PROXY_LAZY_PARTITIONS; index++) {
+		struct proxy_lazy_partition *part = &lazy.partitions[index];
+
+		if (part->selected && part->mounted && !part->volume.read_only &&
+		    (partition >= PROXY_LAZY_PARTITIONS || part->volume.free_bytes > best_free)) {
+			partition = index;
+			best_free = part->volume.free_bytes;
+		}
+	}
+	if (partition >= PROXY_LAZY_PARTITIONS) {
+		return NULL;
+	}
+	for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+		if (!lazy.runs[index].used) {
+			run = &lazy.runs[index];
+			break;
+		}
+	}
+	if (run == NULL) {
+		(void)lazy_claim_runs();
+		for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+			if (!lazy.runs[index].used) {
+				run = &lazy.runs[index];
+				break;
+			}
+		}
+	}
+	if (run == NULL) {
+		return NULL;
+	}
+	snprintf(run->path, sizeof(run->path), "%s/" PROXY_LAZY_STAGE_PREFIX "%u",
+		lazy.partitions[partition].mount, first);
+	(void)vfs_unlink(run->path);
+	run->fd = vfs_open(run->path, VFS_O_READ | VFS_O_WRITE | VFS_O_CREATE | VFS_O_TRUNC);
+	if (run->fd < 0) {
+		return NULL;
+	}
+	run->used = true;
+	run->partition = partition;
+	run->first_cluster = first;
+	run->clusters = 0U;
+	run->position = 0U;
+	memset(run->written, 0, sizeof(run->written));
+	memset(run->claimed, 0, sizeof(run->claimed));
+	memset(run->dropped, 0, sizeof(run->dropped));
+	lazy.clean = false;
+	return run;
+}
+
+/**
+ * @brief Write one host sector into a staging run.
+ *
+ * @details The sector lands at its view offset, so a sparse stretch of the
+ * stream costs no card space. New data clears the claimed bit: the cluster must
+ * be copied again after a later claim.
+ *
+ * @param[in,out] run     Run receiving the sector.
+ * @param[in]     cluster View cluster.
+ * @param[in]     sector  Sector offset inside the cluster.
+ * @param[in]     data    Sector contents.
+ * @return 0 on success, or a negative errno.
+ */
+static int lazy_run_write(struct proxy_lazy_run *run, uint32_t cluster, uint16_t sector,
+	const uint8_t data[PROXY_LAZY_SECTOR_SIZE])
+{
+	uint32_t index;
+	uint64_t offset;
+	size_t done = 0U;
+	int result = 0;
+
+	if (cluster < run->first_cluster) {
+		return -ENOSPC;
+	}
+	index = cluster - run->first_cluster;
+	if (index >= CONFIG_STORAGE_PROXY_LAZY_RUN_MAX_CLUSTERS) {
+		return -ENOSPC;
+	}
+	offset = ((uint64_t)index * PROXY_LAZY_SECTORS_PER_CLUSTER + sector) *
+		PROXY_LAZY_SECTOR_SIZE;
+	if (run->position != offset) {
+		int64_t position = vfs_lseek(run->fd, (int64_t)offset, 0);
+
+		if (position < 0) {
+			return (int)position;
+		}
+		run->position = offset;
+	}
+	while (done < PROXY_LAZY_SECTOR_SIZE) {
+		int written = vfs_write(run->fd, data + done, PROXY_LAZY_SECTOR_SIZE - done);
+
+		if (written <= 0) {
+			result = written < 0 ? written : -EIO;
+			break;
+		}
+		done += (size_t)written;
+		run->position += (uint64_t)written;
+	}
+	if (result != 0) {
+		return result;
+	}
+	lazy_run_set(run->written, index);
+	lazy_run_clear(run->dropped, index);
+	lazy_run_clear(run->claimed, index);
+	if (index + 1U > run->clusters) {
+		run->clusters = index + 1U;
+	}
+	lazy.staged_sectors++;
+	lazy.clean = false;
+	return 0;
+}
+
+/**
+ * @brief Read one staged sector back from a run.
+ *
+ * @details Reading moves the descriptor, so the cached write position is
+ * invalidated and the next append seeks explicitly.
+ *
+ * @param[in,out] run    Run to read.
+ * @param[in]     offset Byte offset inside the staging file.
+ * @param[out]    data   Destination for one sector.
+ * @return 0 on success, or a negative errno.
+ */
+static int lazy_run_read(struct proxy_lazy_run *run, uint64_t offset,
+	uint8_t data[PROXY_LAZY_SECTOR_SIZE])
+{
+	size_t done = 0U;
+	int64_t position = vfs_lseek(run->fd, (int64_t)offset, 0);
+
+	if (position < 0) {
+		return (int)position;
+	}
+	run->position = UINT64_MAX;
+	while (done < PROXY_LAZY_SECTOR_SIZE) {
+		int got = vfs_read(run->fd, data + done, PROXY_LAZY_SECTOR_SIZE - done);
+
+		if (got <= 0) {
+			return got < 0 ? got : -EIO;
+		}
+		done += (size_t)got;
+	}
+	return 0;
+}
+
+/**
+ * @brief Forget staged data of a cluster the host freed.
+ *
+ * @details The host may reuse the cluster for another file; staged bytes from
+ * the old stream must not reach the new owner.
+ *
+ * @param[in] cluster Cluster that became free.
+ */
+static void lazy_run_drop_cluster(uint32_t cluster)
+{
+	if (lazy.runs == NULL) {
+		return;
+	}
+	for (uint32_t run_index = 0U; run_index < CONFIG_STORAGE_PROXY_LAZY_RUNS; run_index++) {
+		struct proxy_lazy_run *run = &lazy.runs[run_index];
+		uint32_t index;
+
+		if (!run->used || cluster < run->first_cluster) {
+			continue;
+		}
+		index = cluster - run->first_cluster;
+		if (index >= run->clusters) {
+			continue;
+		}
+		lazy_run_set(run->dropped, index);
+		lazy_run_clear(run->written, index);
+		lazy_run_clear(run->claimed, index);
+	}
+}
+
+/**
+ * @brief Store a host sector whose directory entry has not arrived yet.
+ *
+ * @details Small bursts wait in the RAM pending table. When the table is full
+ * the whole stream, including the sectors already in RAM, moves to a staging
+ * file on the source card; further sectors append there. A stream that already
+ * has a staging run keeps using it. This is what lets a host write a large file
+ * data-first without the proxy holding the file in heap.
+ *
+ * @param[in] cluster View cluster.
+ * @param[in] sector  Sector offset inside the cluster.
+ * @param[in] data    Sector contents.
+ * @return 0 on success, or a negative errno.
+ */
+static int lazy_orphan_store(uint32_t cluster, uint16_t sector,
+	const uint8_t data[PROXY_LAZY_SECTOR_SIZE])
+{
+	struct proxy_lazy_run *run = lazy_run_find(cluster);
+
+	if (run == NULL) {
+		run = lazy_run_extendable(cluster);
+	}
+	if (run != NULL) {
+		return lazy_run_write(run, cluster, sector, data);
+	}
+	if (lazy.pending_count < CONFIG_STORAGE_PROXY_LAZY_PENDING_SECTORS) {
+		return lazy_pending_store(cluster, sector, data);
+	}
+	{
+		uint32_t start = cluster;
+
+		while (start > PROXY_LAZY_ROOT_CLUSTER_MIN &&
+		       lazy_pending_has_cluster(start - 1U)) {
+			start--;
+		}
+		run = lazy_run_create(start);
+		if (run == NULL) {
+			return -ENOSPC;
+		}
+		for (uint32_t index = 0U; index < lazy.pending_count; index++) {
+			struct proxy_lazy_pending_sector *pending = &lazy.pending[index];
+			int result;
+
+			/*
+			 * Include the current cluster: its earlier sectors are still in
+			 * RAM, and the staging file must hold them too or the claim would
+			 * read sparse zeros over the data that is still pending.
+			 */
+			if (!pending->used || pending->cluster < start ||
+			    pending->cluster > cluster) {
+				continue;
+			}
+			result = lazy_run_write(run, pending->cluster, pending->sector,
+				pending->data);
+			if (result != 0) {
+				return result;
+			}
+			pending->used = false;
+		}
+		lazy_pending_compact();
+	}
+	return lazy_run_write(run, cluster, sector, data);
+}
+
+/**
  * @brief Forget the extent of a deleted entry whose clusters the host reused.
  *
  * @details A deleted entry keeps its extent so a host that clears the old group
@@ -2078,7 +2596,8 @@ static uint32_t lazy_dir_find_child(const struct proxy_lazy_dir *parent, const c
  * @param[out]    child  Receives the child identifier.
  * @return 0 on success, or a negative errno.
  */
-static int lazy_dir_child(struct proxy_lazy_dir *parent, const char *name, uint32_t *child)
+static int lazy_dir_child(struct proxy_lazy_dir *parent, const char *name, uint64_t alloc_size,
+	uint32_t *child)
 {
 	uint32_t identifier = lazy_dir_find_child(parent, name);
 	int result;
@@ -2100,7 +2619,7 @@ static int lazy_dir_child(struct proxy_lazy_dir *parent, const char *name, uint3
 		}
 	}
 	/* An earlier load may have run out of reservation before the extent existed. */
-	result = lazy_dir_reserve_extent(identifier);
+	result = lazy_dir_reserve_extent(identifier, alloc_size);
 	if (result != 0) {
 		return result;
 	}
@@ -2542,6 +3061,7 @@ static int lazy_dir_load(uint32_t identifier)
 	uint32_t count = 0U;
 	uint32_t needed = 0U;
 	uint32_t cursor;
+	uint32_t overlay_records;
 	int error = 0;
 	int result;
 
@@ -2556,7 +3076,7 @@ static int lazy_dir_load(uint32_t identifier)
 	if (lazy_cancel_requested()) {
 		return -ECANCELED;
 	}
-	result = lazy_dir_reserve_extent(identifier);
+	result = lazy_dir_reserve_extent(identifier, 0U);
 	if (result != 0) {
 		return result;
 	}
@@ -2569,7 +3089,8 @@ static int lazy_dir_load(uint32_t identifier)
 	if (maximum > lazy.dir_max_entries) {
 		maximum = lazy.dir_max_entries;
 	}
-	capacity = maximum + lazy_overlay_dir_count(identifier) +
+	overlay_records = lazy_overlay_dir_count(identifier);
+	capacity = maximum + overlay_records +
 		CONFIG_STORAGE_PROXY_LAZY_DIR_ENTRY_SLACK;
 	if (capacity > lazy.cache_entries_max) {
 		capacity = lazy.cache_entries_max;
@@ -2637,8 +3158,8 @@ static int lazy_dir_load(uint32_t identifier)
 	result = vfs_readdir(handle, entry);
 	while (result == 0 && count < maximum) {
 		struct proxy_lazy_dirent *item;
-		struct proxy_lazy_overlay *record = lazy_overlay_find_name(identifier,
-			entry->name);
+		struct proxy_lazy_overlay *record = overlay_records != 0U ?
+			lazy_overlay_find_name(identifier, entry->name) : NULL;
 		uint32_t name_offset;
 
 		if (record != NULL && record->deleted) {
@@ -2665,9 +3186,21 @@ static int lazy_dir_load(uint32_t identifier)
 			item->host_owned = true;
 			item->fat_chain = record->fat_chain;
 		} else {
-			item->slot = lazy_free_slot(identifier, dir, count,
-				item->entries, slot_cursor);
-			slot_cursor = item->slot + item->entries;
+			/*
+			 * Without a host overlay the source order is the slot order, so
+			 * the next slot is simply the cursor. The general helper scans
+			 * every entry already added and every overlay record for each
+			 * new entry, which is quadratic on a directory with a thousand
+			 * files.
+			 */
+			if (overlay_records == 0U) {
+				item->slot = slot_cursor;
+				slot_cursor += item->entries;
+			} else {
+				item->slot = lazy_free_slot(identifier, dir, count,
+					item->entries, slot_cursor);
+				slot_cursor = item->slot + item->entries;
+			}
 			if (slot_cursor < item->slot) {
 				slot_cursor = item->entries;
 			}
@@ -2675,7 +3208,7 @@ static int lazy_dir_load(uint32_t identifier)
 		if (item->directory) {
 			uint32_t child;
 
-			result = lazy_dir_child(dir, entry->name, &child);
+			result = lazy_dir_child(dir, entry->name, entry->st.alloc_size, &child);
 			if (result == -ENOSPC) {
 				dir->truncated = true;
 				lazy.truncated = true;
@@ -3061,7 +3594,7 @@ static int lazy_render_root_slot(uint32_t slot, uint8_t entry[32])
 			}
 			{
 				struct proxy_lazy_dir *dir = &lazy.dirs[root_entry->dir_id];
-				int result = lazy_dir_reserve_extent(root_entry->dir_id);
+				int result = lazy_dir_reserve_extent(root_entry->dir_id, 0U);
 
 				if (result != 0) {
 					return result;
@@ -3202,6 +3735,8 @@ static uint32_t lazy_root_text(uint32_t kind, char *buffer, size_t capacity)
 			}
 		}
 		used = lazy_text_add(buffer, capacity, used, "LAZYVIEW layout");
+		used = lazy_text_add(buffer, capacity, used, "cluster_bytes=%u",
+			(uint32_t)PROXY_LAZY_CLUSTER_SIZE);
 		used = lazy_text_add(buffer, capacity, used, "total_clusters=%u",
 			lazy.total_clusters);
 		used = lazy_text_add(buffer, capacity, used, "reserved_clusters=%u", reserved);
@@ -3562,6 +4097,149 @@ static int lazy_claim_pending_dir(uint32_t dir_id)
 	}
 	lazy.pending_count = kept;
 	return 0;
+}
+
+/**
+ * @brief Copy staged clusters whose directory entries have appeared.
+ *
+ * @details Each written cluster of a staging run is looked up in the range
+ * index. A file range takes the staged sector at its file offset, capped by the
+ * source valid length; a directory range feeds the sector back through the
+ * directory writer. Clusters with no range yet stay staged, and a run whose
+ * every written cluster was claimed or freed is released and its file unlinked.
+ * A guard keeps a directory write triggered by a claim from recursing.
+ *
+ * @return 0 on success, or a negative errno that stopped the copy.
+ */
+static int lazy_claim_runs(void)
+{
+	uint8_t sector[PROXY_LAZY_SECTOR_SIZE];
+	int result = 0;
+
+	if (lazy.runs == NULL || lazy.claiming) {
+		return 0;
+	}
+	lazy.claiming = true;
+	for (uint32_t run_index = 0U;
+	     run_index < CONFIG_STORAGE_PROXY_LAZY_RUNS && result == 0; run_index++) {
+		struct proxy_lazy_run *run = &lazy.runs[run_index];
+		bool done = true;
+
+		if (!run->used) {
+			continue;
+		}
+		for (uint32_t offset = 0U; offset < run->clusters && result == 0; offset++) {
+			uint32_t cluster = run->first_cluster + offset;
+			struct proxy_lazy_range range;
+
+			if (lazy_run_bit(run->claimed, offset)) {
+				continue;
+			}
+			if (lazy_run_bit(run->dropped, offset) ||
+			    !lazy_run_bit(run->written, offset)) {
+				lazy_run_set(run->claimed, offset);
+				continue;
+			}
+			if (lazy_range_find(cluster, &range) != 0) {
+				done = false;
+				continue;
+			}
+			if (range.kind == PROXY_LAZY_RANGE_DATA) {
+				uint32_t entry_index;
+				uint64_t file_offset;
+				uint32_t sectors;
+
+				if (!lazy.dirs[range.dir_id].cache_ready) {
+					result = lazy_dir_load(range.dir_id);
+					if (result != 0) {
+						break;
+					}
+				}
+				entry_index = lazy_entry_by_slot(&lazy.dirs[range.dir_id], range.slot);
+				if (entry_index == UINT32_MAX ||
+				    lazy.dirs[range.dir_id].entries[entry_index].deleted) {
+					done = false;
+					continue;
+				}
+				{
+					const struct proxy_lazy_dirent *item =
+						&lazy.dirs[range.dir_id].entries[entry_index];
+
+					file_offset = ((uint64_t)range.offset +
+						(cluster - range.base)) * PROXY_LAZY_CLUSTER_SIZE;
+					if (item->directory || file_offset >= item->size) {
+						lazy_run_set(run->claimed, offset);
+						continue;
+					}
+					sectors = PROXY_LAZY_SECTORS_PER_CLUSTER;
+					if (item->size - file_offset <
+					    (uint64_t)sectors * PROXY_LAZY_SECTOR_SIZE) {
+						sectors = (uint32_t)((item->size - file_offset +
+							PROXY_LAZY_SECTOR_SIZE - 1U) /
+							PROXY_LAZY_SECTOR_SIZE);
+					}
+				}
+				for (uint32_t sector_index = 0U;
+				     sector_index < sectors && result == 0; sector_index++) {
+					uint64_t staged = ((uint64_t)offset *
+						PROXY_LAZY_SECTORS_PER_CLUSTER + sector_index) *
+						PROXY_LAZY_SECTOR_SIZE;
+
+					result = lazy_run_read(run, staged, sector);
+					if (result == 0) {
+						result = lazy_write_bytes(range.dir_id, entry_index,
+							file_offset + (uint64_t)sector_index *
+							PROXY_LAZY_SECTOR_SIZE,
+							sector, PROXY_LAZY_SECTOR_SIZE);
+					}
+				}
+				if (result == 0) {
+					lazy_run_set(run->claimed, offset);
+				}
+			} else if (range.kind == PROXY_LAZY_RANGE_DIRECTORY) {
+				for (uint32_t sector_index = 0U;
+				     sector_index < PROXY_LAZY_SECTORS_PER_CLUSTER &&
+				     result == 0; sector_index++) {
+					uint64_t staged = ((uint64_t)offset *
+						PROXY_LAZY_SECTORS_PER_CLUSTER + sector_index) *
+						PROXY_LAZY_SECTOR_SIZE;
+					uint64_t directory_offset = ((uint64_t)range.offset +
+						(cluster - range.base)) * PROXY_LAZY_CLUSTER_SIZE +
+						(uint64_t)sector_index * PROXY_LAZY_SECTOR_SIZE;
+
+					result = lazy_run_read(run, staged, sector);
+					if (result == 0) {
+						result = lazy_write_directory(range.dir_id,
+							directory_offset, sector);
+					}
+				}
+				if (result == 0) {
+					lazy_run_set(run->claimed, offset);
+				}
+			} else {
+				done = false;
+			}
+		}
+		if (result != 0) {
+			break;
+		}
+		for (uint32_t offset = 0U; offset < run->clusters; offset++) {
+			if (!lazy_run_bit(run->claimed, offset) &&
+			    lazy_run_bit(run->written, offset) &&
+			    !lazy_run_bit(run->dropped, offset)) {
+				done = false;
+				break;
+			}
+		}
+		if (done) {
+			lazy_run_release(run);
+		}
+	}
+	lazy.claiming = false;
+	if (result != 0) {
+		lazy.last_error = result;
+	}
+	return result;
 }
 
 /**
@@ -3960,6 +4638,7 @@ static int lazy_create_entry(uint32_t dir_id, const char *name, bool directory,
 		for (uint32_t cluster = extent_first;
 		     cluster < extent_first + extent_clusters; cluster++) {
 			lazy_pending_drop_cluster(cluster);
+			lazy_run_drop_cluster(cluster);
 		}
 	} else if (size != 0U && extent_first < PROXY_LAZY_ROOT_CLUSTER_MIN) {
 		lazy_source_remove(dir_id, name, false);
@@ -4367,13 +5046,17 @@ static int lazy_write_directory(uint32_t dir_id, uint64_t offset,
 			data_length = lazy_get_le64(stream + 24U);
 			valid_length = lazy_get_le64(stream + 8U);
 			/*
-			 * A host reserves whole clusters in DataLength; only
-			 * ValidDataLength exists. Taking the larger one would pad the
-			 * source file with zeros.
+			 * DataLength is the file size the host sees; ValidDataLength only
+			 * says how much of it was physically written. A host that creates
+			 * or preallocates a file (fsutil createnew, a copy engine setting
+			 * the final size) leaves ValidDataLength at zero while DataLength
+			 * is already the final size, so clamping to the smaller value
+			 * would expose a zero-byte file and lose the stream waiting in
+			 * staging. The source file is truncated to DataLength instead;
+			 * the unwritten range reads back as zeros, exactly as exFAT
+			 * specifies between the two lengths.
 			 */
-			if (!directory && valid_length < data_length) {
-				data_length = valid_length;
-			}
+			(void)valid_length;
 			host_slot = (uint32_t)(offset / 32U) - head_slots + slot;
 			result = lazy_sync_entry(dir_id, name, directory, first_cluster,
 				data_length, fat_chain, host_slot);
@@ -4393,6 +5076,10 @@ static int lazy_write_directory(uint32_t dir_id, uint64_t offset,
 			return result;
 		}
 		result = lazy_claim_pending_dir(dir_id);
+		if (result != 0) {
+			return result;
+		}
+		result = lazy_claim_runs();
 		if (result != 0) {
 			return result;
 		}
@@ -4546,6 +5233,7 @@ static int lazy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_LA
 						}
 						if (was && !used) {
 							lazy_pending_drop_cluster(number);
+							lazy_run_drop_cluster(number);
 							lazy_range_remove_data_cluster(number);
 							lazy_forget_freed_cluster(number);
 						}
@@ -4647,7 +5335,7 @@ static int lazy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_LA
 	 * Keep the data until an entry claims the extent; if none ever does, the
 	 * bounded pending table drops it without touching a source file.
 	 */
-	return lazy_pending_store(cluster, sector_in_cluster, data);
+	return lazy_orphan_store(cluster, sector_in_cluster, data);
 }
 
 /* ---- view geometry ---- */
@@ -4655,10 +5343,12 @@ static int lazy_write_sector(uint64_t sector_number, const uint8_t data[PROXY_LA
 /**
  * @brief Compute the reservation of one selected partition.
  *
- * @details ext volumes reserve one view cluster per used 32 KiB of data plus
- * one per used inode, which pays for the 32 KiB rounding of small files and
- * for the directory extents. FAT volumes have no inode count, so one source
- * cluster per used source cluster plus a fixed file allowance is reserved.
+ * @details ext volumes reserve one view cluster per used 4 KiB of data plus a
+ * small margin for directory extents; the source block already rounds each
+ * file to at least one 4 KiB block, so the old per-inode cluster no longer
+ * belongs in the sum. FAT volumes have no inode count, so the larger of the
+ * view cluster count and the source cluster count covers a source cluster
+ * smaller than the view cluster; a fixed file allowance covers directory data.
  *
  * @param[in,out] part Partition to size.
  * @return 0 on success, or -EFBIG when the reservation does not fit a cluster count.
@@ -4677,14 +5367,15 @@ static int lazy_compute_reservation(struct proxy_lazy_partition *part)
 		part->volume.total_bytes - part->volume.free_bytes : 0U;
 	used_clusters = (used_bytes + PROXY_LAZY_CLUSTER_SIZE - 1U) / PROXY_LAZY_CLUSTER_SIZE;
 	if (strncmp(part->volume.fstype, "ext", 3U) == 0) {
-		reservation = used_clusters + part->volume.used_inodes + 8U;
+		reservation = used_clusters + used_clusters / 16U + 8U;
 	} else {
 		uint64_t counted = used_clusters;
 
 		/*
 		 * The larger of the view cluster count and the source cluster count
 		 * covers both a small-cluster volume with many tiny files and a
-		 * large-cluster volume whose view rounds every file up to 32 KiB.
+		 * large-cluster volume whose view rounds every file up to a view
+		 * cluster.
 		 */
 		if (part->volume.cluster_bytes != 0U) {
 			uint64_t source_clusters = used_bytes / part->volume.cluster_bytes;
@@ -4693,12 +5384,7 @@ static int lazy_compute_reservation(struct proxy_lazy_partition *part)
 				counted = source_clusters;
 			}
 		}
-		if (counted * 2U > counted + CONFIG_STORAGE_PROXY_LAZY_FILE_ALLOWANCE) {
-			reservation = counted * 2U;
-		} else {
-			reservation = counted + CONFIG_STORAGE_PROXY_LAZY_FILE_ALLOWANCE;
-		}
-		reservation += 8U;
+		reservation = counted + CONFIG_STORAGE_PROXY_LAZY_FILE_ALLOWANCE + 8U;
 	}
 	if (reservation < 8U) {
 		reservation = 8U;
@@ -4845,7 +5531,7 @@ static void lazy_boot_record(uint32_t record, uint8_t sector[PROXY_LAZY_SECTOR_S
 	lazy_put_le16(sector + 104U, 0x0100U);
 	lazy_put_le16(sector + 106U, 0U);
 	sector[108] = 9U;
-	sector[109] = 6U;
+	sector[109] = (uint8_t)PROXY_LAZY_SECTORS_PER_CLUSTER_SHIFT;
 	sector[110] = 1U;
 	sector[111] = 0x80U;
 	if (lazy.total_clusters == 0U) {
@@ -5233,7 +5919,10 @@ static int lazy_flush_locked(void)
 	if (lazy.clean) {
 		return 0;
 	}
-	result = lazy_enforce_sizes_locked();
+	result = lazy_claim_runs();
+	if (result == 0) {
+		result = lazy_enforce_sizes_locked();
+	}
 	if (result == 0) {
 		result = lazy_apply_deletes_locked();
 	}
@@ -5252,6 +5941,78 @@ static int lazy_flush_locked(void)
 		pr_warn("lazy proxy: flush failed: %d\n", result);
 	}
 	return result;
+}
+
+/**
+ * @brief Write one host request straight into a file when it maps contiguously.
+ *
+ * @details A host sends large transfers for a file it already announced, so
+ * every sector of the request maps to the same data range. One @c vfs_write of
+ * the whole request replaces one 512-byte write per sector and avoids the
+ * journal and block-cache overhead that made a large copy crawl.
+ *
+ * @param[in]  sector First logical sector.
+ * @param[in]  input  Sector contents.
+ * @param[in]  count  Sectors available.
+ * @param[out] result Receives the write error when sectors were consumed.
+ * @return Sectors consumed; zero when the request needs the sector path.
+ */
+static uint32_t lazy_write_data_run(uint64_t sector, const uint8_t *input, uint32_t count,
+	int *result)
+{
+	struct proxy_lazy_range range;
+	uint64_t relative;
+	uint32_t cluster;
+	uint32_t sector_in_cluster;
+	uint32_t entry_index;
+	uint64_t file_offset;
+	uint64_t last_cluster;
+	uint64_t length;
+
+	if (sector < lazy.data_start || count == 0U) {
+		return 0U;
+	}
+	relative = sector - lazy.data_start;
+	cluster = (uint32_t)(relative / PROXY_LAZY_SECTORS_PER_CLUSTER) +
+		PROXY_LAZY_ROOT_CLUSTER_MIN;
+	sector_in_cluster = (uint16_t)(relative % PROXY_LAZY_SECTORS_PER_CLUSTER);
+	if (lazy_range_find(cluster, &range) != 0 ||
+	    range.kind != PROXY_LAZY_RANGE_DATA) {
+		return 0U;
+	}
+	last_cluster = (uint64_t)cluster +
+		((uint64_t)sector_in_cluster + count - 1U) / PROXY_LAZY_SECTORS_PER_CLUSTER;
+	if (last_cluster >= (uint64_t)range.base + range.clusters) {
+		return 0U;
+	}
+	if (!lazy.dirs[range.dir_id].cache_ready) {
+		*result = lazy_dir_load(range.dir_id);
+		if (*result != 0) {
+			return 0U;
+		}
+	}
+	entry_index = lazy_entry_by_slot(&lazy.dirs[range.dir_id], range.slot);
+	if (entry_index == UINT32_MAX ||
+	    lazy.dirs[range.dir_id].entries[entry_index].deleted ||
+	    lazy.dirs[range.dir_id].entries[entry_index].directory) {
+		return 0U;
+	}
+	file_offset = ((uint64_t)range.offset + (cluster - range.base)) *
+		PROXY_LAZY_CLUSTER_SIZE +
+		(uint64_t)sector_in_cluster * PROXY_LAZY_SECTOR_SIZE;
+	length = (uint64_t)count * PROXY_LAZY_SECTOR_SIZE;
+	if (file_offset >= lazy.dirs[range.dir_id].entries[entry_index].size ||
+	    length > lazy.dirs[range.dir_id].entries[entry_index].size - file_offset) {
+		return 0U;
+	}
+	/* This write supersedes anything still staged for the same clusters. */
+	for (uint32_t number = cluster; number <= last_cluster; number++) {
+		lazy_pending_drop_cluster(number);
+		lazy_run_drop_cluster(number);
+	}
+	*result = lazy_write_bytes(range.dir_id, entry_index, file_offset, input,
+		(size_t)length);
+	return count;
 }
 
 /**
@@ -5289,12 +6050,23 @@ static int lazy_disk_write(struct gendisk *disk, uint64_t sector, const void *bu
 		return -EINVAL;
 	}
 	lazy.clean = false;
-	for (uint32_t index = 0U; index < count; index++) {
+	for (uint32_t index = 0U; index < count;) {
+		uint32_t consumed = lazy_write_data_run(sector + index,
+			input + (size_t)index * PROXY_LAZY_SECTOR_SIZE, count - index, &result);
+
+		if (consumed != 0U) {
+			if (result != 0) {
+				break;
+			}
+			index += consumed;
+			continue;
+		}
 		result = lazy_write_sector(sector + index,
 			input + (size_t)index * PROXY_LAZY_SECTOR_SIZE);
 		if (result != 0) {
 			break;
 		}
+		index++;
 	}
 	lazy.sectors_written += count;
 	if (result != 0) {
@@ -5366,6 +6138,11 @@ static void lazy_release(void)
 		(void)vfs_close(lazy.cached_fd);
 		lazy.cached_fd = -1;
 	}
+	/* Staging files live on the sources, so they must go before the unmounts. */
+	lazy_run_release_all();
+	lazy_free(lazy.runs);
+	lazy.runs = NULL;
+	lazy.claiming = false;
 	if (lazy.dirs != NULL) {
 		for (uint32_t index = 0U; index < lazy.dir_count; index++) {
 			lazy_free(lazy.dirs[index].entries);
@@ -5420,6 +6197,7 @@ static void lazy_release(void)
 	lazy.overlay_count = 0U;
 	lazy.overlay_name_used = 0U;
 	lazy.pending_count = 0U;
+	lazy.staged_sectors = 0U;
 	lazy.fat_count = 0U;
 	lazy.split_slots = 0U;
 	lazy.split_dir = PROXY_LAZY_INVALID_DIR;
@@ -5759,18 +6537,24 @@ int storage_proxy_lazy_start(const char *source_disk, uint32_t selected_partitio
 	lazy.overlay_names = lazy_alloc(CONFIG_STORAGE_PROXY_LAZY_OVERLAY_NAME_BYTES);
 	lazy.pending = lazy_calloc(CONFIG_STORAGE_PROXY_LAZY_PENDING_SECTORS,
 		sizeof(*lazy.pending));
+	lazy.runs = lazy_calloc(CONFIG_STORAGE_PROXY_LAZY_RUNS, sizeof(*lazy.runs));
 	lazy.fat_log = lazy_calloc(CONFIG_STORAGE_PROXY_LAZY_FAT_ENTRIES,
 		sizeof(*lazy.fat_log));
 	if (lazy.dirs == NULL || lazy.name_arena == NULL || lazy.overlay == NULL ||
-	    lazy.overlay_names == NULL || lazy.pending == NULL || lazy.fat_log == NULL) {
+	    lazy.overlay_names == NULL || lazy.pending == NULL || lazy.runs == NULL ||
+	    lazy.fat_log == NULL) {
 		result = -ENOMEM;
 		goto fail;
+	}
+	for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+		lazy.runs[index].fd = -1;
 	}
 	lazy.dir_count = 0U;
 	lazy.name_used = 0U;
 	lazy.overlay_count = 0U;
 	lazy.overlay_name_used = 0U;
 	lazy.pending_count = 0U;
+	lazy.staged_sectors = 0U;
 	lazy.fat_count = 0U;
 	lazy.range_count = 0U;
 	lazy.range_capacity = 0U;
@@ -6034,6 +6818,28 @@ void storage_proxy_lazy_test_limits(uint32_t cache_entries, uint32_t cache_bytes
 	lazy.dir_max_entries = dir_max_entries != 0U ? dir_max_entries :
 		CONFIG_STORAGE_PROXY_LAZY_DIR_MAX_ENTRIES;
 }
+
+/**
+ * @brief Snapshot the write staging counters for a host test.
+ *
+ * @param[out] stats Receives the counters; cleared when the view is stopped.
+ */
+void storage_proxy_lazy_test_stats(struct storage_proxy_lazy_test_stats *stats)
+{
+	uint32_t runs = 0U;
+
+	memset(stats, 0, sizeof(*stats));
+	if (lazy.runs != NULL) {
+		for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+			if (lazy.runs[index].used) {
+				runs++;
+			}
+		}
+	}
+	stats->pending_sectors = lazy.pending_count;
+	stats->active_runs = runs;
+	stats->staged_sectors = lazy.staged_sectors;
+}
 #endif
 
 /**
@@ -6079,6 +6885,7 @@ int storage_proxy_lazy_layout(struct storage_proxy_lazy_layout *layout)
 	}
 	memset(layout, 0, sizeof(*layout));
 	layout->total_clusters = lazy.total_clusters;
+	layout->cluster_bytes = (uint32_t)PROXY_LAZY_CLUSTER_SIZE;
 	layout->data_start = lazy.data_start;
 	layout->bitmap_cluster = lazy.bitmap_cluster;
 	layout->bitmap_bytes = lazy.bitmap_bytes;
@@ -6187,15 +6994,23 @@ static int command_lazyproxy(int argc, char **argv)
 	}
 	if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
 		struct storage_proxy_lazy_layout layout;
+		uint32_t active_runs = 0U;
 
+		for (uint32_t index = 0U; index < CONFIG_STORAGE_PROXY_LAZY_RUNS; index++) {
+			if (lazy.runs != NULL && lazy.runs[index].used) {
+				active_runs++;
+			}
+		}
 		printf("lazy proxy: %s, source %s, dirs %u, ranges %u\n",
 			lazy.running ? "running" : "stopped", lazy.source_name,
 			lazy.dir_count, lazy.range_count);
 		printf("  cache %u entries, %u bytes, %u evictions, truncated %d, last error %d\n",
 			lazy.cache_entries, lazy.cache_bytes, lazy.evictions, lazy.truncated ? 1 : 0,
 			lazy.last_error);
-		printf("  overlay %u records, pending %u sectors, clean %d, flush failed %d\n",
-			lazy.overlay_count, lazy.pending_count, lazy.clean ? 1 : 0,
+		printf("  overlay %u records, pending %u sectors, staged %llu sectors in %u/%u runs, clean %d, flush failed %d\n",
+			lazy.overlay_count, lazy.pending_count,
+			(unsigned long long)lazy.staged_sectors, active_runs,
+			(unsigned int)CONFIG_STORAGE_PROXY_LAZY_RUNS, lazy.clean ? 1 : 0,
 			lazy.flush_failed ? 1 : 0);
 		printf("  read %llu sectors, served %llu file bytes\n",
 			(unsigned long long)lazy.sectors_read, (unsigned long long)lazy.file_bytes);

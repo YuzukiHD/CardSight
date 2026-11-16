@@ -57,6 +57,7 @@
  */
 struct vfs_stat {
 	uint64_t size; /**< Size in bytes. */
+	uint64_t alloc_size; /**< Allocated bytes, or zero when the type cannot report it. */
 	bool dir; /**< Whether the entry is a directory. */
 	bool read_only; /**< Whether the entry cannot be changed. */
 	uint16_t date; /**< Date of the last write, DOS format (0 when not known). */
