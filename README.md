@@ -9,7 +9,7 @@ CardSight 是 Yuzuki CardSight（V861/V881，C907）板上的相机/存储应用
 - 板级描述：`software/board/`（板级 C 数组/结构体与链接脚本，不使用设备树）
 - 第三方：`software/third_party/`（全部是 git submodule：FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit）
 - 硬件设计：`hardware/`（原理图、PCB、BOM）
-- 文档：`docs/`
+- 文档：<https://yuzukihd.github.io/CardSight/>（源码在 `docs/`，含可交互的界面 WebAssembly 实例）
 
 ## 板上验证状态
 
@@ -18,13 +18,13 @@ CardSight 是 Yuzuki CardSight（V861/V881，C907）板上的相机/存储应用
 - 内核：FreeRTOS V11.3.3 + 自写 RISC-V 启动/PLIC/CLINT；UART 控制台与 shell、
   `INITCALL` 初始化链、newlib、与 SyterKit 相同格式的彩色时间戳日志。
 - 存储：SD 卡识别到 **SDR104 200 MHz、四位、CMD19 调谐**；MBR/GPT 解析、
-  FatFs（FAT/exFAT）与 lwext4（ext4）、格式化、VFS 挂载；存储代理可建立只读 exFAT 视图。
-  读入片上 SRAM 的实测为 **62 MiB/s**；读入 PSRAM 约 9.6 MiB/s（PSRAM 写入路径限制，
-  见 `docs/hardware.md`）。
+  FatFs（FAT/exFAT）与 lwext4（ext4）、格式化、VFS 挂载；存储代理可建立 exFAT 视图，
+  主机写入经 overlay 和 staging 写回源分区。读入片上 SRAM 的实测为 **62 MiB/s**；读入
+  PSRAM 约 9.6 MiB/s（PSRAM 写入路径限制，见[硬件说明](https://yuzukihd.github.io/CardSight/hardware/)）。
 - 显示/触摸：ST7789 240×284 出图，颜色（红绿蓝白黑）与界面在实屏上确认正常；LVGL 9.6
   刷新无错误；CST816D 轮询触摸初始化成功；`cardsight ui-test` PASS。关键修复：GPIO 输出
   方向（DC/RST）、SPI 的 DHB/DDB/SDM 位、以及像素高字节在前的字节序。
-- USB：MUSB + CherryUSB MSC；`cardsight usb on` 导出代理视图（只读），Windows 枚举为
+- USB：MUSB + CherryUSB MSC；`cardsight usb on` 导出代理视图（读写），Windows 枚举为
   `VID_1D6B/PID_0105`，挂载 exFAT 卷并读到目录与文件（同一文件三次枚举读到的 SHA256 一致）；
   `cardsight usb disk` 导出整盘（只读），Windows 读到真实 GPT 与 FAT32 分区并读出文件；
   `cardsight usb-test` PASS。
@@ -33,9 +33,9 @@ CardSight 是 Yuzuki CardSight（V861/V881，C907）板上的相机/存储应用
   插回后重新识别到 SDR104 200 MHz；`mmc soak 20` 另外跑 20 次移除/重新识别 0 失败。
 - 主机：`ctest` 存储代理矩阵 PASS（FAT32/exFAT/ext4/混合分区、GPT 布局、VFS）。
 
-板子的已知限制写在 [docs/hardware.md](docs/hardware.md)：SMHC 模块时钟 mux 2 不可用
-（所以最高档是 200 MHz 而不是 150/208）；PSRAM 写入约 10 MB/s；片上 SRAM 才是高速
-DMA 的目标。拔卡后若卡上还有未刷写的数据，代理会报 `flush failed`（数据无法写回），
+板子的已知限制写在[硬件说明](https://yuzukihd.github.io/CardSight/hardware/)：SMHC 模块时钟
+mux 2 不可用（所以最高档是 200 MHz 而不是 150/208）；PSRAM 写入约 10 MB/s；片上 SRAM 才是
+高速 DMA 的目标。拔卡后若卡上还有未刷写的数据，代理会报 `flush failed`（数据无法写回），
 这是拔出时唯一无法避免的损失。
 
 ## 构建
@@ -69,6 +69,15 @@ ctest --test-dir build/host --output-on-failure
 ./software/scripts/release.sh 0.1.0     # 产物：dist/cardsight-0.1.0.tar.gz
 ```
 
+文档站（可选，需要 Emscripten 来编译界面 WebAssembly 模拟器；步骤见 `docs/README.md`）：
+
+```sh
+cd docs
+npm ci
+npm run build        # 先构建 wasm，再输出到 docs/dist/
+npm run dev          # http://localhost:4321/CardSight/
+```
+
 ## 烧写与启动（FEL）
 
 ```sh
@@ -80,7 +89,7 @@ xfel exec  0x00100000          # E907 启动 C907（entry = 0x12000000）
 ```
 
 串口：UART0，PH13/PH14，115200 8N1。更完整的三步链、FEL 约束与 eFEX 说明见
-[docs/fel.md](docs/fel.md)。
+[烧写与启动](https://yuzukihd.github.io/CardSight/fel/)。
 
 ## 使用
 
@@ -94,17 +103,18 @@ xfel exec  0x00100000          # E907 启动 C907（entry = 0x12000000）
 | `mmc eject` / `insert` / `soak [n]` | 驱动热插拔路径（模拟移除、重新识别、批量 soak） |
 | `mount [blk target [fstype]]` / `umount` / `ls` / `cat` / `df` / `write` | VFS |
 | `display color <rgb565>` | 整屏填色（屏自检） |
-| `lvgl [reset]` | LVGL 刷新统计 |
-| `storageproxy start <disk> [mask]` / `stop` / `status` | exFAT 视图代理 |
+| `lvgl [reset\|bench]` | LVGL 刷新统计 / 重绘基准 |
+| `lazyproxy start <disk> [mask]` / `stop` / `usb on\|rw\|off` / `status` | 界面使用的懒索引 exFAT 代理 `cardview1` |
+| `storageproxy start <disk> [mask]` / `stop` / `status` | 全量索引 exFAT 代理 `cardview0`（诊断用） |
 | `cardsight page <direct\|proxy\|disk\|info\|layout>` | 切换界面页 |
 | `cardsight ui-test` | 界面自检 |
 | `cardsight usb-test` | USB 只读生命周期自检 |
-| `cardsight usb on\|off` | 启动/停止 USB 大容量设备（导出代理视图，只读） |
-| `cardsight usb disk` | 导出整盘（只读），用于主机侧核对真实分区 |
+| `cardsight usb on\|off\|disk` | 代理视图的 USB 导出（读写）、停止，或只读导出整盘 |
 
-USB：`cardsight usb on` 之后把板子的 OTG 口接到主机；Windows 会识别为
-`CardSight SD Card` 并挂载 exFAT 卷（代理视图，只读）。`cardsight usb off` 停止。
-写卡只应在界面里对选定分区执行格式化/代理写入时发生。
+USB：`lazyproxy start mmcblk0 0x3` 和 `lazyproxy usb rw` 之后把板子的 OTG 口接到主机；
+Windows 会识别为 `CardSight SD Card` 并挂载 exFAT 卷。主机的写入经 overlay 和 staging 写回
+源分区；`lazyproxy usb on` 则是只读导出。`cardsight usb disk` 只读导出整卡，用于核对真实
+分区表。停止用 `lazyproxy usb off` / `lazyproxy stop`，或界面里的“安全停止”。
 
 ## 目录
 
@@ -115,11 +125,12 @@ USB：`cardsight usb on` 之后把板子的 OTG 口接到主机；Windows 会识
 | `software/src/` | 平台实现；驱动按子系统拆分（SPI、显示、触摸、I2C，MMC 分 host/core/card） |
 | `software/include/` | 平台 API（`vfs.h`、`hal/*`、`usb/mass_storage.h`、`gui/lvgl_port.h`） |
 | `software/tests/host/` | 主机测试（存储代理矩阵、VFS、分区布局、UI） |
-| `software/patches/` | 上游组件的板级补丁（CherryUSB） |
+| `software/patches/` | 上游组件的板级补丁（CherryUSB、lwext4） |
 | `software/third_party/` | 第三方 submodule（FreeRTOS、LVGL、CherryUSB、lwext4、FatFs、SyterKit） |
 | `software/board/` | 板级常量数组（`cardsight_board.c/.h`）与链接脚本（`cardsight.ld`） |
 | `hardware/` | 硬件设计资料（原理图、PCB、BOM） |
-| `docs/` | 启动、硬件、移植、许可说明 |
+| `docs/` | Astro/Starlight 文档站，含界面 WebAssembly 模拟器的构建脚本 |
+| `software/tests/wasm/` | 用 Emscripten 编译真实 UI 的模拟器源码 |
 | `dist/` | 发布产物（不入库） |
 
 ## 许可
@@ -128,6 +139,6 @@ USB：`cardsight usb on` 之后把板子的 OTG 口接到主机；Windows 会识
 与各自目录下的许可证文件。字体来自 Source Sans，按 SIL OFL 1.1 随附
 （`software/apps/cardsight/FONT_LICENSE.txt`）。
 
-> 注意：`software/third_party/SyterKit` 固定在一个包含本板支持（`boards/yuzuki-cardsight`）的提交上。
-> 首次公开发布前要先把这个提交推到 `.gitmodules` 里的公开仓库，否则外部无法初始化子模块。
-> 详见 [docs/licensing.md](docs/licensing.md)。
+> 注意：`software/third_party/SyterKit` 固定在公开仓库中包含本板支持
+> （`boards/yuzuki-cardsight`）的提交上。改子模块指针时要确认该提交已经推到上游，否则外部
+> 无法初始化子模块。详见[许可](https://yuzukihd.github.io/CardSight/licensing/)。

@@ -1,0 +1,56 @@
+---
+// The interactive demo: a canvas driven by the real LVGL UI compiled to
+// WebAssembly, plus page and scene shortcuts handled by the docs wrapper.
+// public/enhance.js finds [data-cs-sim] and mounts the module.
+interface Props {
+	/** Omit the scene shortcuts and keep only the page tabs. */
+	compact?: boolean;
+}
+const { compact = false } = Astro.props;
+---
+<div class:list={["cs-sim", { "cs-sim--compact": compact }]} data-cs-sim>
+	<div class="cs-sim__stage">
+		<div class="cs-sim__bezel">
+			<canvas width="240" height="284" aria-label="CardSight 界面 WebAssembly 模拟器"></canvas>
+		</div>
+		<p class="cs-sim__caption">真实 UI 的 WebAssembly 构建 · 240 × 284 · 可直接触摸/拖动</p>
+	</div>
+	<div class="cs-sim__controls">
+		<div class="cs-sim__group" role="group" aria-label="切换页面">
+			<button type="button" class="cs-sim__button is-active" data-cs-page="0" aria-pressed="true">直连</button>
+			<button type="button" class="cs-sim__button" data-cs-page="1" aria-pressed="false">代理</button>
+			<button type="button" class="cs-sim__button" data-cs-page="2" aria-pressed="false">磁盘</button>
+			<button type="button" class="cs-sim__button" data-cs-page="3" aria-pressed="false">文件</button>
+			<button type="button" class="cs-sim__button" data-cs-page="4" aria-pressed="false">信息</button>
+		</div>
+		{!compact && (
+			<>
+				<div class="cs-sim__group" role="group" aria-label="USB 与插拔">
+					<button type="button" class="cs-sim__button" data-cs-action="3"
+						data-cs-hint="USB 链路已建立，直连页的速率开始跳动。">连接 USB</button>
+					<button type="button" class="cs-sim__button" data-cs-action="4"
+						data-cs-hint="USB 与存储代理已安全停止。">安全停止</button>
+					<button type="button" class="cs-sim__button" data-cs-action="1"
+						data-cs-hint="32 GB 的 SK32G 卡已插入。">插入卡</button>
+					<button type="button" class="cs-sim__button" data-cs-action="2"
+						data-cs-hint="卡已拔出，界面回到无卡状态。">拔出卡</button>
+				</div>
+				<div class="cs-sim__group" role="group" aria-label="界面状态">
+					<button type="button" class="cs-sim__button" data-cs-action="5"
+						data-cs-hint="正在识别卡：2.4 秒后卡自动插入。">正在识别</button>
+					<button type="button" class="cs-sim__button" data-cs-action="6"
+						data-cs-hint="读取失败的底部错误卡片；点画面里的「返回」可关闭。">读取错误</button>
+					<button type="button" class="cs-sim__button" data-cs-action="7"
+						data-cs-hint="格式化确认：请选择快速格式化或完全格式化。">格式化确认</button>
+					<button type="button" class="cs-sim__button" data-cs-action="8"
+						data-cs-hint="整盘分区布局编辑器（危险操作是长按）。">分区布局</button>
+					<button type="button" class="cs-sim__button" data-cs-action="9"
+						data-cs-hint="exFAT 分区根目录的文件浏览器。">文件列表</button>
+					<button type="button" class="cs-sim__button" data-cs-action="0"
+						data-cs-hint="演示已重置。">重置</button>
+				</div>
+			</>
+		)}
+		<p class="cs-sim__status" data-cs-status>正在载入 WebAssembly…</p>
+	</div>
+</div>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="CardSight">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="4" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#123047"/>
+      <stop offset="1" stop-color="#071421"/>
+    </linearGradient>
+    <linearGradient id="card" x1="14" y1="18" x2="50" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9fe4ff"/>
+      <stop offset="1" stop-color="#4aa8cf"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="15" fill="url(#bg)"/>
+  <rect x="14" y="18" width="36" height="28" rx="6" fill="url(#card)" opacity="0.18"/>
+  <rect x="14" y="18" width="36" height="28" rx="6" fill="none" stroke="url(#card)" stroke-width="2"/>
+  <rect x="19" y="24" width="26" height="3" rx="1.5" fill="#9fe4ff" opacity="0.85"/>
+  <rect x="19" y="31" width="17" height="3" rx="1.5" fill="#9fe4ff" opacity="0.55"/>
+  <rect x="19" y="38" width="21" height="3" rx="1.5" fill="#9fe4ff" opacity="0.35"/>
+  <circle cx="47" cy="17" r="5" fill="#071421" stroke="#9fe4ff" stroke-width="2"/>
+  <circle cx="47" cy="17" r="1.8" fill="#9fe4ff"/>
+</svg>

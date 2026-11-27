@@ -1,0 +1,20 @@
+{
+  "name": "cardsight-docs",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs",
+    "dev": "astro dev",
+    "prebuild": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "7.3.1",
+    "@astrojs/starlight": "0.43.2",
+    "astro": "7.4.13",
+    "mermaid": "12.3.0",
+    "unist-util-visit": "5.1.0"
+  }
+}
