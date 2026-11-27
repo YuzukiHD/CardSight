@@ -4,7 +4,7 @@
  * @brief The volume's own layout: boot sector, FAT, bitmap, up-case table and cluster map.
  */
 
-#include "proxy_internal.h"
+#include "proxy_private.h"
 
 
 /**

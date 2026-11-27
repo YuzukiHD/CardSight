@@ -1401,7 +1401,7 @@ static void run_view(struct gendisk *disk)
 }
 
 /**
- * @brief First sector of the view FAT, fixed at 32 by proxy_lazy.c.
+ * @brief First sector of the view FAT, fixed at 32 by lazy_types.h.
  */
 #define VIEW_FAT_SECTOR 32U
 

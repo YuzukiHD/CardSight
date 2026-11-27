@@ -10,7 +10,7 @@
  * root.
  */
 
-#include "app/app_internal.h"
+#include "app/app_private.h"
 
 #include <bits.h>
 #include "FreeRTOS.h"

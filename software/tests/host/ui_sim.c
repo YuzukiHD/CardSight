@@ -9,7 +9,7 @@
  * partitions and a representative directory listing.
  */
 
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 #include <bits.h>
 #include <stdarg.h>

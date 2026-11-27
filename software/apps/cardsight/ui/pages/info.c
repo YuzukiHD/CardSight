@@ -6,7 +6,7 @@
  * Renders a scrolling list of ruled rows built from the last card snapshot,
  * followed by one row per partition.
  */
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 #include <stdarg.h>
 
 /** @brief Width of the muted name column in an info row, in pixels. */

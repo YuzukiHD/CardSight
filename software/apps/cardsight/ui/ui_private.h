@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /**
- * @file ui_internal.h
+ * @file ui_private.h
  * @brief Widget tree, layout metrics, and page entry points private to the UI.
  *
  * The panel has rounded corners. Everything that touches an edge is inset from
  * it and given the corner radius minus that inset, so its outline stays
  * concentric with the glass.
  */
-#ifndef CARDSIGHT_UI_INTERNAL_H
-#define CARDSIGHT_UI_INTERNAL_H
+#ifndef CARDSIGHT_UI_PRIVATE_H
+#define CARDSIGHT_UI_PRIVATE_H
 #include "app/app.h"
 #include "ui/ui.h"
 #include "ui/backdrop.h"
 #include "ui/icons.h"
 #include "ui/glass.h"
 #include "ui/theme.h"
-#include "ui/widgets.h"
+#include "ui/widgets/widgets.h"
 #include <gui/lvgl_port.h>
 #include <hal/kernel.h>
 #include <log.h>
@@ -288,4 +288,70 @@ void build_files(void);
  * @brief Leave the current directory on the Files page.
  */
 void files_go_back(void);
+/* ---- helpers shared between the split UI modules ---- */
+void ui_clear_page_refs(void);
+void ui_async_rebuild(void *argument);
+void ui_schedule_rebuild(void);
+void default_layout(void);
+int32_t bar_width(void);
+int32_t tab_width(void);
+int32_t tab_x(uint32_t index);
+void tab_anim_x(void *object, int32_t value);
+void tab_icon_anim_scale(void *object, int32_t value);
+void tab_icon_scale_to(lv_obj_t *icon, int32_t target);
+void ui_update_tabs(void);
+void tab_event(lv_event_t *event);
+void build_tab_bar(void);
+void ui_back_event(lv_event_t *event);
+void build_bar(void);
+void show_page(enum cardsight_mode mode);
+void ui_update_detecting(void);
+void ui_update_backdrop(void);
+void ui_update_header(void);
+void calibration_event(lv_event_t *event);
+void ui_open_calibration(int32_t radius);
+void settings_close_event(lv_event_t *event);
+void settings_open_async(void *argument);
+void settings_event(lv_event_t *event);
+const char *error_title(enum cardsight_request_type request);
+void error_close_event(lv_event_t *event);
+void error_open_async(void *argument);
+void ui_error_check(void);
+void ui_update_progress(void);
+void build_banner(void);
+lv_obj_t *tile_list(uint32_t index);
+void cardsight_ui_refresh(void *argument);
+void cardsight_ui_runtime(void *argument);
+void capacity_text(uint64_t sectors, char *output, size_t size);
+const char *content_name(enum blk_partition_content content);
+uint32_t fstype_color(const char *fstype);
+void disable_scroll(lv_obj_t *object);
+void enable_vertical_scroll(lv_obj_t *object);
+lv_obj_t *make_label(lv_obj_t *parent, const char *text, uint32_t color);
+void ui_label_set_ellipsis(lv_obj_t *label, const char *text, int32_t max_width);
+lv_obj_t *make_box(lv_obj_t *parent, int32_t width, int32_t height);
+lv_obj_t *make_card(lv_obj_t *parent, int32_t width, int32_t height, uint32_t color);
+lv_obj_t *make_glass_card(lv_obj_t *parent, int32_t x, int32_t y, int32_t width, int32_t height,
+	int32_t radius);
+lv_obj_t *make_chip(lv_obj_t *parent, const char *text, uint32_t color);
+lv_obj_t *make_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback, void *data);
+void start_event(lv_event_t *event);
+int32_t ui_margin(void);
+int32_t ui_bar_radius(void);
+int32_t ui_wide_width(void);
+int32_t ui_page_width(void);
+int32_t ui_page_height(void);
+void press_layer_anim_opa(void *object, int32_t value);
+void press_layer_fade(lv_obj_t *layer, uint8_t target, uint32_t duration);
+void press_layer_event(lv_event_t *event);
+void add_press_layer(lv_obj_t *button, lv_obj_t *label, int32_t radius, uint8_t base_opa);
+void ui_glass_neutral(lv_obj_t *button);
+void ui_glass_action(lv_obj_t *button, uint32_t color);
+lv_obj_t *make_bar_button(lv_obj_t *parent, const char *text, lv_event_cb_t callback, int32_t width);
+void ui_list_fades_reset(void);
+int ui_list_fades_check(void);
+void ui_refresh_list_fades(void);
+lv_obj_t *make_list(int32_t top, int32_t bottom);
+void set_disabled(lv_obj_t *object, bool disabled);
+
 #endif

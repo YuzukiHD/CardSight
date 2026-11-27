@@ -4,7 +4,7 @@
  * @brief The storageproxy shell command and the counters it prints.
  */
 
-#include "proxy_internal.h"
+#include "proxy_private.h"
 
 #ifdef CONFIG_STORAGE_PROXY_SHELL
 #ifndef STORAGE_PROXY_HOST_TEST

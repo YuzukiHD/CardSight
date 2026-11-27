@@ -8,7 +8,7 @@
  * partition detail view offers quick and full format through a confirmation
  * dialog.
  */
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 /** @brief Height of the proportional card strip, in pixels. */
 #define MANAGE_BAR_HEIGHT 12

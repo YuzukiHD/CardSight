@@ -4,7 +4,7 @@
  * @brief Reading the card: what is present, its table type, its partitions and its identity.
  */
 
-#include "app/app_internal.h"
+#include "app/app_private.h"
 
 
 /**

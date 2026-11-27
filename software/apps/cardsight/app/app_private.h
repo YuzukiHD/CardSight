@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /**
- * @file app_internal.h
+ * @file app_private.h
  * @brief Shared state and module entry points of the application task.
  *
- * Only app.c owns the worker loop; the other modules run on that task and
- * touch the shared state under @c app_lock.
+ * Only app_worker.c owns the worker loop; the other modules run on that task
+ * and touch the shared state under @c app_lock.
  */
-#ifndef CARDSIGHT_APP_INTERNAL_H
-#define CARDSIGHT_APP_INTERNAL_H
+#ifndef CARDSIGHT_APP_PRIVATE_H
+#define CARDSIGHT_APP_PRIVATE_H
 
 #include <errno.h>
 #include <stdio.h>
@@ -84,4 +84,16 @@ int format_partition(uint32_t partition, enum blk_partition_content content, boo
 int layout_apply(const struct cardsight_request *request);
 
 
-#endif /* CARDSIGHT_APP_INTERNAL_H */
+/* ---- app_core.c ---- */
+void app_post_refresh(void);
+void app_post_refresh_final(void);
+
+/* ---- app_worker.c ---- */
+/**
+ * @brief Task body that drains the request queue and owns every card access.
+ *
+ * @param[in] argument Unused task argument.
+ */
+void worker(void *argument);
+
+#endif /* CARDSIGHT_APP_PRIVATE_H */

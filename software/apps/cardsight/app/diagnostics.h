@@ -18,4 +18,15 @@ void cardsight_diagnostics_init(void);
  */
 int cardsight_validate_ui(void);
 
+/**
+ * @brief Validate the page that is currently visible.
+ *
+ * @details The shell command uses this after switching pages, because a full
+ * validation would also walk pages that are not on screen.
+ *
+ * @param[in]  name     Page name reported in the failure log.
+ * @param[out] failures Receives the number of new failures.
+ */
+void validate_active_page(const char *name, int *failures);
+
 #endif /* CARDSIGHT_DIAGNOSTICS_H */

@@ -4,7 +4,11 @@
 set(CS_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 include(lwext4)
-file(GLOB STORAGE_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/apps/cardsight/storage/*.c)
+file(GLOB STORAGE_SOURCES CONFIGURE_DEPENDS
+    ${CS_ROOT}/apps/cardsight/storage/*.c
+    ${CS_ROOT}/apps/cardsight/storage/lazy/*.c
+    ${CS_ROOT}/apps/cardsight/storage/eager/*.c
+)
 
 # FatFs sources are compiled from a copy: our ffconf.h has to win over the submodule's.
 set(FATFS_DIR ${CMAKE_BINARY_DIR}/fatfs)
@@ -82,6 +86,8 @@ file(GLOB_RECURSE CS_LVGL_SIM_SOURCES CONFIGURE_DEPENDS ${CS_ROOT}/third_party/L
 list(FILTER CS_LVGL_SIM_SOURCES EXCLUDE REGEX "/(libs|others|drivers)/")
 file(GLOB CS_UI_SIM_SOURCES CONFIGURE_DEPENDS
     ${CS_ROOT}/apps/cardsight/ui/*.c
+    ${CS_ROOT}/apps/cardsight/ui/core/*.c
+    ${CS_ROOT}/apps/cardsight/ui/widgets/*.c
     ${CS_ROOT}/apps/cardsight/ui/pages/*.c
     ${CS_ROOT}/apps/cardsight/fonts/*.c
     ${CS_ROOT}/apps/cardsight/assets/*.c

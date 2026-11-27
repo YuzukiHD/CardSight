@@ -10,7 +10,7 @@
  * arrives. Every callback takes @c proxy.lock.
  */
 
-#include "proxy_internal.h"
+#include "proxy_private.h"
 
 
 /**

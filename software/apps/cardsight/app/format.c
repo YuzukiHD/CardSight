@@ -4,7 +4,7 @@
  * @brief Erasing and formatting one partition, with progress for the banner.
  */
 
-#include "app/app_internal.h"
+#include "app/app_private.h"
 
 
 /**

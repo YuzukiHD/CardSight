@@ -31,6 +31,13 @@
   shell、日志。所有初始化通过 `INITCALL(level, priority, fn)` 注册。
 - `software/src/block/`、`software/src/fs/`：通用块层（gendisk/block_device/分区解析）、VFS 与 FatFs/lwext4 胶水；
   **块层不依赖板级头文件**，主机测试直接编译它们。
+- `software/apps/cardsight/`：按能力分子目录。`app/` 是状态模型、请求 worker、卡片/文件/格式/布局
+  操作和 shell 诊断；`storage/lazy/` 是 USB 导出的懒索引 exFAT 引擎（每文件一个能力，状态与原型在
+  `lazy_types.h`/`lazy_private.h`）；`storage/eager/` 是只用于诊断的全量索引引擎；`ui/` 顶层放
+  主题、壁纸、图标和截图，`ui/core/` 放界面外壳/标签页/对话框/横幅，`ui/widgets/` 放控件构造函数，
+  `ui/pages/` 放五个页面。私有头文件跟着模块走，公共头（`storage_proxy.h`、`proxy_lazy.h`、`ui.h`、
+  `app.h`）保持稳定；新增源文件只需被 `src/CMakeLists.txt` 与 `tests/host/CMakeLists.txt` 的
+  对应目录 glob 覆盖。
 - `software/include/`：公开 API（`vfs.h`、`shell.h`、`hal/*`、`usb/mass_storage.h`、`gui/lvgl_port.h`、
   `drm/sunxi_display.h`）。
 

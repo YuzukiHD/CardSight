@@ -7,7 +7,7 @@
  * the read/write rates, and the card capability chips, plus the docked connect
  * or safe-stop button. A running transfer refreshes the values in place.
  */
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 /**
  * @brief Format a byte rate as "K/s" or "M/s" into a fixed buffer.

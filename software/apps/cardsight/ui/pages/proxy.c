@@ -6,7 +6,7 @@
  * The list rows are plain objects styled explicitly rather than themed buttons,
  * because the button state cascade kept hiding the selection outline.
  */
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 /**
  * @brief Check whether any selected partition is read-only.

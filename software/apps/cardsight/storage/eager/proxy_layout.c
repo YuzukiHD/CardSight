@@ -4,7 +4,7 @@
  * @brief The root text file that describes the source disk, its table and partitions.
  */
 
-#include "proxy_internal.h"
+#include "proxy_private.h"
 
 #include <bits.h>
 #include <size.h>

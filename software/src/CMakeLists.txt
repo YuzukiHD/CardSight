@@ -109,7 +109,11 @@ if(CARDSIGHT_WITH_APP)
         ${CS_ROOT}/apps/cardsight/app/*.c
         ${CS_ROOT}/apps/cardsight/assets/*.c
         ${CS_ROOT}/apps/cardsight/storage/*.c
+        ${CS_ROOT}/apps/cardsight/storage/lazy/*.c
+        ${CS_ROOT}/apps/cardsight/storage/eager/*.c
         ${CS_ROOT}/apps/cardsight/ui/*.c
+        ${CS_ROOT}/apps/cardsight/ui/core/*.c
+        ${CS_ROOT}/apps/cardsight/ui/widgets/*.c
         ${CS_ROOT}/apps/cardsight/ui/pages/*.c
         ${CS_ROOT}/apps/cardsight/fonts/*.c
     )

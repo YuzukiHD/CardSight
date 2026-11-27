@@ -8,7 +8,7 @@
  * partition or a subdirectory.
  */
 
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 #include <size.h>
 

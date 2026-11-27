@@ -4,7 +4,7 @@
  * @brief Writing a new partition table and formatting what it created.
  */
 
-#include "app/app_internal.h"
+#include "app/app_private.h"
 
 
 /**

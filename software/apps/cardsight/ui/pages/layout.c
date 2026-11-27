@@ -8,7 +8,7 @@
  * request. The destructive action is a long press, not a tap.
  */
 
-#include "ui/ui_internal.h"
+#include "ui/ui_private.h"
 
 /**
  * @brief Open the layout editor from the partition list.
