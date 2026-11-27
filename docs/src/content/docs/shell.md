@@ -3,8 +3,7 @@ title: Shell
 description: "Block device, VFS, MMC, USB, proxy and UI diagnostics under the cardsight> prompt."
 ---
 
-Open the UART at 115200 8N1 and the prompt is `cardsight>`. The table below comes from the
-`SHELL_CMD` registrations in each module; a wrong argument prints the command's usage text.
+Open the UART at 115200 8N1 and the prompt is `cardsight>`. The table below comes from the `SHELL_CMD` registrations in each module; a wrong argument prints the command's usage text.
 
 ## Block devices
 
@@ -14,7 +13,7 @@ Open the UART at 115200 8N1 and the prompt is `cardsight>`. The table below come
 | `blkread <dev> <sector>` | Read one 512-byte sector and print it as hex |
 | `blkbench <dev> <sector> <MiB>` | Sequential read starting at a sector, reporting throughput |
 
-## SD card
+## TF card
 
 | Command | Effect |
 | --- | --- |
@@ -23,9 +22,7 @@ Open the UART at 115200 8N1 and the prompt is `cardsight>`. The table below come
 | `mmc insert` | Identify the current card again |
 | `mmc soak [n]` | Repeat remove/identify n times and count failures |
 
-`mmc eject` exercises the hot-plug path; it is not a physical removal. A real removal cuts power,
-and reinsertion goes through 3.3 V → CMD11 → SDR104 again. After a simulated removal the card may
-stop at SDR25.
+`mmc eject` exercises the hot-plug path; it is not a physical removal. A real removal cuts power, and reinsertion goes through 3.3 V → CMD11 → SDR104 again. After a simulated removal the card may stop at SDR25.
 
 ## Filesystems
 
@@ -54,9 +51,7 @@ stop at SDR25.
 | `cardsight usb disk` | Export the whole disk read-only, for host-side checks of the real table |
 | `cardsight usb-test` | Read-only proxy and USB start/stop lifecycle test |
 
-The Proxy page in the UI uses the lazy-index engine, which is the same code as `lazyproxy`.
-`storageproxy` and `cardsight usb` are diagnostics built on the full-index engine; both walk the
-partition trees at start-up.
+The Proxy page in the UI uses the lazy-index engine, which is the same code as `lazyproxy`. `storageproxy` and `cardsight usb` are diagnostics built on the full-index engine; both walk the partition trees at start-up.
 
 ## Display and UI
 
@@ -109,5 +104,4 @@ Measure sequential reads:
 blkbench mmcblk0 2048 64
 ```
 
-The third argument to `blkbench` is MiB, not sectors. Reads into on-chip SRAM measure about
-62 MiB/s; reads into PSRAM measure about 9.6 MiB/s, limited by the PSRAM write path.
+The third argument to `blkbench` is MiB, not sectors. Reads into on-chip SRAM measure about 62 MiB/s; reads into PSRAM measure about 9.6 MiB/s, limited by the PSRAM write path.

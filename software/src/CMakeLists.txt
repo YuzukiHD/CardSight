@@ -117,8 +117,8 @@ if(CARDSIGHT_WITH_APP)
         ${CS_ROOT}/apps/cardsight/ui/pages/*.c
         ${CS_ROOT}/apps/cardsight/fonts/*.c
     )
-    # the application was built with this flag on SyterOS: the C library of this
-    # toolchain declares uint32_t as unsigned long, which upsets the format checker
+    # the C library of this toolchain declares uint32_t as unsigned long, which
+    # upsets the format checker
     set(CS_APP_FORMAT_SOURCES ${CS_APP_SOURCES})
     list(FILTER CS_APP_FORMAT_SOURCES EXCLUDE REGEX "/fonts/")
     set_source_files_properties(${CS_APP_FORMAT_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wno-format")

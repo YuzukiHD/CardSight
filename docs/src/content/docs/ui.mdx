@@ -5,13 +5,9 @@ description: The five pages, their interactions, and the live WebAssembly simula
 
 import Simulator from '../../components/Simulator.astro';
 
-The panel is a 240×284 ST7789 driven by LVGL 9.6; touch comes from a CST816D. Five tabs sit at the
-bottom: Direct, Proxy, Disk, Files and Info. Switching pages animates the tab indicator for 160 ms,
-and the fade strips at the edge of a list follow it while the finger scrolls.
+The panel is a 240×284 ST7789 driven by LVGL 9.6; touch comes from a CST816D. Five tabs sit at the bottom: Direct, Proxy, Disk, Files and Info. Switching pages animates the tab indicator for 160 ms, and the fade strips at the edge of a list follow it while the finger scrolls.
 
-The simulator below runs the same UI sources as the firmware. Mouse or finger input works directly
-on the canvas: tap the tab bar, drag a list, tap a partition row, open a dialog. The buttons on the
-right only reach states that would otherwise need a card insertion or hardware.
+The simulator below runs the same UI sources as the firmware. Mouse or finger input works directly on the canvas: tap the tab bar, drag a list, tap a partition row, open a dialog. The buttons on the right only reach states that would otherwise need a card insertion or hardware.
 
 <Simulator />
 
@@ -19,21 +15,15 @@ right only reach states that would otherwise need a card insertion or hardware.
 
 The whole card is exported over USB. The page body is one glass card:
 
-- Capacity uses large digits, in GB or MB, converted in decimal units so it matches how cards are
-  sold.
-- The status text moves between "Identifying card", "No card detected", "Ready to connect",
-  "Waiting for host" and "Connected"; its colour follows the state.
-- Read and write rates refresh once per second. With no transfer they read zero, so a stale value
-  is never shown.
+- Capacity uses large digits, in GB or MB, converted in decimal units so it matches how cards are sold.
+- The status text moves between "Identifying card", "No card detected", "Ready to connect", "Waiting for host" and "Connected"; its colour follows the state.
+- Read and write rates refresh once per second. With no transfer they read zero, so a stale value is never shown.
 - A row of small chips shows the partition table (MBR/GPT), the partition count, and read/write (RW) versus read-only (RO).
-- The bottom button is "Connect USB"; while running it becomes "Stop safely". It is disabled when
-  there is no card or a request is busy.
+- The bottom button is "Connect USB"; while running it becomes "Stop safely". It is disabled when there is no card or a request is busy.
 
 ## Proxy
 
-The selected partitions are combined into one exFAT volume for the host. Each partition is a row
-with a selection dot on the left, then `P<number> <filesystem>`, capacity and a read-only marker.
-Tapping a row toggles it; selected rows get a tinted background and a filled dot.
+The selected partitions are combined into one exFAT volume for the host. Each partition is a row with a selection dot on the left, then `P<number> <filesystem>`, capacity and a read-only marker. Tapping a row toggles it; selected rows get a tinted background and a filled dot.
 
 The bottom button follows the state:
 
@@ -44,34 +34,24 @@ The bottom button follows the state:
 | At least one selected partition is read-only | Start proxy (RO) |
 | Running | Stop safely |
 
-While running, the selection cannot change, but the tab bar still switches pages; USB is not
-stopped by leaving the page. See [Storage proxy and USB](/CardSight/proxy/) for how the view is
-assembled and how writes reach the source partitions.
+While running, the selection cannot change, but the tab bar still switches pages; USB is not stopped by leaving the page. See [Storage proxy and USB](/CardSight/proxy/) for how the view is assembled and how writes reach the source partitions.
 
 ## Disk
 
-A proportional capacity strip sits above the partition list. Tapping a partition opens its detail
-view, where it can be formatted as FAT32, exFAT or ext4. Formatting is either quick or full, and
-asks for confirmation first. The format buttons are disabled on a read-only card, while USB is
-running, or while a request is busy.
+A proportional capacity strip sits above the partition list. Tapping a partition opens its detail view, where it can be formatted as FAT32, exFAT or ext4. Formatting is either quick or full, and asks for confirmation first. The format buttons are disabled on a read-only card, while USB is running, or while a request is busy.
 
 The last item in the list opens the whole-card layout editor:
 
 - Choose MBR or GPT for the partition table.
 - Choose FAT32, exFAT or ext4; the rebuild creates one partition covering the remaining capacity.
-- The card's total capacity is shown, together with a clear warning that the existing partition
-  table will be cleared and rebuilt.
+- The card's total capacity is shown, together with a clear warning that the existing partition table will be cleared and rebuilt.
 - Confirmation is a long press on the bottom button; a tap does nothing.
 
 ## Files
 
-The page first lists partitions, each with its filesystem, capacity and read-only marker. Opening
-one browses directories level by level. The header shows the total item count, and the right column
-shows file sizes. Long names are ellipsised, and directories sort before files. Use the bottom Back
-button to go up one level; at the partition root it returns to the partition list.
+The page first lists partitions, each with its filesystem, capacity and read-only marker. Opening one browses directories level by level. The header shows the total item count, and the right column shows file sizes. Long names are ellipsised, and directories sort before files. Use the bottom Back button to go up one level; at the partition root it returns to the partition list.
 
-The worker reads each directory; the UI only sends `CARDSIGHT_REQUEST_LIST`. Removing the card
-leaves the detail view, so "cannot open partition" is not reported as an error.
+The worker reads each directory; the UI only sends `CARDSIGHT_REQUEST_LIST`. Removing the card leaves the detail view, so "cannot open partition" is not reported as an error.
 
 ## Info
 
@@ -80,23 +60,17 @@ A scrollable table. The first half describes the card:
 - Capacity, SDXC/SDHC/SDSC, partition table and count, read/write or read-only.
 - Manufacturer ID, OEM, product name and revision, serial number, manufacture date.
 - Negotiated mode, clock and bus width, for example `SDR104 200 MHz 4-bit`.
-- 1.8 V support, tuning state, the speed modes the card advertises, maximum current, and the CID
-  as hex.
+- 1.8 V support, tuning state, the speed modes the card advertises, maximum current, and the CID as hex.
 
 The second half has one row per partition: filesystem, capacity, RW/RO and free space.
 
 ## Interaction details
 
-- Touch positions are handled in panel coordinates; list dragging is LVGL's own scrolling, with no
-  extra gesture recognition.
-- A rebuild saves each list's scroll position, so refreshing data does not throw the list being
-  read back to the top.
-- While a request is running (`ui.model.busy`), the tab bar does not switch pages, so the progress
-  page is not covered.
-- Errors appear in a bottom sheet with the failed operation, the controller's original error, the
-  error code and the path. Dismissing it suppresses that error code until a new error appears.
-- The panel has 45 px corners. Everything that touches an edge is inset so its outline stays
-  concentric with the glass.
+- Touch positions are handled in panel coordinates; list dragging is LVGL's own scrolling, with no extra gesture recognition.
+- A rebuild saves each list's scroll position, so refreshing data does not throw the list being read back to the top.
+- While a request is running (`ui.model.busy`), the tab bar does not switch pages, so the progress page is not covered.
+- Errors appear in a bottom sheet with the failed operation, the controller's original error, the error code and the path. Dismissing it suppresses that error code until a new error appears.
+- The panel has 45 px corners. Everything that touches an edge is inset so its outline stays concentric with the glass.
 
 ## Switching pages on the board
 
@@ -110,5 +84,4 @@ cardsight page info
 cardsight page layout
 ```
 
-`disk` selects the Disk page and `layout` opens the layout editor directly. The Files page has no
-shell subcommand and is only reachable from the tab bar.
+`disk` selects the Disk page and `layout` opens the layout editor directly. The Files page has no shell subcommand and is only reachable from the tab bar.

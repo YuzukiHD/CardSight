@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /**
  * @file screenshot.c
- * @brief Serial-console screen dump for inspecting the UI without a camera.
+ * @brief Serial-console screen dump for inspecting the UI without photographing the screen.
  *
  * An RGB565 snapshot of the active LVGL screen is run-length encoded and
  * printed as base64 between "SHOT" and "END" markers. The capture itself runs

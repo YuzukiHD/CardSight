@@ -243,7 +243,7 @@ static const struct cardsight_file_entry photo_root[] = {
 	{ "IMG_20261106_123456.jpg", 4200000, false },
 	{ "README.md", 1234, false },
 };
-/** @brief The camera folder on the exFAT partition. */
+/** @brief The photo folder on the exFAT partition. */
 static const struct cardsight_file_entry photo_dcim[] = {
 	{ "100CANON", 0, true },
 	{ "IMG_20261106_123456.jpg", 4200000, false },
@@ -251,7 +251,7 @@ static const struct cardsight_file_entry photo_dcim[] = {
 	{ "IMG_20261106_123458.jpg", 4400000, false },
 	{ "VID_20261106_130001.mp4", 88000000, false },
 };
-/** @brief The camera subfolder. */
+/** @brief The photo subfolder. */
 static const struct cardsight_file_entry photo_canon[] = {
 	{ "IMG_0001.JPG", 3700000, false },
 	{ "IMG_0002.JPG", 3600000, false },

@@ -20,7 +20,7 @@ export default defineConfig({
 		starlight({
 			title: 'CardSight',
 			description:
-				'Documentation for the Yuzuki CardSight camera/storage application on Allwinner V861/V881 (XuanTie C907): partition management, formatting, files, and USB storage proxy.',
+				'Documentation for the CardSight TF card proxy system on Allwinner V861/V881 (XuanTie C907): partition management, formatting, files, and USB storage proxy.',
 			logo: {
 				src: './src/assets/logo.svg',
 				alt: 'CardSight',
