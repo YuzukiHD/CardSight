@@ -79,11 +79,11 @@ void ui_open_calibration(int32_t radius)
 	lv_obj_set_style_border_color(inner, lv_color_hex(UI_WARNING), 0);
 	lv_obj_set_style_radius(inner, ui_bar_radius(), 0);
 	lv_obj_set_pos(inner, APP_BAR_MARGIN - 3, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT - 3);
-	snprintf(text, sizeof(text), "屏幕圆角 %ld px", (long)ui.screen_radius);
+	snprintf(text, sizeof(text), "Screen corner %ld px", (long)ui.screen_radius);
 	label = make_label(ui.calibration, text, UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_align(label, LV_ALIGN_CENTER, 0, -14);
-	label = make_label(ui.calibration, "左侧 减小   中间 完成   右侧 增大", UI_MUTED);
+	label = make_label(ui.calibration, "Left/right adjust, mid done", UI_MUTED);
 	lv_obj_align(label, LV_ALIGN_CENTER, 0, 18);
 }
 
@@ -132,7 +132,7 @@ void settings_open_async(void *argument)
 	ui_style_card(dialog, UI_BACKGROUND, 0);
 	lv_obj_set_style_pad_all(dialog, 0, 0);
 	disable_scroll(dialog);
-	label = make_label(dialog, "设置", UI_TEXT);
+	label = make_label(dialog, "Settings", UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
 	list = lv_obj_create(dialog);
@@ -150,7 +150,7 @@ void settings_open_async(void *argument)
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	make_label(list, "YuzukiTsuru", UI_ACCENT);
 	make_label(list, "GPL-2.0-or-later", UI_MUTED);
-	button = make_bar_button(dialog, "返回", settings_close_event, (int32_t)ui.width - 2 * APP_BAR_MARGIN);
+	button = make_bar_button(dialog, "Back", settings_close_event, (int32_t)ui.width - 2 * APP_BAR_MARGIN);
 	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
 }
 
@@ -176,17 +176,17 @@ const char *error_title(enum cardsight_request_type request)
 	switch (request) {
 	case CARDSIGHT_REQUEST_SCAN:
 	case CARDSIGHT_REQUEST_LIST:
-		return "读取失败";
+		return "Read failed";
 	case CARDSIGHT_REQUEST_FORMAT:
 	case CARDSIGHT_REQUEST_LAYOUT:
-		return "格式化失败";
+		return "Format failed";
 	case CARDSIGHT_REQUEST_START_DIRECT:
 	case CARDSIGHT_REQUEST_START_PROXY:
-		return "连接失败";
+		return "Connect failed";
 	case CARDSIGHT_REQUEST_STOP:
-		return "停止失败";
+		return "Stop failed";
 	default:
-		return "操作失败";
+		return "Operation failed";
 	}
 }
 
@@ -245,7 +245,7 @@ void error_open_async(void *argument)
 	lv_obj_set_pos(label, ui_margin() + 4, ui_margin());
 	card = make_glass_card(dialog, ui_margin(), APP_HEADER_HEIGHT + ui_margin(),
 		ui_wide_width(), 148, APP_CARD_RADIUS);
-	label = make_label(card, ui.model.operation[0] != '\0' ? ui.model.operation : "操作失败",
+	label = make_label(card, ui.model.operation[0] != '\0' ? ui.model.operation : "Operation failed",
 		UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_set_pos(label, 14, 10);
@@ -261,7 +261,7 @@ void error_open_async(void *argument)
 			lv_obj_set_pos(label, 14, y);
 			y += 24;
 		}
-		snprintf(text, sizeof(text), "错误码: %d", ui.model.error);
+		snprintf(text, sizeof(text), "Error code: %d", ui.model.error);
 		label = make_label(card, text, UI_MUTED);
 		lv_obj_set_pos(label, 14, y);
 		y += 24;
@@ -273,10 +273,10 @@ void error_open_async(void *argument)
 			lv_obj_set_pos(label, 14, y);
 			y += 24;
 		}
-		label = make_label(card, "请检查后重试", UI_MUTED);
+		label = make_label(card, "Check the card and retry", UI_MUTED);
 		lv_obj_set_pos(label, 14, y);
 	}
-	button = make_bar_button(dialog, "返回", error_close_event,
+	button = make_bar_button(dialog, "Back", error_close_event,
 		(int32_t)ui.width - 2 * APP_BAR_MARGIN);
 	lv_obj_set_pos(button, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
 }

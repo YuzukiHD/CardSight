@@ -1,6 +1,6 @@
 ---
-title: 项目简介
-description: Yuzuki CardSight 板上的相机/存储应用：分区管理、格式化、文件浏览，以及把卡内容作为 exFAT 卷从 USB 导出。
+title: Overview
+description: "The TF card proxy system on the Yuzuki CardSight board: partition management, formatting, file browsing, and exporting card contents as an exFAT volume over USB."
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -8,48 +8,42 @@ import Simulator from '../../components/Simulator.astro';
 
 <div class="cs-hero">
 	<span class="cs-hero__tag">Allwinner V861/V881 · XuanTie C907 · RV32 · GPL-2.0-or-later</span>
-	<h2>把存储卡装进一块小屏幕</h2>
-	<p>
-		CardSight 是 Yuzuki CardSight 开发板上的相机/存储应用。它读 SD 卡的分区表，格式化
-		FAT32、exFAT、ext4，浏览目录，并把选中的分区拼成一个 exFAT 卷，从 USB 口交给电脑。
-		界面跑在 240×284 的 ST7789 屏上，触摸操作。
-	</p>
+	<h2>Storage cards on a small screen</h2>
+	<p>CardSight is a TF card proxy system for the Yuzuki CardSight board. It reads the TF card's partition table, formats partitions as FAT32, exFAT or ext4, browses directories, and combines selected partitions into one exFAT volume for the host over USB. The UI runs on a 240×284 ST7789 panel and is operated by touch.</p>
 </div>
 
-下面的模拟器是固件里**同一份 UI 代码**编译出来的 WebAssembly：不是另写的网页版，LVGL、五个页面、
-玻璃材质和字体都来自 `software/apps/cardsight/ui/`。可以直接点屏幕上的标签栏、拖动列表、滚动画布。
+The simulator below is compiled from the **same UI code** as the firmware: LVGL, the five pages, the glass material and the fonts all come from `software/apps/cardsight/ui/`, not from a separate web mock-up. Tap the tab bar on the screen, drag a list, or scroll the canvas.
 
 <Simulator />
 
-## 能做什么
+## What it does
 
-- 识别 SD 卡并协商到 SDR104 200 MHz 四位；解析 MBR/GPT，列出每个分区的文件系统、容量和只读状态。
-- 在 FAT32、exFAT、ext4 之间格式化单个分区；整盘重建分区表（MBR 或 GPT），再按选择的文件系统创建分区。
-- 把卡作为 USB 大容量设备交给主机。直连模式导出整盘，代理模式把多个分区拼成一个只读/可写的 exFAT 视图。
-- 触摸界面上有直连、代理、磁盘、文件、信息五个页面；拔卡、插回、识别中、读写失败都有对应状态。
-- 串口命令行保留块设备、VFS、MMC、USB、代理和界面的诊断入口，方便无屏调试和产测。
+- Identifies a TF card and negotiates SDR104 at 200 MHz, four-bit; parses MBR/GPT and lists each partition's filesystem, capacity and read-only state.
+- Formats a single partition as FAT32, exFAT or ext4, and rebuilds a whole-card layout (MBR or GPT) before creating filesystems of the chosen type.
+- Exports the card to a host as a USB mass-storage device. Direct mode exports the whole disk; proxy mode presents several partitions as one readable/writable exFAT view.
+- Provides five touch pages: Direct, Proxy, Disk, Files and Info. Card removal, reinsertion, identification, and read/write failures each have a visible state.
+- Keeps a serial shell for block devices, VFS, MMC, USB, the proxy and UI diagnostics, so the board can be debugged without a display or used in production testing.
 
-## 已经在这块板子上跑通的
+## Verified on the board
 
-| 项目 | 结果 |
+| Item | Result |
 | --- | --- |
-| 启动 | RAM/FEL 三步链，内核 FreeRTOS V11.3.3，镜像约 770 KiB |
-| SD | SK32G 32 GB，SDR104 200 MHz 四位，CMD19 调谐；读入片上 SRAM 实测 62 MiB/s |
-| 文件系统 | FatFs（FAT/exFAT）、lwext4（ext4）、VFS 挂载与格式化 |
-| 显示/触摸 | ST7789 240×284，LVGL 9.6，CST816D 触摸；`cardsight ui-test` PASS |
-| USB | MUSB + CherryUSB MSC；Windows 挂载 exFAT 卷，同一文件三次枚举的 SHA256 一致 |
-| 热插拔 | USB 导出过程中真拔卡/插回，USB 与代理安全停止并重新识别 |
+| Boot | Three-stage RAM/FEL chain; FreeRTOS V11.3.3 kernel; image about 770 KiB |
+| SD | SK32G 32 GB, SDR104 200 MHz four-bit, CMD19 tuning; 62 MiB/s measured into on-chip SRAM |
+| Filesystems | FatFs (FAT/exFAT), lwext4 (ext4), VFS mount and format |
+| Display/touch | ST7789 240×284, LVGL 9.6, CST816D touch; `cardsight ui-test` PASS |
+| USB | MUSB + CherryUSB MSC; Windows mounts the exFAT volume; the same file read across three enumerations has the same SHA256 |
+| Hot-plug | Real eject/reinsert during a USB export stops USB and the proxy safely, then identifies the card again |
 
-限制和原因写在[硬件说明](/CardSight/hardware/)里：SMHC 模块时钟 mux 2 不可用、PSRAM 写入约
-10 MB/s、拔卡时未刷写的数据无法写回。这些不是界面问题，界面会把 `flush failed` 报出来。
+The limitations and their causes are in [Hardware](/CardSight/hardware/): SMHC module-clock mux 2 is unusable, PSRAM writes run at about 10 MB/s, and data not yet flushed is lost when the card is removed. Those are not UI problems; the UI reports `flush failed` when it happens.
 
-## 从这里开始
+## Start here
 
 <CardGrid>
-	<LinkCard title="构建" href="/CardSight/build/" description="主机测试、RISC-V 固件、文档站的 WebAssembly 模拟器" />
-	<LinkCard title="屏幕界面" href="/CardSight/ui/" description="五个页面、交互方式，以及可操作的模拟器" />
-	<LinkCard title="存储代理与 USB" href="/CardSight/proxy/" description="exFAT 视图怎么拼、写回怎么做、限制在哪" />
-	<LinkCard title="烧写与启动" href="/CardSight/fel/" description="xfel 三步加载镜像，不写 flash" />
+	<LinkCard title="Build" href="/CardSight/build/" description="Host tests, the RISC-V firmware, and the WebAssembly simulator for the docs" />
+	<LinkCard title="On-screen UI" href="/CardSight/ui/" description="The five pages, their interactions, and the live simulator" />
+	<LinkCard title="Storage proxy and USB" href="/CardSight/proxy/" description="How the exFAT view is assembled, how writes go back, and its limits" />
+	<LinkCard title="Flashing and boot" href="/CardSight/fel/" description="Load the images through xfel in three steps, without writing flash" />
 </CardGrid>
 
-源码在 [YuzukiHD/CardSight](https://github.com/YuzukiHD/CardSight)。第三方组件和许可证见[许可](/CardSight/licensing/)。
+Source code is at [YuzukiHD/CardSight](https://github.com/YuzukiHD/CardSight). Third-party components and licenses are listed under [License](/CardSight/licensing/).

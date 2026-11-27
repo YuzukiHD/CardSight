@@ -1,36 +1,36 @@
-// 侧边栏。直接从 YuzukiNeko 的 docs 结构改过来：组内 slug 是相对
-// src/content/docs/ 的路径，页面文件和 slug 同名。
+// Sidebar of the site. The structure follows the YuzukiNeko and lessampler docs:
+// a slug is the page path relative to src/content/docs/, without the extension.
 export const sidebar = [
 	{
-		label: '起步',
+		label: 'Getting started',
 		items: [
-			{ label: '项目简介', slug: 'index' },
-			{ label: '功能一览', slug: 'features' },
-			{ label: '构建', slug: 'build' },
-			{ label: '烧写与启动', slug: 'fel' },
+			{ label: 'Overview', slug: 'index' },
+			{ label: 'Features', slug: 'features' },
+			{ label: 'Build', slug: 'build' },
+			{ label: 'Flashing and boot', slug: 'fel' },
 		],
 	},
 	{
-		label: '使用',
+		label: 'Using CardSight',
 		items: [
-			{ label: '屏幕界面', slug: 'ui' },
-			{ label: '命令行', slug: 'shell' },
-			{ label: '存储代理与 USB', slug: 'proxy' },
-			{ label: '文件系统', slug: 'filesystems' },
+			{ label: 'On-screen UI', slug: 'ui' },
+			{ label: 'Shell', slug: 'shell' },
+			{ label: 'Storage proxy and USB', slug: 'proxy' },
+			{ label: 'Filesystems', slug: 'filesystems' },
 		],
 	},
 	{
-		label: '硬件与实现',
+		label: 'Hardware and internals',
 		items: [
-			{ label: '硬件说明', slug: 'hardware' },
-			{ label: '软件架构', slug: 'architecture' },
-			{ label: '移植与扩展', slug: 'porting' },
+			{ label: 'Hardware', slug: 'hardware' },
+			{ label: 'Architecture', slug: 'architecture' },
+			{ label: 'Porting', slug: 'porting' },
 		],
 	},
 	{
-		label: '项目',
+		label: 'Project',
 		items: [
-			{ label: '许可', slug: 'licensing' },
+			{ label: 'License', slug: 'licensing' },
 		],
 	},
 ];

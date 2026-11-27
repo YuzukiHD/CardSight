@@ -157,7 +157,7 @@ static void fixture(void)
 		uint64_t size;
 		bool dir;
 	} files[] = {
-		{ "文件文件文件文件文件文件文件文件文件文件文件文件.txt", 88123U, false },
+		{ "A-very-long-file-name-used-to-check-ellipsis.txt", 88123U, false },
 		{ "DCIM", 0U, true },
 		{ "Music", 0U, true },
 		{ "System Volume Information", 0U, true },
@@ -235,7 +235,7 @@ static const struct cardsight_file_entry boot_dcim[] = {
 };
 /** @brief Root of the exFAT photo partition. */
 static const struct cardsight_file_entry photo_root[] = {
-	{ "文件文件文件文件文件文件文件文件文件文件文件文件.txt", 88123, false },
+	{ "A-very-long-file-name-used-to-check-ellipsis.txt", 88123, false },
 	{ "DCIM", 0, true },
 	{ "Music", 0, true },
 	{ "System Volume Information", 0, true },
@@ -243,7 +243,7 @@ static const struct cardsight_file_entry photo_root[] = {
 	{ "IMG_20261106_123456.jpg", 4200000, false },
 	{ "README.md", 1234, false },
 };
-/** @brief The camera folder on the exFAT partition. */
+/** @brief The photo folder on the exFAT partition. */
 static const struct cardsight_file_entry photo_dcim[] = {
 	{ "100CANON", 0, true },
 	{ "IMG_20261106_123456.jpg", 4200000, false },
@@ -251,7 +251,7 @@ static const struct cardsight_file_entry photo_dcim[] = {
 	{ "IMG_20261106_123458.jpg", 4400000, false },
 	{ "VID_20261106_130001.mp4", 88000000, false },
 };
-/** @brief The camera subfolder. */
+/** @brief The photo subfolder. */
 static const struct cardsight_file_entry photo_canon[] = {
 	{ "IMG_0001.JPG", 3700000, false },
 	{ "IMG_0002.JPG", 3600000, false },
@@ -352,8 +352,8 @@ void send_request(const struct cardsight_request *request)
 		if (!model.card_present) {
 			model.error = -ENODEV;
 			model.request = request->type;
-			snprintf(model.operation, sizeof(model.operation), "%s", "连接失败");
-			snprintf(model.card_error, sizeof(model.card_error), "%s", "未检测到卡");
+			snprintf(model.operation, sizeof(model.operation), "%s", "Connect failed");
+			snprintf(model.card_error, sizeof(model.card_error), "%s", "No card detected");
 			break;
 		}
 		model.running = true;
@@ -362,7 +362,7 @@ void send_request(const struct cardsight_request *request)
 		model.busy = false;
 		model.progress = -1;
 		model.error = 0;
-		snprintf(model.operation, sizeof(model.operation), "%s", "USB 已连接");
+		snprintf(model.operation, sizeof(model.operation), "%s", "USB connected");
 		break;
 	case CARDSIGHT_REQUEST_STOP:
 		model.running = false;
@@ -373,19 +373,19 @@ void send_request(const struct cardsight_request *request)
 		model.error = 0;
 		model.read_rate = 0U;
 		model.write_rate = 0U;
-		snprintf(model.operation, sizeof(model.operation), "%s", "已安全停止");
+		snprintf(model.operation, sizeof(model.operation), "%s", "Stopped safely");
 		break;
 	case CARDSIGHT_REQUEST_FORMAT:
 		model.busy = false;
 		model.progress = -1;
 		model.error = 0;
-		snprintf(model.operation, sizeof(model.operation), "%s", "格式化完成");
+		snprintf(model.operation, sizeof(model.operation), "%s", "Format complete");
 		break;
 	case CARDSIGHT_REQUEST_LAYOUT:
 		model.busy = false;
 		model.progress = -1;
 		model.error = 0;
-		snprintf(model.operation, sizeof(model.operation), "%s", "分区表已重建");
+		snprintf(model.operation, sizeof(model.operation), "%s", "Partition table rebuilt");
 		break;
 	case CARDSIGHT_REQUEST_SCAN:
 	default:
@@ -663,7 +663,7 @@ EMSCRIPTEN_KEEPALIVE void cardsight_web_action(int action)
 		model.error = -EIO;
 		model.request = CARDSIGHT_REQUEST_SCAN;
 		model.card_detecting = false;
-		snprintf(model.operation, sizeof(model.operation), "%s", "存储卡读写错误");
+		snprintf(model.operation, sizeof(model.operation), "%s", "Card read/write error");
 		snprintf(model.card_error, sizeof(model.card_error), "%s", "CMD5 Read Timeout");
 		ui.dismissed_error = 0;
 		cardsight_ui_refresh(NULL);

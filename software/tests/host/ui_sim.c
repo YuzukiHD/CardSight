@@ -141,7 +141,7 @@ static void fixture(void)
 		/** @brief True for directory entries. */
 		bool dir;
 	} files[] = {
-		{ "文件文件文件文件文件文件文件文件文件文件文件文件.txt", 88123U, false },
+		{ "A-very-long-file-name-used-to-check-ellipsis.txt", 88123U, false },
 		{ "DCIM", 0U, true },
 		{ "Music", 0U, true },
 		{ "System Volume Information", 0U, true },
@@ -285,7 +285,7 @@ int main(void)
 	{
 		model.error = -EIO;
 		model.request = CARDSIGHT_REQUEST_SCAN;
-		snprintf(model.operation, sizeof(model.operation), "%s", "存储卡读写错误");
+		snprintf(model.operation, sizeof(model.operation), "%s", "Card read/write error");
 		snprintf(model.card_error, sizeof(model.card_error), "%s", "CMD5 Read Timeout");
 		ui.dismissed_error = 0;
 		cardsight_ui_refresh(NULL);

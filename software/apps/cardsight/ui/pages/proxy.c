@@ -43,13 +43,13 @@ void ui_update_proxy_controls(void)
 		return;
 	}
 	if (ui.model.running) {
-		text = "安全停止";
+		text = "Stop safely";
 	} else if (ui.selected == 0U) {
-		text = "请选择分区";
+		text = "Choose a partition";
 	} else if (selected_read_only()) {
-		text = "启动代理 只读";
+		text = "Start proxy (RO)";
 	} else {
-		text = "启动代理 读写";
+		text = "Start proxy (RW)";
 	}
 	disabled = ui.model.busy || (!ui.model.running && (!ui.model.card_present || ui.selected == 0U));
 	label = lv_obj_get_child(ui.proxy_start, -1);
@@ -161,8 +161,8 @@ static void build_partition_row(lv_obj_t *list, const struct storage_proxy_parti
 	lv_obj_t *label;
 
 	capacity_text(part->sectors, capacity, sizeof(capacity));
-	snprintf(title, sizeof(title), "P%u  %s", part->partno, part->status == 0 ? part->volume.fstype : "无法识别");
-	snprintf(detail, sizeof(detail), "%s%s", capacity, part->writable ? "" : " 只读");
+	snprintf(title, sizeof(title), "P%u  %s", part->partno, part->status == 0 ? part->volume.fstype : "Unrecognized");
+	snprintf(detail, sizeof(detail), "%s%s", capacity, part->writable ? "" : " read-only");
 	lv_obj_set_size(row, lv_pct(100), APP_PART_ROW_HEIGHT);
 	lv_obj_set_style_radius(row, APP_CARD_RADIUS, 0);
 	lv_obj_set_style_pad_all(row, 0, 0);
@@ -198,7 +198,7 @@ void build_proxy(void)
 	for (size_t index = 0U; index < ui.model.partition_count; index++) {
 		build_partition_row(list, &ui.model.partitions[index]);
 	}
-	if (ui.model.partition_count == 0U) make_label(list, ui.model.card_present ? "无可用分区" : "请插入存储卡", UI_MUTED);
+	if (ui.model.partition_count == 0U) make_label(list, ui.model.card_present ? "No usable partitions" : "Insert a card", UI_MUTED);
 
 	ui.proxy_start = make_button(ui.content, "", start_event, NULL);
 	lv_obj_set_width(ui.proxy_start, ui_wide_width());

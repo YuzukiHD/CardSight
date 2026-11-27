@@ -1,65 +1,50 @@
 ---
-title: 功能一览
-description: 读卡、分区、格式化、文件浏览、USB 导出和界面状态的实现边界。
+title: Features
+description: Reading cards, partitions, formatting, file browsing, USB export, and the UI states behind them.
 ---
 
-## 读卡与分区
+## Reading cards and partitions
 
-SD 卡走 SMHC0：CMD0/CMD8/ACMD41 识别，需要时 CMD11 切 1.8 V，ACMD6 切四位，CMD19 做采样点
-调谐，最后按卡的能力选 SDR104/SDR50/SDR25。调谐失败会复位控制器、重新调谐并重试一次。
+The TF card goes through SMHC0: CMD0/CMD8/ACMD41 identification, CMD11 to 1.8 V when the card supports it, ACMD6 for four-bit mode, CMD19 sampling-point tuning, then the fastest mode the card offers (SDR104, SDR50 or SDR25). A failed tuning resets the controller, retunes, and retries once.
 
-识别完成后驱动发布块设备 `mmcblk0`，块层解析 MBR 或 GPT，按分区发布 `mmcblk0p1`、`mmcblk0p2`……
-每个分区探测文件系统后，界面能看到类型、标签、容量、是否可写。探不到文件系统的分区显示“无法识别”，
-不会阻止其他分区使用。
+Once identification succeeds, the driver publishes the block device `mmcblk0`; the block layer parses MBR or GPT and publishes `mmcblk0p1`, `mmcblk0p2`, and so on. After probing each partition's filesystem, the UI shows its type, label, capacity and writability. A partition whose filesystem cannot be probed shows "unrecognized" and does not prevent the other partitions from being used.
 
-拔卡由 PF6 的 CD 引脚检测，500 ms 轮询一次。卡消失时撤下磁盘，应用的 worker 随后停止 USB
-和代理，界面回到无卡状态。
+Card removal is detected on the PF6 card-detect pin, polled every 500 ms. When the card disappears, the disk is removed and the application worker stops USB and the proxy; the UI falls back to the empty state.
 
-## 格式化
+## Formatting
 
-单个分区可以快速格式化或完全格式化，文件系统可选 FAT32、exFAT、ext4。完全格式化会先擦除
-分区再建文件系统，耗时更长。
+A single partition can be formatted quickly or fully, with FAT32, exFAT or ext4. A full format wipes the partition before creating the filesystem and takes longer.
 
-整盘布局编辑器会重写分区表（MBR 或 GPT），再按选择的文件系统创建分区。它会清除原分区表，
-所以确认动作是长按而不是单击。容量不足时 FatFs 会拒绝建立文件系统，界面报“分区容量不足”。
+The whole-card layout editor rewrites the partition table (MBR or GPT) and creates partitions with the chosen filesystem. It clears the existing table, so confirmation is a long press rather than a tap. If the partition is too small, FatFs refuses to create the filesystem and the UI reports that the capacity is insufficient.
 
-格式化由应用的 worker 线程执行，界面只发请求和显示进度。USB 正在运行时格式化会被拒绝
-（返回 `-EBUSY`），避免主机和板子同时写同一张卡。
+Formatting runs on the application worker; the UI only submits the request and displays progress. Formatting is refused while USB is running (`-EBUSY`), so the host and the board cannot write the same card at once.
 
-## 文件浏览
+## File browsing
 
-“文件”页先列分区，点进分区后逐层列目录。worker 每次读一个目录，最多保留
-`APP_FILE_ENTRIES`（64）项；目录更大时显示总数并标记截断。目录按“目录在前、名称不区分大小写”
-排序。长文件名用省略号截断，不换行。打开 ext4 分区时走 lwext4，打开 FAT/exFAT 时走 FatFs，
-两条路径都通过 VFS，界面代码不区分文件系统。
+The Files page lists partitions first, then descends one directory at a time. The worker reads one directory per request and keeps at most `APP_FILE_ENTRIES` (64) entries; larger directories report the total and mark the listing truncated. Entries are sorted with directories first, then names in case-insensitive order. Long names are ellipsised instead of wrapped. ext4 partitions go through lwext4 and FAT/exFAT partitions through FatFs; both paths use the VFS, so the UI does not distinguish between filesystems.
 
-## USB 直连
+## Direct USB
 
-“直连”页把整张卡作为 USB 大容量设备导出。主机看到的是卡上真实的分区表和文件系统，写入
-直接落到卡里。连接后页面显示读/写速率，数值每秒从 USB 计数器的差值计算。
+The Direct page exports the whole card as a USB mass-storage device. The host sees the real partition table and filesystems, and writes land directly on the card. While connected, the page shows read and write rates computed once per second from the USB counters.
 
-## 存储代理
+## Storage proxy
 
-代理模式在卡上选一个或多个分区，合成一个 exFAT 卷（块设备 `cardview1`）导出给主机。
-分区在视图里对应一个文件夹，原来的目录结构、文件名和文件内容按需索引。主机的写入先进入
-有界的 overlay 和 pending 表，再写回源文件系统。细节见[存储代理与 USB](/CardSight/proxy/)。
+Proxy mode selects one or more partitions and synthesises an exFAT volume (block device `cardview1`) for the host. Each partition becomes a folder; the original directory tree, names and file contents are indexed on demand. Host writes enter a bounded overlay and pending table first, then are written back to the source filesystem. See [Storage proxy and USB](/CardSight/proxy/) for the details.
 
-界面上代理页和直连页共用“启动/安全停止”按钮；运行中按钮变成“安全停止”，切换页面不会
-中断导出。
+The Proxy and Direct pages share the start/safe-stop button. While running, the button reads "Stop safely" and switching pages does not interrupt the export.
 
-## 界面状态
+## UI states
 
-五个页面共享一套状态模型：
+All five pages share one state model:
 
-| 状态 | 界面表现 |
+| State | UI |
 | --- | --- |
-| 正在识别卡 | 当前页上方出现转圈和“正在识别卡”，页面暂时无卡 |
-| 读写失败 | 底部弹出错误卡片，写明失败操作、控制器原始错误、错误码和路径 |
-| 忙碌 | 请求进行中，标签栏不响应切页，按钮禁用 |
-| 卡被拔出 | 停止 USB 和代理，文件浏览退出详情，回到无卡的空状态 |
-| 传输中 | 直连页的速率和 USB 状态每秒更新，不重建页面 |
+| Identifying the card | A spinner and "Identifying card" over the current page; the page temporarily has no card |
+| Read/write failure | A bottom sheet with the failed operation, the controller's original error, the error code and the path |
+| Busy | The request is running; the tab bar does not switch pages and buttons are disabled |
+| Card removed | USB and the proxy stop, the file browser leaves its detail view, and the empty state returns |
+| Transferring | Read/write rates and the USB state update once per second without rebuilding the page |
 
-## 串口诊断
+## Serial diagnostics
 
-界面之外保留一套 shell 命令：`blk`、`mmc`、`mount`、`ls`、`cat`、`lazyproxy`、`cardsight`
-等。它们用于板子没有屏幕、界面行为异常或产测时定位问题。完整列表见[命令行](/CardSight/shell/)。
+A shell remains available outside the UI: `blk`, `mmc`, `mount`, `ls`, `cat`, `lazyproxy`, `cardsight` and others. It is used when the board has no display, when the UI misbehaves, or in production testing. The complete list is in [Shell](/CardSight/shell/).

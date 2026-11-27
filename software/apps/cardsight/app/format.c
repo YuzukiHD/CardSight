@@ -108,7 +108,7 @@ static int wipe_partition(const char *device)
 	zeros = (uint8_t *)(((uintptr_t)zeros_block + 63U) & ~(uintptr_t)63U);
 	memset(zeros, 0, CHUNK_SECTORS * 512U);
 	total = bdev_nr_sectors(bdev);
-	app_set_progress(0, "正在清除");
+	app_set_progress(0, "Wiping");
 	while (result == 0 && sector < total) {
 		uint32_t count = total - sector < CHUNK_SECTORS ? (uint32_t)(total - sector) : CHUNK_SECTORS;
 
@@ -152,7 +152,7 @@ int format_partition(uint32_t partition, enum blk_partition_content content, boo
 		result = wipe_partition(device);
 	}
 	if (result == 0) {
-		app_set_progress(0, "正在格式化");
+		app_set_progress(0, "Formatting");
 		vfs_set_format_progress(format_progress, NULL);
 		started_ms = ktime_get_ms();
 		result = vfs_format(device, format_name(content), label, content == BLK_PARTITION_EXT4 ? 4U : 0U);

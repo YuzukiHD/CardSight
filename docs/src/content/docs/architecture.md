@@ -1,49 +1,47 @@
 ---
-title: 软件架构
-description: 启动链、任务模型、应用请求流、目录分层，以及主机测试与 WebAssembly 模拟器的位置。
+title: Architecture
+description: The boot chain, task model, request flow, source layout, and where the host tests and WebAssembly simulator live.
 ---
 
-## 目录
+## Layout
 
 ```text
 software/
-├── board/          板级常量（UART、SD、SPI、屏、触摸、USB 缓冲地址）
-├── include/        公开 API（vfs.h、hal/*、gui/lvgl_port.h）
-├── src/            启动、内核胶水、驱动、块层、VFS、USB、LVGL 端口
-├── apps/cardsight/ app/、storage/、ui/、fonts/、assets/
-├── tests/          host/（主机测试、PPM 渲染器）与 wasm/（浏览器模拟器）
-├── patches/        CherryUSB、lwext4 的板级补丁
-└── third_party/    六个 submodule
+├── board/          Board facts (UART, SD, SPI, panel, touch, USB buffer addresses)
+├── include/        Public API (vfs.h, hal/*, gui/lvgl_port.h)
+├── src/            Boot, kernel glue, drivers, block layer, VFS, USB, LVGL port
+├── apps/cardsight/ app/ · storage/ · ui/ · fonts/ · assets/
+├── tests/          host/ (host tests, PPM renderer) and wasm/ (browser simulator)
+├── patches/        Board patches for CherryUSB and lwext4
+└── third_party/    Six submodules
 ```
 
-## 启动
+## Boot
 
-`src/arch/start.S` 设置栈、清 `.bss`、跳到 `main()`。`main()` 初始化控制台和日志，然后按
-`INITCALL(level, priority, fn)` 注册的顺序执行初始化：时钟和引脚、UART、块层、MMC、文件系统、
-显示、触摸、USB、应用和界面任务。需要调度器的初始化放在 level 3。
+`src/arch/start.S` sets up the stack, clears `.bss` and jumps to `main()`. `main()` initialises the console and logging, then runs initialisation in the order registered with `INITCALL(level, priority, fn)`: clocks and pins, UART, block layer, MMC, filesystems, display, touch, USB, application and UI tasks. Initialisation that needs the scheduler is at level 3.
 
-两个 eFEX 不属于固件镜像：它们由 SyterKit 的板配置单独构建，通过 FEL 写入 SRAM 运行。
+The two eFEX images are not part of the firmware image: SyterKit's board configuration builds them separately, and they run from SRAM after being loaded through FEL.
 
-## 任务与请求
+## Tasks and requests
 
-界面任务只读状态快照，不直接碰卡：
+The UI task reads a state snapshot and never touches the card directly:
 
 ```mermaid
 flowchart TB
-  subgraph UI["LVGL 任务"]
-    pages["五个页面 / 控件"]
+  subgraph UI["LVGL task"]
+    pages["Five pages / widgets"]
     snapshot["cardsight_snapshot()"]
     send["send_request()"]
   end
-  subgraph WORKER["worker 任务"]
-    queue[("请求队列")]
+  subgraph WORKER["worker task"]
+    queue[("request queue")]
     ops["scan / list / format / layout / usb"]
   end
-  subgraph PLATFORM["平台"]
-    mmc["MMC 驱动 / mmcblk0"]
-    blk["块层 + 分区"]
+  subgraph PLATFORM["platform"]
+    mmc["MMC driver / mmcblk0"]
+    blk["block layer + partitions"]
     vfs["VFS / FatFs / lwext4"]
-    proxy["lazy 代理 / cardview1"]
+    proxy["lazy proxy / cardview1"]
     usb["USB MSC"]
   end
   pages --> snapshot
@@ -57,53 +55,40 @@ flowchart TB
   usb --> proxy
 ```
 
-worker 一次只执行一个请求。状态由 `app_lock` 保护，界面拿到的是副本，不会看到写了一半的字段。
-请求类型固定为七种：扫描、直连 USB、启动代理、停止、格式化分区、重建布局、列目录。界面不能
-绕过 worker 直接调用文件系统或 USB。
+The worker runs one request at a time. State is protected by `app_lock`, and the UI receives a copy, so it never observes a half-written field. There are seven request types: scan, direct USB, start proxy, stop, format partition, rebuild layout and list directory. The UI cannot bypass the worker to call a filesystem or USB directly.
 
-LVGL 自己有一个任务，所有控件操作都在这个任务里执行。其他任务通过 `lvgl_port_post()` 投递
-回调，不直接调用 LVGL。触摸由 LVGL 输入设备轮询，没有中断或独立线程。
+LVGL has its own task, and every widget operation runs there. Other tasks submit callbacks with `lvgl_port_post()` instead of calling LVGL directly. Touch is polled by the LVGL input device; there is no interrupt or separate thread.
 
-热插拔由 MMC 驱动的低优先级任务处理：插入时识别并发布磁盘，拔出时撤下磁盘。worker 发现磁盘
-消失后停止 USB 和代理，再清空属于旧卡的状态。
+Hot-plug is handled by a low-priority MMC driver task: it identifies and publishes the disk on insertion and removes it on removal. When the worker sees the disk disappear, it stops USB and the proxy, then clears the state that belonged to the old card.
 
-## 存储代理的拆分
+## Storage-proxy split
 
-懒索引引擎按能力拆文件，公共接口在 `proxy_lazy.h`，内部类型和共享状态在 `lazy_types.h`，
-跨模块原型在 `lazy_private.h`：
+The lazy engine splits by capability. The public interface is `proxy_lazy.h`, shared types and state are in `lazy_types.h`, and cross-module prototypes are in `lazy_private.h`:
 
-| 文件 | 能力 |
+| File | Capability |
 | --- | --- |
-| `lazy_lifecycle.c` | 启动、停止、探测源分区、构建根目录 |
-| `lazy_volume.c` | 视图几何、预留区、引导区、FAT |
-| `lazy_dir*.c` | 目录头、槽位、名称、缓存加载 |
-| `lazy_cache.c` | LRU 记账与淘汰 |
-| `lazy_range.c` | 簇区间到源文件的映射 |
-| `lazy_read.c` / `lazy_write*.c` | 读路径、写回路径、overlay |
-| `lazy_staging.c` | staging 文件与 flush |
-| `lazy_render.c` | 目录项、文本报告的字节布局 |
-| `lazy_shell.c` | `lazyproxy` 命令 |
+| `lazy_lifecycle.c` | Start, stop, source probing, root construction |
+| `lazy_volume.c` | View geometry, reservations, boot region, FAT |
+| `lazy_dir*.c` | Directory headers, slots, names, cache loading |
+| `lazy_cache.c` | LRU accounting and eviction |
+| `lazy_range.c` | Cluster-run mapping to source files |
+| `lazy_read.c` / `lazy_write*.c` | Read path, write-back path, overlay |
+| `lazy_staging.c` | Staging files and flush |
+| `lazy_render.c` | Byte layout of directory entries and text reports |
+| `lazy_shell.c` | The `lazyproxy` command |
 
-全量索引引擎在 `storage/eager/`，结构与它类似，但启动时遍历源目录并建立完整索引。两者都通过
-`storage_proxy.h` 暴露分区信息，界面不依赖具体引擎。
+The full-index engine in `storage/eager/` follows the same structure but walks the source tree at start-up and builds a complete index. Both expose partition information through `storage_proxy.h`; the UI does not depend on a specific engine.
 
-## 界面拆分
+## UI split
 
-`ui/core/` 放外壳、标签栏、对话框、横幅和错误卡片；`ui/widgets/` 放按钮、列表、文本等构造函数；
-`ui/pages/` 一页一个文件。页面构建函数只负责一次性建立控件树，运行中的数值由 `ui_update_*`
-原地更新。`ui_private.h` 保存控件指针和布局常量，页面之间不互相引用。
+`ui/core/` holds the shell, tab bar, dialogs, banner and error sheet; `ui/widgets/` holds the button, list and text constructors; `ui/pages/` has one file per page. Page builders create the widget tree once, and `ui_update_*` refreshes live values in place. `ui_private.h` owns the widget pointers and layout constants, and pages do not reference each other.
 
-界面重建时先保存每个列表的滚动位置，清空整棵树，再重新构建五个页面。重建只在状态结构变化时
-发生；速率、进度、错误这类连续变化走原地更新，避免每秒重建。
+A rebuild first saves each list's scroll position, clears the whole tree, then rebuilds all five pages. Rebuilds happen only when the state structure changes; continuous values such as rates, progress and errors update in place, so the UI is not rebuilt every second.
 
-## 测试与模拟器
+## Tests and the simulator
 
-主机测试编译真实的块层、VFS、FatFs、lwext4 和两个代理引擎，用 RAM 盘代替 SD 卡。板级驱动、
-DMA、缓存维护这些依赖寄存器的代码不进入主机目标。
+The host tests compile the real block layer, VFS, FatFs, lwext4 and both proxy engines, using RAM disks instead of a TF card. Board drivers, DMA and cache maintenance, which depend on registers, do not enter the host target.
 
-`tests/host/ui_sim.c` 编译真实 LVGL 和全部界面代码，把页面和交互状态渲染成 PPM。它和主机测试
-共用 `tests/host/stubs/` 里的 `FreeRTOS.h`、显示和日志桩。
+`tests/host/ui_sim.c` compiles the real LVGL and all UI code and renders pages and interaction states to PPM. It shares the `FreeRTOS.h`, display and logging stubs in `tests/host/stubs/` with the host tests.
 
-`tests/wasm/` 用同一套界面源码构建浏览器里的模拟器，额外提供内存 framebuffer、指针输入和
-请求模拟。文档站的 `docs/public/demo/cardsight-demo.js` 负责实例化、转发触摸事件和把 RGB565
-帧画到 canvas。模拟器和固件使用同一份 `lv_conf.h` 与字体，不维护第二套界面。
+`tests/wasm/` builds the same UI sources for the browser and adds a memory framebuffer, pointer input and the request emulator. `docs/public/demo/cardsight-demo.js` instantiates the module, forwards touch events and draws the RGB565 frame on a canvas. The simulator and the firmware use the same `lv_conf.h` and fonts; there is no second UI implementation.

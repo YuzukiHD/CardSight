@@ -1,91 +1,88 @@
 ---
-title: 命令行
-description: cardsight> 下的块设备、VFS、MMC、USB、代理和界面诊断命令。
+title: Shell
+description: "Block device, VFS, MMC, USB, proxy and UI diagnostics under the cardsight> prompt."
 ---
 
-串口 115200 8N1 打开后是 `cardsight>`。命令表来自各模块注册的 `SHELL_CMD`；参数写错时命令
-会打印自己的用法。
+Open the UART at 115200 8N1 and the prompt is `cardsight>`. The table below comes from the `SHELL_CMD` registrations in each module; a wrong argument prints the command's usage text.
 
-## 块设备
+## Block devices
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `blk` | 列出块设备、容量和只读标志 |
-| `blkread <dev> <sector>` | 读一个 512 字节扇区并打印十六进制 |
-| `blkbench <dev> <sector> <MiB>` | 从指定扇区顺序读，报告吞吐 |
+| `blk` | List block devices, capacities and read-only flags |
+| `blkread <dev> <sector>` | Read one 512-byte sector and print it as hex |
+| `blkbench <dev> <sector> <MiB>` | Sequential read starting at a sector, reporting throughput |
 
-## SD 卡
+## TF card
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `mmc` | 卡信息：容量、模式、时钟、位宽、调谐状态 |
-| `mmc eject` | 把 CD 状态强制为“不在位”，卡仍在槽里且不断电 |
-| `mmc insert` | 重新识别当前卡 |
-| `mmc soak [n]` | 重复移除/识别 n 次，统计失败 |
+| `mmc` | Card information: capacity, mode, clock, bus width, tuning state |
+| `mmc eject` | Force the card-detect state to "absent"; the card stays powered in the slot |
+| `mmc insert` | Identify the current card again |
+| `mmc soak [n]` | Repeat remove/identify n times and count failures |
 
-`mmc eject` 模拟的是热插拔路径，不是真拔卡。真拔卡会断电，重新插入仍走 3.3 V → CMD11 →
-SDR104；模拟移除后重新识别可能停在 SDR25。
+`mmc eject` exercises the hot-plug path; it is not a physical removal. A real removal cuts power, and reinsertion goes through 3.3 V → CMD11 → SDR104 again. After a simulated removal the card may stop at SDR25.
 
-## 文件系统
+## Filesystems
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `mount [blk target [fstype]]` | 挂载分区；不带参数时列出挂载点 |
-| `umount <target>` | 卸载 |
-| `ls [path]` | 列目录 |
-| `cat <path>` | 读文件到控制台 |
-| `df <path>` | 卷容量和剩余空间 |
-| `write <path> <text>` | 写文本文件 |
-| `rm <path>` / `rmdir <path>` | 删除文件 / 空目录 |
+| `mount [blk target [fstype]]` | Mount a partition; with no arguments, list mount points |
+| `umount <target>` | Unmount |
+| `ls [path]` | List a directory |
+| `cat <path>` | Print a file |
+| `df <path>` | Volume capacity and free space |
+| `write <path> <text>` | Write a text file |
+| `rm <path>` / `rmdir <path>` | Remove a file / an empty directory |
 
-## USB 与存储代理
+## USB and the storage proxy
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `lazyproxy start <disk> [mask]` | 启动懒索引 exFAT 视图 `cardview1`；mask 是分区位掩码 |
-| `lazyproxy stop` | 停止视图 |
-| `lazyproxy usb on\|rw\|off` | 把视图导出为只读或读写 USB 设备，或停止 USB |
-| `lazyproxy` / `lazyproxy status` | 几何、预留区、目录/缓存用量、overlay、读写计数、最后错误 |
-| `storageproxy start <disk> [mask]` | 启动全量索引视图 `cardview0`（诊断用） |
-| `storageproxy stop` / `status` / `count` / `reset` | 全量索引视图的控制和统计 |
-| `cardsight usb on` | 启动代理视图并导出 USB（走全量索引引擎） |
-| `cardsight usb off` | 停止 USB 和代理 |
-| `cardsight usb disk` | 只读导出整盘，供主机核对真实分区表 |
-| `cardsight usb-test` | 只读代理 + USB 的启动/停止生命周期自检 |
+| `lazyproxy start <disk> [mask]` | Start the lazy-index exFAT view `cardview1`; mask is a partition bitmask |
+| `lazyproxy stop` | Stop the view |
+| `lazyproxy usb on\|rw\|off` | Export the view as a read-only or read-write USB device, or stop USB |
+| `lazyproxy` / `lazyproxy status` | Geometry, reservations, directory/cache usage, overlay, I/O counters and last error |
+| `storageproxy start <disk> [mask]` | Start the full-index view `cardview0` (diagnostics) |
+| `storageproxy stop` / `status` / `count` / `reset` | Control and statistics for the full-index view |
+| `cardsight usb on` | Start the proxy view and export it over USB (full-index engine) |
+| `cardsight usb off` | Stop USB and the proxy |
+| `cardsight usb disk` | Export the whole disk read-only, for host-side checks of the real table |
+| `cardsight usb-test` | Read-only proxy and USB start/stop lifecycle test |
 
-界面里的代理页使用懒索引引擎，和 `lazyproxy` 是同一套代码。`storageproxy` 和 `cardsight usb`
-保留给诊断，两者都基于全量索引，启动时会遍历分区目录。
+The Proxy page in the UI uses the lazy-index engine, which is the same code as `lazyproxy`. `storageproxy` and `cardsight usb` are diagnostics built on the full-index engine; both walk the partition trees at start-up.
 
-## 显示与界面
+## Display and UI
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `display color <rgb565>` | 整屏填色，检查屏和 SPI 通路 |
-| `display test` | 内置测试图 |
-| `panel` | 第二个 hart 的像素推送状态 |
-| `lvgl` | 刷新次数、像素数、耗时 |
-| `lvgl reset` | 清零统计 |
-| `lvgl bench` | 线速和重绘基准 |
-| `cardsight page <direct\|proxy\|disk\|info\|layout>` | 切换界面页 |
-| `cardsight radius [px]` | 打开圆角校准叠层 |
-| `cardsight ui-test` | 遍历对象树，做界面自检 |
-| `cardsight memtest [n]` | 重建界面 n 次，比较堆用量 |
-| `cardsight memcheck` | 检查列表淡出条和 LVGL 绘制缓冲的守护字 |
-| `screenshot` | 把当前屏幕导出为 RLE/base64 |
+| `display color <rgb565>` | Fill the panel, checking the display and SPI path |
+| `display test` | Built-in test pattern |
+| `panel` | State of the second hart's pixel pusher |
+| `lvgl` | Refresh count, pixel count and elapsed time |
+| `lvgl reset` | Clear the statistics |
+| `lvgl bench` | Wire-speed and redraw benchmark |
+| `cardsight page <direct\|proxy\|disk\|info\|layout>` | Switch the UI page |
+| `cardsight radius [px]` | Open the corner-radius calibration overlay |
+| `cardsight ui-test` | Walk the object tree and run the UI self-test |
+| `cardsight memtest [n]` | Rebuild the UI n times and compare heap usage |
+| `cardsight memcheck` | Check the list fade guards and the LVGL draw-buffer guard word |
+| `screenshot` | Dump the current screen as RLE/base64 |
 
-## 系统
+## System
 
-| 命令 | 作用 |
+| Command | Effect |
 | --- | --- |
-| `help` | 列出命令 |
-| `heap` | 内核堆和 C 库堆的使用量 |
-| `stack` | 各任务栈的高水位 |
-| `uptime` | 启动后的毫秒数 |
-| `cache` | XuanTie 缓存寄存器与带宽检查 |
+| `help` | List the commands |
+| `heap` | Kernel heap and C library heap usage |
+| `stack` | Task stack high-water marks |
+| `uptime` | Milliseconds since boot |
+| `cache` | XuanTie cache registers and a bandwidth check |
 
-## 常用组合
+## Common sequences
 
-确认卡和分区：
+Check the card and its partitions:
 
 ```text
 mmc
@@ -94,18 +91,17 @@ mount mmcblk0p2 /mnt/fat fat
 ls /mnt/fat
 ```
 
-把一个分区通过代理导出给电脑：
+Export one partition through the proxy:
 
 ```text
 lazyproxy start mmcblk0 0x2
 lazyproxy usb rw
 ```
 
-测顺序读：
+Measure sequential reads:
 
 ```text
 blkbench mmcblk0 2048 64
 ```
 
-`blkbench` 的第三个参数是 MiB，不是扇区数。读入片上 SRAM 时实测约 62 MiB/s；读入 PSRAM
-时约 9.6 MiB/s，瓶颈在 PSRAM 写入路径。
+The third argument to `blkbench` is MiB, not sectors. Reads into on-chip SRAM measure about 62 MiB/s; reads into PSRAM measure about 9.6 MiB/s, limited by the PSRAM write path.

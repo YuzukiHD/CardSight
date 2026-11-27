@@ -141,16 +141,16 @@ void build_format_dialog(void)
 	ui_style_card(dialog, UI_BACKGROUND, 0);
 	lv_obj_set_style_pad_all(dialog, 0, 0);
 	disable_scroll(dialog);
-	snprintf(text, sizeof(text), "格式化 P%u  %s", ui.manage_partition, content_name(ui.format_content));
+	snprintf(text, sizeof(text), "Format P%u  %s", ui.manage_partition, content_name(ui.format_content));
 	label = make_label(dialog, text, UI_TEXT);
 	lv_obj_set_style_text_font(label, &cardsight_font_20, 0);
 	lv_obj_set_pos(label, ui_margin() + 4, top);
-	label = make_label(dialog, "将清除分区数据。完全格式化会覆盖整个分区，耗时更长。", UI_DANGER);
+	label = make_label(dialog, "This erases the partition. A full format overwrites it completely.", UI_DANGER);
 	lv_obj_set_width(label, ui_page_width() - 8);
 	lv_obj_set_pos(label, ui_margin() + 4, top + 34);
-	make_option(dialog, "格式化", false, true, top + 112);
-	make_option(dialog, "完全格式化", true, false, top + 112 + APP_ROW_HEIGHT + 6);
-	back = make_bar_button(dialog, "返回", format_cancel_event, (int32_t)ui.width - 2 * APP_BAR_MARGIN);
+	make_option(dialog, "Format", false, true, top + 112);
+	make_option(dialog, "Full format", true, false, top + 112 + APP_ROW_HEIGHT + 6);
+	back = make_bar_button(dialog, "Back", format_cancel_event, (int32_t)ui.width - 2 * APP_BAR_MARGIN);
 	lv_obj_set_pos(back, APP_BAR_MARGIN, (int32_t)ui.height - APP_BAR_MARGIN - APP_BAR_HEIGHT);
 	ui.content = dialog;
 	if (ui.banner != NULL) {
@@ -222,16 +222,16 @@ static void build_partition_rows(lv_obj_t *list)
 		disable_scroll(button);
 		lv_obj_set_style_radius(dot, 5, 0);
 		lv_obj_align(dot, LV_ALIGN_LEFT_MID, 18, 0);
-		snprintf(text, sizeof(text), "P%u  %s", part->partno, part->status == 0 ? part->volume.fstype : "无法识别");
+		snprintf(text, sizeof(text), "P%u  %s", part->partno, part->status == 0 ? part->volume.fstype : "Unrecognized");
 		label = make_label(button, text, UI_TEXT);
 		lv_obj_align(label, LV_ALIGN_TOP_LEFT, 38, 1);
-		snprintf(text, sizeof(text), "%s%s", capacity, part->writable ? "" : " 只读");
+		snprintf(text, sizeof(text), "%s%s", capacity, part->writable ? "" : " read-only");
 		label = make_label(button, text, part->writable ? UI_MUTED : UI_WARNING);
 		lv_obj_set_style_text_font(label, &cardsight_font_16, 0);
 		lv_obj_align(label, LV_ALIGN_TOP_LEFT, 38, 28);
 		lv_obj_add_event_cb(button, manage_partition_event, LV_EVENT_CLICKED, (void *)(uintptr_t)part->partno);
 	}
-	if (ui.model.partition_count == 0U) make_label(list, ui.model.card_present ? "无可用分区" : "请插入存储卡", UI_MUTED);
+	if (ui.model.partition_count == 0U) make_label(list, ui.model.card_present ? "No usable partitions" : "Insert a card", UI_MUTED);
 }
 
 /* The editor is a rare action, so it is a quiet row at the end of the list, not a docked button. */
@@ -246,7 +246,7 @@ static void build_partition_rows(lv_obj_t *list)
  */
 static void build_layout_entry(lv_obj_t *list)
 {
-	lv_obj_t *button = make_button(list, "格式化整卡", layout_open_event, NULL);
+	lv_obj_t *button = make_button(list, "Format whole card", layout_open_event, NULL);
 
 	lv_obj_set_size(button, lv_pct(100), APP_ROW_HEIGHT);
 	lv_obj_set_style_radius(button, APP_ROW_HEIGHT / 2, 0);
@@ -278,7 +278,7 @@ static void build_format_detail(void)
 	for (uint32_t index = 0U; index < ARRAY_SIZE(contents); index++) {
 		lv_obj_t *button;
 
-		snprintf(text, sizeof(text), "格式化 %s", content_name(contents[index]));
+		snprintf(text, sizeof(text), "Format %s", content_name(contents[index]));
 		button = make_button(list, text, format_choose_event, (void *)(uintptr_t)contents[index]);
 		lv_obj_set_size(button, lv_pct(100), APP_ROW_HEIGHT);
 		lv_obj_set_style_radius(button, APP_ROW_HEIGHT / 2, 0);

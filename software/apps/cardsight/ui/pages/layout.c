@@ -154,7 +154,7 @@ void build_layout_editor(void)
 	/* a stronger tint than other sheets: this page is modal and destructive */
 	glass_attach_tinted(card, 18, 220);
 
-	label = make_label(card, "分区表", UI_MUTED);
+	label = make_label(card, "Partition table", UI_MUTED);
 	lv_obj_set_pos(label, 14, 8);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(tables); index++) {
 		make_segment(card, 14 + (int32_t)index * 96, 26, 92, tables[index],
@@ -162,7 +162,7 @@ void build_layout_editor(void)
 			(void *)(uintptr_t)index);
 	}
 
-	label = make_label(card, "文件系统", UI_MUTED);
+	label = make_label(card, "Filesystem", UI_MUTED);
 	lv_obj_set_pos(label, 14, 64);
 	for (uint32_t index = 0U; index < ARRAY_SIZE(contents); index++) {
 		make_segment(card, 14 + (int32_t)index * 66, 82, 64, content_name(contents[index]),
@@ -172,12 +172,12 @@ void build_layout_editor(void)
 
 	/* show the capacity the new partition will cover */
 	capacity_text(ui.model.sectors, capacity, sizeof(capacity));
-	label = make_label(card, "容量", UI_MUTED);
+	label = make_label(card, "Capacity", UI_MUTED);
 	lv_obj_set_pos(label, 14, 122);
 	label = make_label(card, capacity, UI_TEXT);
 	lv_obj_align(label, LV_ALIGN_TOP_RIGHT, -14, 122);
 
-	label = make_label(card, "将清除原分区表并重建", UI_DANGER);
+	label = make_label(card, "Clears the partition table", UI_DANGER);
 	lv_obj_set_pos(label, 14, 146);
 }
 
@@ -193,12 +193,12 @@ void build_layout_editor(void)
  */
 void build_layout_bar(lv_obj_t *bar)
 {
-	int32_t back_width = 90;
+	int32_t back_width = 76;
 	int32_t width = (int32_t)ui.width - 2 * APP_BAR_MARGIN;
-	lv_obj_t *back = make_bar_button(bar, "返回", ui_back_event, back_width);
+	lv_obj_t *back = make_bar_button(bar, "Back", ui_back_event, back_width);
 
 	lv_obj_set_pos(back, 0, 0);
-	ui.layout_apply = make_button(bar, "长按格式化", NULL, NULL);
+	ui.layout_apply = make_button(bar, "Hold to format", NULL, NULL);
 	lv_obj_set_size(ui.layout_apply, width - back_width - 6, APP_BAR_HEIGHT);
 	lv_obj_set_style_radius(ui.layout_apply, ui_bar_radius(), 0);
 	lv_obj_set_pos(ui.layout_apply, back_width + 6, 0);

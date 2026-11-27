@@ -1,41 +1,23 @@
 # Third-party components
 
-All dependencies are git submodules pinned to a release tag (or, for SyterKit, the commit that
-carries this board). `git submodule update --init --recursive` prepares them.
+All dependencies are git submodules pinned to a release tag (or, for SyterKit, the commit that carries this board). `git submodule update --init --recursive` prepares them.
 
-| 组件 | 版本 / submodule | 许可 | 路径 |
+| Component | Version / submodule | License | Path |
 |---|---|---|---|
-| FreeRTOS Kernel | tag `V11.3.3`，https://github.com/FreeRTOS/FreeRTOS-Kernel.git | MIT（`LICENSE.md`） | `software/third_party/FreeRTOS-Kernel/` |
-| LVGL | tag `v9.6.0`，https://github.com/lvgl/lvgl.git | MIT（`LICENCE.txt`） | `software/third_party/LVGL/` |
-| CherryUSB | tag `v1.6.1`，https://github.com/cherry-embedded/CherryUSB.git | Apache-2.0（`LICENSE`） | `software/third_party/CherryUSB/` |
-| lwext4 | `master`（最新提交），https://github.com/gkostka/lwext4.git | GPL-2.0（`LICENSE`） | `software/third_party/lwext4/` |
-| FatFs | tag `R0.16`（abbrev/fatfs 镜像），https://github.com/abbrev/fatfs.git | FatFs 许可（`source/00readme.txt`） | `software/third_party/fatfs/` |
-| SyterKit | 含本板 eFEX 的提交，https://github.com/YuzukiHD/SyterKit.git | GPL-2.0-or-later | `software/third_party/SyterKit/` |
-| Source Sans 字体（生成的字模） | Adobe，SIL OFL 1.1 | OFL 1.1（`FONT_LICENSE.txt`） | `software/apps/cardsight/fonts/` |
+| FreeRTOS Kernel | tag `V11.3.3`, https://github.com/FreeRTOS/FreeRTOS-Kernel.git | MIT (`LICENSE.md`) | `software/third_party/FreeRTOS-Kernel/` |
+| LVGL | tag `v9.6.0`, https://github.com/lvgl/lvgl.git | MIT (`LICENCE.txt`) | `software/third_party/LVGL/` |
+| CherryUSB | tag `v1.6.1`, https://github.com/cherry-embedded/CherryUSB.git | Apache-2.0 (`LICENSE`) | `software/third_party/CherryUSB/` |
+| lwext4 | `master` (latest commit), https://github.com/gkostka/lwext4.git | GPL-2.0 (`LICENSE`) | `software/third_party/lwext4/` |
+| FatFs | tag `R0.16` (abbrev/fatfs mirror), https://github.com/abbrev/fatfs.git | FatFs license (`source/00readme.txt`) | `software/third_party/fatfs/` |
+| SyterKit | commit containing this board's eFEX, https://github.com/YuzukiHD/SyterKit.git | GPL-2.0-or-later | `software/third_party/SyterKit/` |
+| Source Sans (generated glyphs) | Adobe, SIL OFL 1.1 | OFL 1.1 (`FONT_LICENSE.txt`) | `software/apps/cardsight/fonts/` |
 
-说明：
+Notes:
 
-- 本项目整体以 GPL-2.0-or-later 发布。CherryUSB 为 Apache-2.0，与 GPLv3/GPL-2.0-or-later
-  兼容；若必须使用 GPL-2.0-only，需要替换 CherryUSB 或取得例外授权。
-- CherryUSB 的 submodule 保持上游原样；本板需要的 MUSB/MSC 修改在
-  `software/patches/cherryusb/0001-board-support.patch`，构建时应用到 `software/build/cherryusb/` 的副本上
-  （`software/src/CMakeLists.txt`），不修改 submodule。修改包括设备栈的接口调整和
-  `CONFIG_USBDEV_MSC_EXTERNAL_BUFFER`（导出保留的片上 SRAM 作为传输缓冲）。
-- FatFs 的 submodule 保持上游原样；本项目的 `ffconf.h` 在 `software/src/fs/fatfs/ffconf.h`，构建时
-  FatFs 源被复制到 `software/build/fatfs/` 并覆盖配置（`ff.c` 用引号包含 `ffconf.h`，同目录优先）。
-- lwext4 的 submodule 保持上游原样；新版 `mke2fs` 默认启用的 `metadata_csum_seed`
-  （incompat `0x2000`）上游并不支持，会以 `ENOTSUP` 拒绝挂载。本板的支持补丁在
-  `software/patches/lwext4/0001-csum-seed.patch`，构建时应用到 `software/build/lwext4/` 的副本上
-  （`software/cmake/lwext4.cmake`），不修改 submodule。补丁识别该特性，并让文件系统元数据
-  校验和从超级块的 `s_checksum_seed` 取种子；未设置该特性时仍使用 UUID，行为不变。
-  `0002-inode-by-number.patch` 增加按 inode 号读取 inode 的接口；VFS 的 ext 目录枚举用它
-  替代逐条整路径解析，千文件目录的首次打开从约 10 秒降到 1 秒以内。`0003-mkfs-last-group.patch`
-  修正小于一个 block group 的卷：最后一个不完整 group 原先按整组计空闲块，超级块的
-  `free_blocks_count` 会大于卷总块数。补丁按文件名顺序应用，新增改动只需在
-  `software/patches/lwext4/` 加一个编号文件。
-- lwext4 的块缓存提高到 64 个 4 KiB 块（`software/cmake/lwext4.cmake`），避免大目录
-  枚举时目录块和 inode 表块互相驱逐；每个已挂载 ext 卷约占 256 KiB 堆。
-- `software/third_party/SyterKit` 内含有厂家预编译的 DRAM/PSRAM 初始化库
-  （`soc/sun252iw1/lib/*.a`）。这些二进制随 SyterKit 一起分发，不属于本仓库源码；
-  发布源码包时按 SyterKit 自身的许可与说明处理，不在本仓库的源码 tarball 中重新打包。
-- 第三方目录保持上游文件不变（仅按构建需要选择被编译的文件）。
+- The project as a whole is released under GPL-2.0-or-later. CherryUSB is Apache-2.0, which is compatible with GPLv3/GPL-2.0-or-later; using GPL-2.0-only would require replacing CherryUSB or obtaining an exception.
+- The CherryUSB submodule stays as upstream. The MUSB/MSC changes this board needs are in `software/patches/cherryusb/0001-board-support.patch`, applied at build time to a copy in `software/build/cherryusb/` (`software/src/CMakeLists.txt`), without modifying the submodule. The changes adjust device-stack interfaces and add `CONFIG_USBDEV_MSC_EXTERNAL_BUFFER` (exporting the reserved on-chip SRAM as the transfer buffer).
+- The FatFs submodule stays as upstream. This project's `ffconf.h` is at `software/src/fs/fatfs/ffconf.h`; at build time the FatFs sources are copied to `software/build/fatfs/` and the configuration is placed next to them (`ff.c` includes `ffconf.h` with quotes, so the same directory wins).
+- The lwext4 submodule stays as upstream. Newer `mke2fs` versions enable `metadata_csum_seed` (incompat feature `0x2000`) by default, which upstream does not support and rejects at mount with `ENOTSUP`. The board patches are in `software/patches/lwext4/`, applied at build time to a copy in `software/build/lwext4/` (`software/cmake/lwext4.cmake`), without modifying the submodule. `0001-csum-seed.patch` recognises the feature and seeds metadata checksums from `s_checksum_seed` in the superblock; when the feature is absent it still uses the UUID, so behaviour is unchanged. `0002-inode-by-number.patch` adds an inode-by-number read; the VFS ext directory enumeration uses it instead of resolving a full path for every entry, which cuts the first open of a thousand-file directory from about 10 seconds to under one. `0003-mkfs-last-group.patch` fixes volumes smaller than one block group: the last partial group was counted as a full group, so the superblock's `free_blocks_count` exceeded the volume's block count. Patches are applied in file-name order; a new change is one more numbered file in `software/patches/lwext4/`.
+- The lwext4 block cache is raised to 64 4 KiB blocks (`software/cmake/lwext4.cmake`) so directory blocks and inode-table blocks do not evict each other while walking a large directory; each mounted ext volume uses about 256 KiB of heap.
+- `software/third_party/SyterKit` contains the vendor's prebuilt DRAM/PSRAM initialisation library (`soc/sun252iw1/lib/*.a`). Those binaries are distributed with SyterKit, not as source of this repository; source tarballs follow SyterKit's own license and notes and do not repack them.
+- Third-party directories keep upstream files unchanged; the build only selects which files to compile.

@@ -1,23 +1,21 @@
 ---
-title: 构建
-description: 交叉工具链、主机测试、发布包，以及文档站里 WebAssembly 模拟器的构建方式。
+title: Build
+description: The cross toolchain, host tests, release tarball, and how the WebAssembly simulator in the docs is built.
 ---
 
-## 需要什么
+## Requirements
 
-- RISC-V 工具链：XuanTie-900 GCC elf newlib（V3.2.0 验证过），路径通过环境变量
-  `XUANTIE_TOOLCHAIN` 指定，也可以在 CMake 里用 `-DXUANTIE_TOOLCHAIN=...` 覆盖。仓库不写死
-  本机路径。
-- 主机测试只需要 CMake ≥ 3.20 和一个 C 编译器。
-- 文档站的模拟器需要 Emscripten。
+- RISC-V toolchain: XuanTie-900 GCC elf newlib (verified with V3.2.0). Its path is given through the `XUANTIE_TOOLCHAIN` environment variable, or with `-DXUANTIE_TOOLCHAIN=...` on the CMake command line. The repository does not hard-code a local path.
+- Host tests need only CMake ≥ 3.20 and a C compiler.
+- The simulator in the docs needs Emscripten.
 
-第三方组件全部是 git submodule，先拉下来：
+All third-party components are git submodules; fetch them first:
 
 ```sh
 git submodule update --init --recursive
 ```
 
-## 固件
+## Firmware
 
 ```sh
 export XUANTIE_TOOLCHAIN=/path/to/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0
@@ -26,30 +24,28 @@ cmake --preset riscv
 cmake --build build/riscv
 ```
 
-产物在 `software/build/riscv/images/`：
+The output is in `software/build/riscv/images/`:
 
-| 文件 | 说明 |
+| File | Description |
 | --- | --- |
-| `cardsight.bin` | C907 上的应用镜像，链接到 `0x12000000` |
-| `init_psram_efex.bin` | E907 上初始化 PSRAM，完成后返回 FEL |
-| `c907_boot_efex.bin` | E907 启动 C907，入口 `0x12000000` |
+| `cardsight.bin` | Application image for the C907, linked at `0x12000000` |
+| `init_psram_efex.bin` | E907 image that initialises PSRAM and returns to FEL |
+| `c907_boot_efex.bin` | E907 image that releases the C907 at entry `0x12000000` |
 
-两个 eFEX 由 `software/third_party/SyterKit` 的 `yuzuki-cardsight` 板配置构建，
-CMake 目标叫 `efex_stubs`，会随默认构建一起生成。烧写步骤见[烧写与启动](/CardSight/fel/)。
+The two eFEX images come from the `yuzuki-cardsight` board configuration in `software/third_party/SyterKit`. The CMake target is `efex_stubs` and is built by default. Flashing steps are in [Flashing and boot](/CardSight/fel/).
 
-构建开关：
+Build switches:
 
-| 变量 | 默认 | 作用 |
+| Variable | Default | Effect |
 | --- | --- | --- |
-| `CARDSIGHT_WITH_APP` | ON | 是否编译应用和 LVGL |
-| `CARDSIGHT_HOST_TESTS` | OFF | 只构建主机测试 |
-| `CARDSIGHT_BUILD_EFEX` | ON | 是否构建两个 eFEX |
-| `CARDSIGHT_WERROR` | OFF | 把自有代码的警告变成错误 |
+| `CARDSIGHT_WITH_APP` | ON | Build the application and LVGL |
+| `CARDSIGHT_HOST_TESTS` | OFF | Build only the host tests |
+| `CARDSIGHT_BUILD_EFEX` | ON | Build the two eFEX images |
+| `CARDSIGHT_WERROR` | OFF | Treat warnings in our own code as errors |
 
-## 主机测试
+## Host tests
 
-块层、VFS、FatFs、lwext4 和两个存储代理引擎不依赖板级寄存器，可以在 PC 上直接编译。测试用
-RAM 盘跑完整的存储代理矩阵：
+The block layer, VFS, FatFs, lwext4 and both storage-proxy engines do not touch board registers, so they compile on a PC. The tests run the full storage-proxy matrix against RAM disks:
 
 ```sh
 cd software
@@ -58,30 +54,28 @@ cmake --build build/host
 ctest --test-dir build/host --output-on-failure
 ```
 
-两个测试：
+Two tests run:
 
-- `storage_proxy_matrix`：FAT32、exFAT、ext4、混合分区、GPT 布局、VFS。
-- `lazy_proxy`：懒索引代理的读、写、覆盖、删除、容量报告、取消和限制。
+- `storage_proxy_matrix`: FAT32, exFAT, ext4, mixed partitions, GPT layouts and the VFS.
+- `lazy_proxy`: lazy-index reads, writes, overwrites, deletes, capacity reporting, cancellation and limits.
 
-另有 `build/host/tests/host/ui_sim`，把真实 LVGL 界面渲染成 PPM（写到 `/tmp/ui-*.ppm`），
-用于看页面和交互状态，不注册成测试。
+`build/host/tests/host/ui_sim` is also built. It renders the real LVGL UI and interaction states to PPM files in `/tmp/ui-*.ppm`; it is a development tool, not a registered test.
 
-## 发布源码包
+## Release tarball
 
 ```sh
 ./software/scripts/release.sh 0.1.0
 # dist/cardsight-0.1.0.tar.gz
 ```
 
-脚本不打包构建产物和厂家预编译库，保留许可证与子模块引用。
+The script leaves out build output and vendor prebuilt libraries, and keeps the licenses and submodule references.
 
-## 文档站与 WebAssembly 模拟器
+## Docs site and the WebAssembly simulator
 
-`docs/` 是一个独立的 Astro/Starlight 项目。`npm run dev` 或 `npm run build` 会先执行
-`docs/scripts/build-wasm.mjs`：
+`docs/` is a separate Astro/Starlight project. `npm run dev` or `npm run build` first runs `docs/scripts/build-wasm.mjs`:
 
 ```sh
-# 一次性的 Emscripten 安装
+# one-time Emscripten installation
 git clone https://github.com/emscripten-core/emsdk.git ~/emsdk
 ~/emsdk/emsdk install latest
 ~/emsdk/emsdk activate latest
@@ -89,21 +83,19 @@ source ~/emsdk/emsdk_env.sh
 
 cd docs
 npm ci
-npm run build      # wasm + 静态站点，输出到 docs/dist/
+npm run build      # wasm + static site, output in docs/dist/
 ```
 
-模拟器的源码在 `software/tests/wasm/`，CMake 工程独立于固件构建，编译这些文件：
+The simulator sources live in `software/tests/wasm/`. Its CMake project is independent of the firmware build and compiles:
 
-- LVGL 的 core、widgets、字体，以及 `software/apps/cardsight/ui/` 下的页面、控件和材质；
-- 固件里同一套字体和背景图（`fonts/`、`assets/`）；
-- `ui_web.c`，提供内存 framebuffer、指针输入、固定 32 GB 卡模型和请求模拟。
+- LVGL core, widgets and fonts, plus the pages, widgets and material under `software/apps/cardsight/ui/`;
+- the same fonts and background images as the firmware (`fonts/`, `assets/`);
+- `ui_web.c`, which provides the memory framebuffer, pointer input, a fixed 32 GB card model and the request emulator.
 
-Emscripten 的输出 `cardsight-ui.js` 和 `cardsight-ui.wasm` 复制到 `docs/public/ui/`，
-不进 git。只改 Markdown 时可以用已有构建跳过 wasm：
+Emscripten writes `cardsight-ui.js` and `cardsight-ui.wasm`; the build copies them to `docs/public/ui/`, which is not tracked by git. When only Markdown changes, an existing wasm build can be reused:
 
 ```sh
 CARDSIGHT_SKIP_WASM=1 npm run build
 ```
 
-CI 在 push 和 PR 上跑主机测试；分支和 PR 还会构建一次文档站，master 的 `docs` 工作流负责构建
-并部署到 GitHub Pages。
+CI runs the host tests on every push and pull request. Branches and pull requests also build the docs site, and the `docs` workflow on master builds and deploys it to GitHub Pages.
