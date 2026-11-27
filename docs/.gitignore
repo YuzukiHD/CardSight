@@ -1,0 +1,17 @@
+# build output and caches
+node_modules/
+dist/
+.astro/
+
+# local files
+.env
+.env.*
+*.log
+.DS_Store
+
+# copied from node_modules by scripts/copy-vendor.mjs
+public/mermaid.min.js
+
+# built by scripts/build-wasm.mjs
+public/ui/cardsight-ui.js
+public/ui/cardsight-ui.wasm

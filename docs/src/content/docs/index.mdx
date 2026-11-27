@@ -1,0 +1,55 @@
+---
+title: 项目简介
+description: Yuzuki CardSight 板上的相机/存储应用：分区管理、格式化、文件浏览，以及把卡内容作为 exFAT 卷从 USB 导出。
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+import Simulator from '../../components/Simulator.astro';
+
+<div class="cs-hero">
+	<span class="cs-hero__tag">Allwinner V861/V881 · XuanTie C907 · RV32 · GPL-2.0-or-later</span>
+	<h2>把存储卡装进一块小屏幕</h2>
+	<p>
+		CardSight 是 Yuzuki CardSight 开发板上的相机/存储应用。它读 SD 卡的分区表，格式化
+		FAT32、exFAT、ext4，浏览目录，并把选中的分区拼成一个 exFAT 卷，从 USB 口交给电脑。
+		界面跑在 240×284 的 ST7789 屏上，触摸操作。
+	</p>
+</div>
+
+下面的模拟器是固件里**同一份 UI 代码**编译出来的 WebAssembly：不是另写的网页版，LVGL、五个页面、
+玻璃材质和字体都来自 `software/apps/cardsight/ui/`。可以直接点屏幕上的标签栏、拖动列表、滚动画布。
+
+<Simulator />
+
+## 能做什么
+
+- 识别 SD 卡并协商到 SDR104 200 MHz 四位；解析 MBR/GPT，列出每个分区的文件系统、容量和只读状态。
+- 在 FAT32、exFAT、ext4 之间格式化单个分区；整盘重建分区表（MBR 或 GPT），再按选择的文件系统创建分区。
+- 把卡作为 USB 大容量设备交给主机。直连模式导出整盘，代理模式把多个分区拼成一个只读/可写的 exFAT 视图。
+- 触摸界面上有直连、代理、磁盘、文件、信息五个页面；拔卡、插回、识别中、读写失败都有对应状态。
+- 串口命令行保留块设备、VFS、MMC、USB、代理和界面的诊断入口，方便无屏调试和产测。
+
+## 已经在这块板子上跑通的
+
+| 项目 | 结果 |
+| --- | --- |
+| 启动 | RAM/FEL 三步链，内核 FreeRTOS V11.3.3，镜像约 770 KiB |
+| SD | SK32G 32 GB，SDR104 200 MHz 四位，CMD19 调谐；读入片上 SRAM 实测 62 MiB/s |
+| 文件系统 | FatFs（FAT/exFAT）、lwext4（ext4）、VFS 挂载与格式化 |
+| 显示/触摸 | ST7789 240×284，LVGL 9.6，CST816D 触摸；`cardsight ui-test` PASS |
+| USB | MUSB + CherryUSB MSC；Windows 挂载 exFAT 卷，同一文件三次枚举的 SHA256 一致 |
+| 热插拔 | USB 导出过程中真拔卡/插回，USB 与代理安全停止并重新识别 |
+
+限制和原因写在[硬件说明](/CardSight/hardware/)里：SMHC 模块时钟 mux 2 不可用、PSRAM 写入约
+10 MB/s、拔卡时未刷写的数据无法写回。这些不是界面问题，界面会把 `flush failed` 报出来。
+
+## 从这里开始
+
+<CardGrid>
+	<LinkCard title="构建" href="/CardSight/build/" description="主机测试、RISC-V 固件、文档站的 WebAssembly 模拟器" />
+	<LinkCard title="屏幕界面" href="/CardSight/ui/" description="五个页面、交互方式，以及可操作的模拟器" />
+	<LinkCard title="存储代理与 USB" href="/CardSight/proxy/" description="exFAT 视图怎么拼、写回怎么做、限制在哪" />
+	<LinkCard title="烧写与启动" href="/CardSight/fel/" description="xfel 三步加载镜像，不写 flash" />
+</CardGrid>
+
+源码在 [YuzukiHD/CardSight](https://github.com/YuzukiHD/CardSight)。第三方组件和许可证见[许可](/CardSight/licensing/)。

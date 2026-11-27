@@ -1,0 +1,88 @@
+# Build and publish the documentation site to GitHub Pages.
+#
+# The site embeds the real LVGL UI compiled to WebAssembly, so this job installs
+# Emscripten and compiles software/tests/wasm before Astro builds the pages.
+#
+# Publishing needs Pages to be enabled once for the repository:
+#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
+# Until then the deploy job is skipped and the build stays green.
+name: docs
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'docs/**'
+      - 'software/apps/cardsight/**'
+      - 'software/tests/wasm/**'
+      - 'software/tests/host/stubs/**'
+      - 'software/src/gui/lv_conf.h'
+      - 'software/include/**'
+      - 'software/third_party/LVGL'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+      - name: Check out LVGL for the WebAssembly UI
+        run: git submodule update --init software/third_party/LVGL
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 7.0.1
+          actions-cache-folder: emsdk-cache
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm ci
+      - name: Build the site and the WebAssembly UI
+        working-directory: docs
+        run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/dist
+
+  pages-enabled:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=GitHub Pages is not enabled::Set Settings -> Pages -> Source: GitHub Actions, then rerun this workflow."
+          fi
+
+  deploy:
+    needs: [build, pages-enabled]
+    if: needs.pages-enabled.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
