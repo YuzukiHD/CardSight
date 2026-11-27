@@ -18,20 +18,20 @@
 static const char *failure_text(int result)
 {
 	switch (result) {
-	case 0: return "操作完成";
-	case -ENOSPC: return "空间不足";
-	case -EBUSY: return "请先停止USB";
-	case -EROFS: return "存储卡为只读";
-	case -EACCES: return "没有访问权限";
-	case -ENODEV: return "未找到存储卡";
-	case -ENOMEM: return "内存不足";
-	case -EIO: return "存储卡读写错误";
-	case -EINVAL: return "分区表无法识别";
-	case -ENODATA: return "没有可读取的数据";
-	case -ENOENT: return "文件或目录不存在";
-	case -ENOTSUP: return "不支持的文件系统";
-	case -ETIMEDOUT: return "等待存储卡超时";
-	default: return "操作失败";
+	case 0: return "Done";
+	case -ENOSPC: return "Out of space";
+	case -EBUSY: return "Stop USB first";
+	case -EROFS: return "Card is read-only";
+	case -EACCES: return "Access denied";
+	case -ENODEV: return "Card not found";
+	case -ENOMEM: return "Out of memory";
+	case -EIO: return "Card read/write error";
+	case -EINVAL: return "Unrecognized partition table";
+	case -ENODATA: return "No data to read";
+	case -ENOENT: return "File or directory not found";
+	case -ENOTSUP: return "Unsupported filesystem";
+	case -ETIMEDOUT: return "Card timeout";
+	default: return "Operation failed";
 	}
 }
 
@@ -98,13 +98,13 @@ void send_request(const struct cardsight_request *request)
 	app.error = 0;
 	app.progress = -1;
 	app.request = request->type;
-	strcpy(app.operation, "正在处理");
+	strcpy(app.operation, "Working");
 	mutex_unlock(&app_lock);
 	if (msg_queue_put(&requests, request, NO_WAIT) != 0) {
 		mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 		app.busy = false;
 		app.error = -EBUSY;
-		strcpy(app.operation, "请求队列已满");
+		strcpy(app.operation, "Request queue full");
 		mutex_unlock(&app_lock);
 	}
 	app_post_refresh();
@@ -177,7 +177,7 @@ void worker(void *argument)
 			mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 			app.error = result;
 			app.request = CARDSIGHT_REQUEST_SCAN;
-			strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" : failure_text(result));
+			strcpy(app.operation, detail[0] != '\0' ? "Cannot mount partition" : failure_text(result));
 			snprintf(app.card_error, sizeof(app.card_error), "%s",
 				detail[0] != '\0' ? detail : mmc_last_error());
 			mutex_unlock(&app_lock);
@@ -231,7 +231,7 @@ void worker(void *argument)
 					if (!app.busy) {
 						app.error = probe;
 						app.request = CARDSIGHT_REQUEST_SCAN;
-						strcpy(app.operation, "卡识别失败");
+						strcpy(app.operation, "Card identification failed");
 						snprintf(app.card_error, sizeof(app.card_error), "%s",
 							mmc_last_error());
 						mutex_unlock(&app_lock);
@@ -250,11 +250,11 @@ void worker(void *argument)
 			app.busy = true;
 			app.error = 0;
 			app.progress = -1;
-			strcpy(app.operation, request.type == CARDSIGHT_REQUEST_SCAN ? "正在刷新" :
-				request.type == CARDSIGHT_REQUEST_STOP ? "正在安全停止" :
-				request.type == CARDSIGHT_REQUEST_FORMAT ? "正在格式化" :
-				request.type == CARDSIGHT_REQUEST_LIST ? "正在读取目录" :
-				request.type == CARDSIGHT_REQUEST_LAYOUT ? "正在格式化" : "正在连接USB");
+			strcpy(app.operation, request.type == CARDSIGHT_REQUEST_SCAN ? "Refreshing" :
+				request.type == CARDSIGHT_REQUEST_STOP ? "Stopping safely" :
+				request.type == CARDSIGHT_REQUEST_FORMAT ? "Formatting" :
+				request.type == CARDSIGHT_REQUEST_LIST ? "Reading directory" :
+				request.type == CARDSIGHT_REQUEST_LAYOUT ? "Formatting" : "Connecting USB");
 			mutex_unlock(&app_lock);
 			mmc_last_error_clear();
 			app_post_refresh();
@@ -291,10 +291,10 @@ void worker(void *argument)
 			app.error = result;
 			if (request.type == CARDSIGHT_REQUEST_FORMAT && result == -ENOSPC) {
 				/* FatFs aborts a filesystem that cannot fit; the partition is too small. */
-				strcpy(app.operation, "分区容量不足");
-				strcpy(app.card_error, "分区太小，无法建立该文件系统");
+				strcpy(app.operation, "Partition too small");
+				strcpy(app.card_error, "Partition too small for this filesystem");
 			} else {
-				strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" :
+				strcpy(app.operation, detail[0] != '\0' ? "Cannot mount partition" :
 					failure_text(result));
 				snprintf(app.card_error, sizeof(app.card_error), "%s",
 					result != 0 ? (detail[0] != '\0' ? detail : mmc_last_error()) : "");
@@ -333,7 +333,7 @@ void worker(void *argument)
 				mutex_lock_timeout(&app_lock, WAIT_FOREVER);
 				app.error = result;
 				app.request = CARDSIGHT_REQUEST_SCAN;
-				strcpy(app.operation, detail[0] != '\0' ? "分区无法挂载" : failure_text(result));
+				strcpy(app.operation, detail[0] != '\0' ? "Cannot mount partition" : failure_text(result));
 				snprintf(app.card_error, sizeof(app.card_error), "%s",
 					result != 0 ? (detail[0] != '\0' ? detail : mmc_last_error()) : "");
 				mutex_unlock(&app_lock);

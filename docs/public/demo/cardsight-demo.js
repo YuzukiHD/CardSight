@@ -1,14 +1,16 @@
-// CardSight 文档站里的界面模拟器。
+// Interactive CardSight UI in the documentation site.
 //
-// public/ui/cardsight-ui.js 是 Emscripten 编译出来的真实 LVGL 界面（240×284，
-// 和板上的 ST7789 一致）。这里把它挂到页面的 canvas 上，转发触摸/鼠标事件，
-// 并把每个新帧的 RGB565 像素转成 canvas 能用的 RGBA。
+// public/ui/cardsight-ui.js is the real LVGL UI compiled to WebAssembly: the
+// same 240×284 panel, the five pages, the widgets and the glass material as the
+// firmware. This wrapper mounts it on a canvas, forwards pointer input, and
+// converts each dirty RGB565 frame to RGBA for the canvas.
 import createCardSightUI from '../ui/cardsight-ui.js';
 
 const WIDTH = 240;
 const HEIGHT = 284;
 
-// 5/6 位色展开到 8 位，预先算好 65536 项的查表，每帧只做一次数组查表和拷贝。
+// Expand 5/6-bit channels to 8-bit once. Each frame then only needs a lookup
+// and a copy.
 const colorTable = new Uint32Array(65536);
 for (let value = 0; value < 65536; value++) {
 	const r5 = (value >>> 11) & 0x1f;
@@ -21,8 +23,8 @@ for (let value = 0; value < 65536; value++) {
 }
 
 /**
- * 把模拟器挂到一个 [data-cs-sim] 容器上。
- * @param {HTMLElement} root 容器，里面要有 canvas、页面按钮和场景按钮。
+ * Mount the simulator in a [data-cs-sim] container.
+ * @param {HTMLElement} root Container with a canvas, page buttons and scene buttons.
  */
 export async function mount(root) {
 	if (root.dataset.csMounted) return;
@@ -36,7 +38,7 @@ export async function mount(root) {
 
 	canvas.width = WIDTH;
 	canvas.height = HEIGHT;
-	status.textContent = '正在编译并载入 WebAssembly…';
+	status.textContent = 'Loading the WebAssembly build…';
 
 	let module;
 	try {
@@ -45,15 +47,15 @@ export async function mount(root) {
 		});
 	} catch (error) {
 		console.error('CardSight UI failed to load', error);
-		status.textContent = 'WebAssembly 载入失败，请查看浏览器控制台。';
+		status.textContent = 'Failed to load the WebAssembly build; see the browser console.';
 		return;
 	}
 
 	module._cardsight_web_init();
 	root.classList.add('is-ready');
 
-	// 触摸状态。按下立即交给 LVGL，抬起推迟到下一次 LVGL 周期之后，
-	// 否则一次很快的点击可能在两次 lv_timer_handler 之间被吞掉。
+	// Pointer state. A press reaches LVGL immediately; a release is deferred to
+	// the next LVGL cycle, otherwise a quick tap between two timer calls is lost.
 	let pointerDown = false;
 	let pendingUp = false;
 	let pointerX = 0;
@@ -101,7 +103,8 @@ export async function mount(root) {
 		context.putImageData(image, 0, 0);
 	};
 
-	// 页面标签和演示场景。按钮只调用导出的 C 函数，界面本身仍是真实 UI。
+	// Page tabs and demo scenes. The buttons call the exported C entry points;
+	// the UI itself is still the firmware UI.
 	const pageButtons = [...root.querySelectorAll('[data-cs-page]')];
 	const actionButtons = [...root.querySelectorAll('[data-cs-action]')];
 	const syncPage = () => {
@@ -116,14 +119,14 @@ export async function mount(root) {
 		button.addEventListener('click', () => {
 			module._cardsight_web_page(Number(button.dataset.csPage));
 			syncPage();
-			status.textContent = `已切换到「${button.textContent.trim()}」页；也可以直接点屏幕上方的标签栏。`;
+			status.textContent = `Switched to the "${button.textContent.trim()}" page; you can also tap the tab bar on the screen.`;
 		});
 	}
 	for (const button of actionButtons) {
 		button.addEventListener('click', () => {
 			module._cardsight_web_action(Number(button.dataset.csAction));
 			syncPage();
-			status.textContent = button.dataset.csHint || '演示状态已更新。';
+			status.textContent = button.dataset.csHint || 'Demo state updated.';
 		});
 	}
 	syncPage();
@@ -146,5 +149,5 @@ export async function mount(root) {
 	module._cardsight_web_tick(16);
 	draw();
 	requestAnimationFrame(frame);
-	status.textContent = '就绪。这是真实界面的 WebAssembly 构建，可直接点击、拖动和滚动。';
+	status.textContent = 'Ready. This is the real firmware UI; click, drag and scroll.';
 }

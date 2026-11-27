@@ -76,11 +76,11 @@ static bool list_matches(void)
 static const char *list_error_text(int error)
 {
 	switch (error) {
-	case -ENODEV: return "无法打开分区";
-	case -ENOENT: return "目录不存在";
-	case -ENAMETOOLONG: return "路径过长";
-	case -ENOMEM: return "内存不足";
-	default: return "读取失败";
+	case -ENODEV: return "Cannot open partition";
+	case -ENOENT: return "Directory not found";
+	case -ENAMETOOLONG: return "Path too long";
+	case -ENOMEM: return "Out of memory";
+	default: return "Read failed";
 	}
 }
 
@@ -132,10 +132,10 @@ static void build_partition_rows(lv_obj_t *list)
 		lv_obj_set_style_radius(dot, 5, 0);
 		lv_obj_align(dot, LV_ALIGN_LEFT_MID, 18, 0);
 		snprintf(text, sizeof(text), "P%u  %s", part->partno,
-			part->status == 0 ? part->volume.fstype : "无法识别");
+			part->status == 0 ? part->volume.fstype : "Unrecognized");
 		label = make_label(button, text, UI_TEXT);
 		lv_obj_align(label, LV_ALIGN_TOP_LEFT, 38, 1);
-		snprintf(text, sizeof(text), "%s%s", capacity, part->writable ? "" : " 只读");
+		snprintf(text, sizeof(text), "%s%s", capacity, part->writable ? "" : " read-only");
 		label = make_label(button, text, part->status == 0 ? UI_MUTED : UI_WARNING);
 		lv_obj_set_style_text_font(label, &cardsight_font_16, 0);
 		lv_obj_align(label, LV_ALIGN_TOP_LEFT, 38, 28);
@@ -146,7 +146,7 @@ static void build_partition_rows(lv_obj_t *list)
 		set_disabled(button, ui.model.busy || part->status != 0);
 	}
 	if (ui.model.partition_count == 0U) {
-		make_label(list, ui.model.card_present ? "无可用分区" : "请插入存储卡", UI_MUTED);
+		make_label(list, ui.model.card_present ? "No usable partitions" : "Insert a card", UI_MUTED);
 	}
 }
 
@@ -160,7 +160,7 @@ static void build_partitions(void)
 {
 	lv_obj_t *list;
 
-	make_label(ui.content, "选择分区", UI_MUTED);
+	make_label(ui.content, "Select partition", UI_MUTED);
 	list = make_list(FILES_HEADER_HEIGHT, 0);
 	build_partition_rows(list);
 }
@@ -349,7 +349,7 @@ static void build_directory(void)
 	list = make_list(FILES_HEADER_HEIGHT, 0);
 	/* the snapshot may still be from the previous directory */
 	if (!list_matches()) {
-		make_label(list, ui.model.busy ? "正在读取…" : "读取失败", UI_MUTED);
+		make_label(list, ui.model.busy ? "Reading…" : "Read failed", UI_MUTED);
 		return;
 	}
 	if (ui.model.files.error != 0) {
@@ -357,7 +357,7 @@ static void build_directory(void)
 		return;
 	}
 	if (ui.model.files.count == 0U) {
-		make_label(list, "空目录", UI_MUTED);
+		make_label(list, "Empty directory", UI_MUTED);
 		return;
 	}
 	build_directory_rows(list);

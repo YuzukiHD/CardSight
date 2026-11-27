@@ -120,7 +120,7 @@ pre.mermaid {
 }
 
 /* the five page tabs share one row instead of wrapping the last one alone */
-.cs-sim__group[aria-label='切换页面'] .cs-sim__button {
+.cs-sim__group[aria-label='Switch page'] .cs-sim__button {
 	flex: 1 1 0;
 	min-width: 0;
 	padding-inline: 0.4rem;

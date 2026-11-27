@@ -20,15 +20,12 @@ export default defineConfig({
 		starlight({
 			title: 'CardSight',
 			description:
-				'Yuzuki CardSight（Allwinner V861/V881，XuanTie C907）相机/存储卡的屏幕界面与存储代理固件文档',
+				'Documentation for the Yuzuki CardSight camera/storage application on Allwinner V861/V881 (XuanTie C907): partition management, formatting, files, and USB storage proxy.',
 			logo: {
 				src: './src/assets/logo.svg',
 				alt: 'CardSight',
 			},
 			favicon: '/favicon.svg',
-			locales: {
-				root: { label: '简体中文', lang: 'zh-CN' },
-			},
 			social: [
 				{ icon: 'github', label: 'GitHub', href: 'https://github.com/YuzukiHD/CardSight' },
 			],

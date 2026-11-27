@@ -201,7 +201,7 @@ void cardsight_ui_refresh(void *argument)
 	lv_obj_set_pos(ui.header_title, ui_margin(), ui_margin() - 2);
 	ui.header_count = make_label(ui.shell, "", UI_MUTED);
 	lv_obj_set_style_text_font(ui.header_count, &cardsight_font_16, 0);
-	lv_obj_align(ui.header_count, LV_ALIGN_TOP_MID, 0, ui_margin() + 2);
+	lv_obj_align(ui.header_count, LV_ALIGN_TOP_LEFT, 60, ui_margin() + 2);
 	ui.header_status = make_label(ui.shell, "", UI_MUTED);
 	lv_obj_set_style_text_font(ui.header_status, &cardsight_font_16, 0);
 	lv_obj_align(ui.header_status, LV_ALIGN_TOP_RIGHT, -ui_margin() - 38, ui_margin() + 2);
@@ -250,7 +250,7 @@ void cardsight_ui_refresh(void *argument)
 		lv_obj_t *spinner;
 		lv_obj_t *label;
 
-		ui.detecting_card = make_glass_card(ui.shell, 0, 0, 170, 52, 26);
+		ui.detecting_card = make_glass_card(ui.shell, 0, 0, 190, 52, 26);
 		lv_obj_align(ui.detecting_card, LV_ALIGN_CENTER, 0, 0);
 		lv_obj_set_clickable(ui.detecting_card, false);
 		spinner = lv_spinner_create(ui.detecting_card);
@@ -258,7 +258,7 @@ void cardsight_ui_refresh(void *argument)
 		lv_spinner_set_anim_params(spinner, 900, 60);
 		lv_obj_align(spinner, LV_ALIGN_LEFT_MID, 16, 0);
 		lv_obj_set_style_arc_color(spinner, lv_color_hex(UI_ACCENT), LV_PART_INDICATOR);
-		label = make_label(ui.detecting_card, "正在识别卡", UI_TEXT);
+		label = make_label(ui.detecting_card, "Identifying card", UI_TEXT);
 		lv_obj_align(label, LV_ALIGN_LEFT_MID, 52, 0);
 		lv_obj_set_hidden(ui.detecting_card, true);
 	}

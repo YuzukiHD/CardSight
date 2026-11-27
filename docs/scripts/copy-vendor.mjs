@@ -1,6 +1,7 @@
-// 把浏览器库从 node_modules 复制到 public/，站点自己提供所有脚本：
-//  - mermaid.min.js：由 remark 插件插在第一张 mermaid 图前面
-// `astro dev` / `astro build` 之前运行。
+// Copy the browser libraries from node_modules to public/, so the site serves
+// all its JavaScript itself:
+//  - mermaid.min.js: injected by the remark plugin in front of the first mermaid diagram
+// Runs before `astro dev` / `astro build`.
 import { copyFileSync, mkdirSync } from 'node:fs';
 
 const files = [

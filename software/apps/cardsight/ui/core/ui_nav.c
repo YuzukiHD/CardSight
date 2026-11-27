@@ -279,7 +279,7 @@ void build_bar(void)
 	if (ui.layout_editor) {
 		build_layout_bar(ui.bar);
 	} else if (ui.manage_detail || (ui.mode == CARDSIGHT_FILES && ui.files_detail)) {
-		make_bar_button(ui.bar, "返回", ui_back_event, bar_width());
+		make_bar_button(ui.bar, "Back", ui_back_event, bar_width());
 	} else {
 		build_tab_bar();
 	}

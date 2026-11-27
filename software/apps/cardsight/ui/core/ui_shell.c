@@ -70,7 +70,7 @@ void ui_update_backdrop(void)
 void ui_update_header(void)
 {
 	/** @brief Page title of each tab, indexed by cardsight_mode. */
-	static const char *const names[APP_TAB_COUNT] = { "直连", "代理", "磁盘", "文件", "信息" };
+	static const char *const names[APP_TAB_COUNT] = { "Direct", "Proxy", "Disk", "Files", "Info" };
 	char title[48];
 	char count[24] = "";
 	char status[24];
@@ -79,19 +79,19 @@ void ui_update_header(void)
 		return;
 	}
 	if (ui.layout_editor) {
-		snprintf(title, sizeof(title), "格式化");
+		snprintf(title, sizeof(title), "Format");
 	} else {
 		snprintf(title, sizeof(title), "%s", names[ui.mode]);
 	}
 	if (ui.model.card_detecting) {
-		snprintf(status, sizeof(status), "识别中");
+		snprintf(status, sizeof(status), "Identifying");
 	} else if (ui.model.card_present) {
 		capacity_text(ui.model.sectors, status, sizeof(status));
 	} else {
-		snprintf(status, sizeof(status), "无卡");
+		snprintf(status, sizeof(status), "No card");
 	}
 	if (ui.mode == CARDSIGHT_FILES && ui.files_detail && ui.model.files.valid) {
-		snprintf(count, sizeof(count), "%u 项", (uint32_t)ui.model.files.total);
+		snprintf(count, sizeof(count), "%u items", (uint32_t)ui.model.files.total);
 	}
 	lv_label_set_text(ui.header_title, title);
 	lv_label_set_text(ui.header_count, count);

@@ -40,18 +40,18 @@ static const char *direct_state(uint32_t *color)
 {
 	if (ui.model.card_detecting) {
 		*color = UI_WARNING;
-		return "正在识别卡";
+		return "Identifying card";
 	}
 	if (!ui.model.card_present) {
 		*color = UI_MUTED;
-		return "未检测到卡";
+		return "No card detected";
 	}
 	if (!ui.model.running) {
 		*color = UI_ACCENT;
-		return "准备连接";
+		return "Ready to connect";
 	}
 	*color = ui.model.configured ? UI_SUCCESS : UI_WARNING;
-	return ui.model.configured ? "已连接" : "等待主机";
+	return ui.model.configured ? "Connected" : "Waiting for host";
 }
 
 /* Refresh only the live values, so a running transfer does not rebuild the page. */
@@ -80,10 +80,10 @@ void ui_update_direct(void)
 	lv_obj_set_style_text_color(ui.direct_status, lv_color_hex(color), 0);
 	lv_obj_set_style_bg_color(ui.direct_status_chip, ui_tint(color, 40), 0);
 	rate_text(ui.model.read_rate, rate);
-	snprintf(text, sizeof(text), "读 %s", rate);
+	snprintf(text, sizeof(text), "Read %s", rate);
 	lv_label_set_text(ui.rate_read, text);
 	rate_text(ui.model.write_rate, rate);
-	snprintf(text, sizeof(text), "写 %s", rate);
+	snprintf(text, sizeof(text), "Write %s", rate);
 	lv_label_set_text(ui.rate_write, text);
 }
 
@@ -173,18 +173,18 @@ void build_direct(void)
 	lv_obj_set_style_pad_column(row, 6, 0);
 	if (ui.model.card_present) {
 		make_chip(row, ui.model.table == BLK_PARTITION_TABLE_GPT ? "GPT" : "MBR", UI_MUTED);
-		snprintf(text, sizeof(text), "%u 区", (uint32_t)ui.model.partition_count);
+		snprintf(text, sizeof(text), "%u parts", (uint32_t)ui.model.partition_count);
 		make_chip(row, text, UI_MUTED);
-		make_chip(row, ui.model.card_writable ? "读写" : "只读",
+		make_chip(row, ui.model.card_writable ? "RW" : "RO",
 			ui.model.card_writable ? UI_SUCCESS : UI_WARNING);
 	} else {
-		make_chip(row, "请插入存储卡", UI_MUTED);
+		make_chip(row, "Insert a card", UI_MUTED);
 	}
 	/* fill the live values before the first frame is shown */
 	ui_update_direct();
 
 	/* the primary action is docked at the bottom of the page */
-	button = make_button(ui.content, ui.model.running ? "安全停止" : "连接 USB", start_event, NULL);
+	button = make_button(ui.content, ui.model.running ? "Stop safely" : "Connect USB", start_event, NULL);
 	lv_obj_set_width(button, ui_wide_width());
 	lv_obj_set_style_radius(button, APP_CARD_RADIUS, 0);
 	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, 0);

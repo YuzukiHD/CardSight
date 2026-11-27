@@ -1,7 +1,7 @@
-// 构建期 Markdown 插件，照 YuzukiNeko 的 remark-docs.mjs 简化：
-//  - ```mermaid 代码块变成 <pre class="mermaid">，由 public/enhance.js 在浏览器里画；
-//    页面里第一张图前面加一个阻塞的 <script>，加载站点自己的 mermaid.min.js，不走 CDN
-//  - 指向 .md 的相对链接改写成站点 URL（发布在 GitHub Pages 的子路径下）
+// Build-time Markdown plugin, simplified from YuzukiNeko's remark-docs.mjs:
+//  - ```mermaid blocks become <pre class="mermaid">, drawn in the browser by public/enhance.js;
+//    the first diagram is preceded by a blocking <script> for the site's own mermaid.min.js
+//  - relative links to .md pages become site URLs (the site lives under the GitHub Pages base)
 import path from 'node:path';
 import { visit } from 'unist-util-visit';
 

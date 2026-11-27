@@ -1,89 +1,106 @@
 ---
-title: 屏幕界面
-description: 五个页面的布局、交互方式和可操作的 WebAssembly 模拟器。
+title: On-screen UI
+description: The five pages, their interactions, and the live WebAssembly simulator.
 ---
 
 import Simulator from '../../components/Simulator.astro';
 
-屏幕是 240×284 的 ST7789，触摸是 CST816D。界面由 LVGL 9.6 绘制，底部五个标签：直连、代理、
-磁盘、文件、信息。页面之间的切换有 160 ms 的指示器动画，拖动列表时列表边缘的淡出条跟着更新。
+The panel is a 240×284 ST7789 driven by LVGL 9.6; touch comes from a CST816D. Five tabs sit at the
+bottom: Direct, Proxy, Disk, Files and Info. Switching pages animates the tab indicator for 160 ms,
+and the fade strips at the edge of a list follow it while the finger scrolls.
 
-下面的模拟器运行固件里的同一份 UI 源码。鼠标或手指可以直接操作画布：点标签栏换页、按住列表
-拖动、点分区行、打开对话框。右边的按钮只是把一些需要插拔卡或等待硬件才能到达的状态直接做出来。
+The simulator below runs the same UI sources as the firmware. Mouse or finger input works directly
+on the canvas: tap the tab bar, drag a list, tap a partition row, open a dialog. The buttons on the
+right only reach states that would otherwise need a card insertion or hardware.
 
 <Simulator />
 
-## 直连
+## Direct
 
-整张卡通过 USB 导出。页面主体是一张玻璃卡片：
+The whole card is exported over USB. The page body is one glass card:
 
-- 容量用大号数字显示，单位 GB/MB，按十进制换算，和卡的销售标注一致。
-- 状态文字在“正在识别卡”“未检测到卡”“准备连接”“等待主机”“已连接”之间切换，颜色跟着变。
-- 读/写速率每秒刷新；没有传输时显示 0，避免留下上一次的读数。
-- 下面一行小标签显示分区表类型（MBR/GPT）、分区数量和读写/只读。
-- 底部按钮是“连接 USB”，运行中变成“安全停止”。没有卡或请求忙碌时禁用。
+- Capacity uses large digits, in GB or MB, converted in decimal units so it matches how cards are
+  sold.
+- The status text moves between "Identifying card", "No card detected", "Ready to connect",
+  "Waiting for host" and "Connected"; its colour follows the state.
+- Read and write rates refresh once per second. With no transfer they read zero, so a stale value
+  is never shown.
+- A row of small chips shows the partition table (MBR/GPT), the partition count, and read/write (RW) versus read-only (RO).
+- The bottom button is "Connect USB"; while running it becomes "Stop safely". It is disabled when
+  there is no card or a request is busy.
 
-## 代理
+## Proxy
 
-把选定分区拼成一个 exFAT 卷导出。每个分区一行，左边是选择圆点，右边是 `P<编号> <文件系统>`、
-容量和只读标记。点一行切换选中状态；选中的行有淡色底和实心圆点。
+The selected partitions are combined into one exFAT volume for the host. Each partition is a row
+with a selection dot on the left, then `P<number> <filesystem>`, capacity and a read-only marker.
+Tapping a row toggles it; selected rows get a tinted background and a filled dot.
 
-底部按钮的文字随状态变化：
+The bottom button follows the state:
 
-| 状态 | 按钮 |
+| State | Button |
 | --- | --- |
-| 没有选中分区 | 请选择分区（禁用） |
-| 选中分区，全部可写 | 启动代理 读写 |
-| 有一个选中分区只读 | 启动代理 只读 |
-| 运行中 | 安全停止 |
+| No partition selected | Choose a partition (disabled) |
+| Selected partitions are all writable | Start proxy (RW) |
+| At least one selected partition is read-only | Start proxy (RO) |
+| Running | Stop safely |
 
-运行中不能改选择，但标签栏仍可切页；USB 不会因为切页而停止。视图怎么拼、写入怎么回到源分区，
-见[存储代理与 USB](/CardSight/proxy/)。
+While running, the selection cannot change, but the tab bar still switches pages; USB is not
+stopped by leaving the page. See [Storage proxy and USB](/CardSight/proxy/) for how the view is
+assembled and how writes reach the source partitions.
 
-## 磁盘
+## Disk
 
-上半部分是一条按比例绘制的容量条，下面列出分区。点分区进入详情，可以选 FAT32、exFAT 或 ext4
-格式化；格式化分快速和完全两种，先弹出确认。只读卡、USB 正在运行或请求忙碌时，格式化按钮禁用。
+A proportional capacity strip sits above the partition list. Tapping a partition opens its detail
+view, where it can be formatted as FAT32, exFAT or ext4. Formatting is either quick or full, and
+asks for confirmation first. The format buttons are disabled on a read-only card, while USB is
+running, or while a request is busy.
 
-列表末尾有一项“重建分区表”，进入整盘布局编辑器：
+The last item in the list opens the whole-card layout editor:
 
-- 分区表选 MBR 或 GPT。
-- 文件系统选 FAT32、exFAT 或 ext4，重建后只有一个分区覆盖其余容量。
-- 显示这张卡的总容量，并明确写出“将清除原分区表并重建”。
-- 确认动作是长按底部按钮，单击不会执行。
+- Choose MBR or GPT for the partition table.
+- Choose FAT32, exFAT or ext4; the rebuild creates one partition covering the remaining capacity.
+- The card's total capacity is shown, together with a clear warning that the existing partition
+  table will be cleared and rebuilt.
+- Confirmation is a long press on the bottom button; a tap does nothing.
 
-## 文件
+## Files
 
-先显示分区列表，每个分区带文件系统、容量和只读标记。点进去后逐层浏览目录，顶部显示总项数，
-右侧是文件大小列。长文件名截断显示，目录排在文件前面。返回上一级用底部的返回按钮；在根目录
-返回则回到分区列表。
+The page first lists partitions, each with its filesystem, capacity and read-only marker. Opening
+one browses directories level by level. The header shows the total item count, and the right column
+shows file sizes. Long names are ellipsised, and directories sort before files. Use the bottom Back
+button to go up one level; at the partition root it returns to the partition list.
 
-文件列表由 worker 读取，界面只发 `CARDSIGHT_REQUEST_LIST`。拔卡时列表退出详情，避免把
-“打不开分区”误报成错误。
+The worker reads each directory; the UI only sends `CARDSIGHT_REQUEST_LIST`. Removing the card
+leaves the detail view, so "cannot open partition" is not reported as an error.
 
-## 信息
+## Info
 
-一张可滚动的表格，上半部分是卡本身：
+A scrollable table. The first half describes the card:
 
-- 容量、SDXC/SDHC/SDSC、分区表类型和分区数、读写/只读。
-- 厂商 ID、OEM、产品名和版本、序列号、制造年月。
-- 协商后的模式、时钟和位宽，例如 `SDR104 200 MHz 4-bit`。
-- 是否支持 1.8 V、调谐是否完成、卡支持的速率模式、最大电流、CID 十六进制。
+- Capacity, SDXC/SDHC/SDSC, partition table and count, read/write or read-only.
+- Manufacturer ID, OEM, product name and revision, serial number, manufacture date.
+- Negotiated mode, clock and bus width, for example `SDR104 200 MHz 4-bit`.
+- 1.8 V support, tuning state, the speed modes the card advertises, maximum current, and the CID
+  as hex.
 
-下半部分每个分区一行：文件系统、容量、RW/RO、剩余容量。
+The second half has one row per partition: filesystem, capacity, RW/RO and free space.
 
-## 交互细节
+## Interaction details
 
-- 触摸点的落点按屏幕坐标处理，列表拖动由 LVGL 的滚动实现，不额外做手势识别。
-- 页面重建时保存每个列表的滚动位置，刷新数据不会把正在看的列表弹回顶部。
-- 请求进行中（`ui.model.busy`）时标签栏不切页，避免把进度页盖掉。
-- 错误用底部卡片显示，写明失败的操作、控制器的原始错误、错误码和路径；关闭后同一个错误码
-  不会再次弹出，直到出现新的错误。
-- 屏幕圆角是 45 px。所有贴边的控件按圆角内缩，避免被玻璃边裁掉。
+- Touch positions are handled in panel coordinates; list dragging is LVGL's own scrolling, with no
+  extra gesture recognition.
+- A rebuild saves each list's scroll position, so refreshing data does not throw the list being
+  read back to the top.
+- While a request is running (`ui.model.busy`), the tab bar does not switch pages, so the progress
+  page is not covered.
+- Errors appear in a bottom sheet with the failed operation, the controller's original error, the
+  error code and the path. Dismissing it suppresses that error code until a new error appears.
+- The panel has 45 px corners. Everything that touches an edge is inset so its outline stays
+  concentric with the glass.
 
-## 在板子上切换页面
+## Switching pages on the board
 
-串口可以指定初始页面：
+The shell can select the initial page:
 
 ```text
 cardsight page direct
@@ -93,5 +110,5 @@ cardsight page info
 cardsight page layout
 ```
 
-`disk` 对应“磁盘”页，`layout` 直接打开布局编辑器。文件页没有对应的 shell 子命令，只能从界面
-标签栏进入。
+`disk` selects the Disk page and `layout` opens the layout editor directly. The Files page has no
+shell subcommand and is only reachable from the tab bar.
