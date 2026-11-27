@@ -308,7 +308,7 @@ static int command_cardsight(int argc, char **argv)
 }
 
 /** @brief Register @c cardsight as a shell command with its usage text. */
-SHELL_CMD(cardsight, "cardsight page <name> | radius [px] | ui-test | memtest [n] | memcheck | usb-test: board diagnostics", command_cardsight);
+SHELL_CMD(cardsight, "cardsight page <name> | radius [px] | ui-test | memtest [n] | memcheck | usb-test | usb <on|off|disk>: board diagnostics", command_cardsight);
 #endif
 
 /**

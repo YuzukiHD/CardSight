@@ -89,7 +89,7 @@ const struct sunxi_mmc_config sunxi_mmc0 = {
  * @brief The panel's SPI bus: SPI1 at 0x04026000.
  *
  * The module clock is in CCU + 0x944; the bus clock and reset are in CCU + 0x96c (bit 1, reset
- * in bit 17). SCK is 60 MHz; PD1, PD2 and PD3 carry clock, MOSI and chip select on function 6,
+ * in bit 17). SCK is 75 MHz; PD1, PD2 and PD3 carry clock, MOSI and chip select on function 6,
  * driven at strength 3.
  */
 const struct sunxi_spi_config sunxi_spi1 = {

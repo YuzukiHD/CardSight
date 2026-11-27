@@ -17,8 +17,8 @@ struct sunxi_display_info {
 	uint16_t width, height; /**< Panel size in pixels. */
 	uint16_t fb_width, fb_height; /**< Frame buffer size in pixels. */
 	uint32_t stride; /**< Bytes per frame buffer row. */
-	uint8_t bytes_per_pixel; /**< Bytes per pixel; 2 is RGB565. */
-	bool pixels_swapped; /**< RGB565 pixels are byte swapped, as the panel takes them. */
+	uint8_t bytes_per_pixel; /**< Bytes per pixel; the panel uses 3 (RGB888). */
+	bool pixels_swapped; /**< Whether pixel bytes are swapped for the panel; false on this board. */
 };
 
 /**
@@ -38,8 +38,8 @@ int sunxi_display_get_info(struct sunxi_display_info *info);
 /**
  * @brief Copy a rectangle to the panel.
  *
- * @details @p buffer is RGB565 in the byte order the display engine uses (see
- * @c pixels_swapped). The window command is sent first, then the pixels go out over SPI; when
+ * @details @p buffer holds RGB888 pixels in the panel byte order (B, G, R on this board;
+ * see @c bytes_per_pixel and @c pixels_swapped). The window command is sent first, then the pixels go out over SPI; when
  * @p pitch equals @p width the whole rectangle is one transfer, otherwise each row is copied
  * separately.
  *

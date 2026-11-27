@@ -4,10 +4,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "predev": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs",
+    "api": "node scripts/build-api.mjs",
+    "predev": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs && node scripts/build-api.mjs",
     "dev": "astro dev",
-    "prebuild": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs",
+    "prebuild": "node scripts/copy-vendor.mjs && node scripts/build-wasm.mjs && node scripts/build-api.mjs",
     "build": "astro build",
+    "check": "node scripts/check-links.mjs",
     "preview": "astro preview"
   },
   "dependencies": {

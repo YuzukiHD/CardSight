@@ -5,7 +5,7 @@
  *
  * The LVGL input device reads one report per call; no interrupt or worker
  * task is needed for that. Probe runs from an initcall, initialises I2C0 and
- * pulses the panel's reset line.
+ * pulses the touch controller's reset line.
  */
 
 #define LOG_MODULE "cst816"
@@ -32,7 +32,7 @@
 /** @brief Register used to disable automatic sleep. */
 #define CST816_DISABLE_SLEEP 0xfeU
 
-/** @brief Reset line of the panel: PD2, driven as a plain GPIO. */
+/** @brief Reset line of the touch controller: PE2, driven as a plain GPIO. */
 static const struct sunxi_pin touch_reset = { .port = 4, .pin = 2, .function = 0 };
 
 /** @brief True once the panel answered its identity read during probe. */

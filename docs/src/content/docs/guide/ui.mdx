@@ -1,0 +1,116 @@
+---
+title: On-screen UI
+description: "The five touch pages, their controls, and the states shown by the panel."
+---
+
+import { Image } from 'astro:assets';
+import files from '../../../assets/cardsight-files.png';
+
+The panel is a 240×284 ST7789 driven by LVGL 9.6; touch comes from a CST816D on I2C0. Five tabs sit
+at the bottom: **Direct**, **Proxy**, **Disk**, **Files** and **Info**. The tab indicator animates
+for 160 ms, and the fade strips at the edge of a list follow the scroll position.
+
+The UI interacts with the card only through the application worker. It reads a state snapshot and
+posts one request at a time; it never opens the card or filesystems itself. To explore the UI
+without the board, open the [live simulator](simulator.md).
+
+## Direct
+
+The whole card is exported as a USB mass-storage device.
+
+- Capacity is shown in decimal GB or MB, matching how cards are sold.
+- The status chip moves between **Identifying card**, **No card detected**, **Ready to connect**,
+  **Waiting for host** and **Connected**.
+- Read and write rates refresh once per second while the link is up; otherwise they read zero.
+- Chips show the partition table (MBR/GPT), the partition count and RW/RO.
+- The bottom button is **Connect USB**; while running it becomes **Stop safely** and is disabled
+  when no card is present or a request is busy.
+
+## Proxy
+
+The proxy page combines selected partitions into one exFAT volume for the host.
+
+- Each partition is a row with a selection dot, `P<n> <filesystem>`, capacity and a read-only
+  marker.
+- Tapping a row toggles its selection; selected rows use a tinted background and a filled dot.
+- The bottom button reads **Choose a partition**, **Start proxy (RW)**, **Start proxy (RO)** or
+  **Stop safely**, following the selection and the link state.
+- The selection is frozen while the proxy is running, but the tab bar can still switch pages.
+
+How the view is assembled and how writes return to the source partitions is in
+[USB export](usb-export.md) and [Storage proxy internals](../development/storage-proxy.md).
+
+## Disk
+
+A proportional capacity strip sits above the partition list. Tapping a partition opens a detail
+view where it can be formatted as FAT32, exFAT or ext4, either quick or full. Formatting asks for
+confirmation first.
+
+The last entry opens the whole-card layout editor:
+
+- choose MBR or GPT for the partition table;
+- choose FAT32, exFAT or ext4 for the single partition the UI creates;
+- the editor shows the card capacity and warns that the existing table will be cleared;
+- applying is a long press on **Hold to format**, not a tap.
+
+The layout engine supports more than one partition, but the UI exposes exactly one. Destructive
+operations are refused while USB is running and on a read-only card.
+
+:::caution
+Formatting and rebuilding the partition table erase data. Confirm the card and read the dialog
+before applying.
+:::
+
+## Files
+
+The page first lists partitions, with filesystem, capacity and RW/RO. Opening a partition browses
+directories one level at a time.
+
+<Image src={files} alt="CardSight Files page showing a directory listing with names and sizes" width={480} height={568} />
+
+- The header shows the total item count for the current directory.
+- The right column shows file sizes; long names are ellipsised.
+- Directories sort before files, then names sort case-insensitively.
+- The worker keeps up to 64 entries per directory; a larger directory reports the total and marks
+  the listing truncated.
+- The bottom **Back** button goes up one level and returns to the partition list at the root.
+
+List failures are reported with the failed path, for example **Cannot open partition**,
+**Directory not found**, **Path too long** or **Read failed**.
+
+## Info
+
+A scrollable table of card and partition facts:
+
+- capacity, SDXC/SDHC/SDSC type, partition table and count, access mode;
+- manufacturer, OEM, product name and revision, serial number, manufacture date;
+- negotiated mode, clock and bus width, 1.8 V support, tuning state and advertised speed modes;
+- maximum current and the CID as hex;
+- one row per partition with filesystem, size, RW/RO and free space.
+
+## States and interactions
+
+- **Identifying the card** shows a spinner over the current page and temporarily removes the card
+  from the state.
+- **Busy** requests disable the tab bar and the action buttons, so progress is not covered.
+- A failed request opens a bottom sheet with the failed operation, the controller error, the error
+  code and, for a listing failure, the path. Dismissing it suppresses the same code until a new
+  error appears.
+- Removing the card stops USB and the proxy and leaves the Files detail view.
+- The panel has 45 px corners. Controls inset from the edge so their outlines stay concentric with
+  the glass.
+- A rebuild saves each list's scroll position, so refreshing data does not jump to the top.
+
+## Switching pages from the shell
+
+The shell can select a page:
+
+```text
+cardsight> cardsight page direct
+cardsight> cardsight page proxy
+cardsight> cardsight page disk
+cardsight> cardsight page info
+cardsight> cardsight page layout
+```
+
+`layout` opens the layout editor. The Files page has no shell subcommand; use the tab bar.

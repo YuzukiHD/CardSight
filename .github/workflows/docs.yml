@@ -1,11 +1,7 @@
 # Build and publish the documentation site to GitHub Pages.
 #
-# The site embeds the real LVGL UI compiled to WebAssembly, so this job installs
-# Emscripten and compiles software/tests/wasm before Astro builds the pages.
-#
-# Publishing needs Pages to be enabled once for the repository:
-#   Settings -> Pages -> Build and deployment -> Source: GitHub Actions
-# Until then the deploy job is skipped and the build stays green.
+# The site embeds the real LVGL UI compiled to WebAssembly and a Doxygen C API
+# generated from the public headers.
 name: docs
 
 on:
@@ -19,6 +15,10 @@ on:
       - 'software/src/gui/lv_conf.h'
       - 'software/include/**'
       - 'software/third_party/LVGL'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+      - 'CODE_OF_CONDUCT.md'
+      - 'SUPPORT.md'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -35,7 +35,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: false
           fetch-depth: 1
@@ -50,35 +50,24 @@ jobs:
         with:
           version: 7.0.1
           actions-cache-folder: emsdk-cache
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
       - name: Install docs dependencies
         working-directory: docs
         run: npm ci
-      - name: Build the site and the WebAssembly UI
+      - name: Build the site, WebAssembly UI and C API
         working-directory: docs
         run: npm run build
+      - name: Check links and generated API
+        working-directory: docs
+        run: npm run check
+      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/dist
 
-  pages-enabled:
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.pages.outputs.enabled }}
-    steps:
-      - id: pages
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if gh api "repos/${{ github.repository }}/pages" >/dev/null 2>&1; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=GitHub Pages is not enabled::Set Settings -> Pages -> Source: GitHub Actions, then rerun this workflow."
-          fi
-
   deploy:
-    needs: [build, pages-enabled]
-    if: needs.pages-enabled.outputs.enabled == 'true'
+    needs: build
     runs-on: ubuntu-latest
     environment:
       name: github-pages

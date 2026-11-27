@@ -15,3 +15,6 @@ public/mermaid.min.js
 # built by scripts/build-wasm.mjs
 public/ui/cardsight-ui.js
 public/ui/cardsight-ui.wasm
+
+# built by scripts/build-api.mjs
+public/api/

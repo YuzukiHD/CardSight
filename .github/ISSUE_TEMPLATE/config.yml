@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://yuzukihd.github.io/CardSight/
+    about: Build, flashing, UI, shell, reference and development guides.
+  - name: Support
+    url: https://github.com/YuzukiHD/CardSight/blob/master/SUPPORT.md
+    about: How to ask for help and what to include.
+  - name: Security policy
+    url: https://github.com/YuzukiHD/CardSight/blob/master/SECURITY.md
+    about: Report vulnerabilities privately, not in a public issue.

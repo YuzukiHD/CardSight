@@ -8,9 +8,27 @@ import { sidebar } from './sidebar.mjs';
 const site = 'https://yuzukihd.github.io';
 const base = '/CardSight';
 
+// Keep the URLs of the flat first-generation site working.
+const redirects = Object.fromEntries(
+	[
+		['/features', '/guide/card-files'],
+		['/build', '/development/build'],
+		['/fel', '/getting-started/flashing'],
+		['/ui', '/guide/ui'],
+		['/shell', '/reference/cli'],
+		['/proxy', '/guide/usb-export'],
+		['/filesystems', '/guide/card-files'],
+		['/architecture', '/development/architecture'],
+		['/porting', '/development/porting'],
+		['/licensing', '/project/license'],
+		['/hardware', '/reference/hardware'],
+	].map(([from, to]) => [from, `${base}${to}/`]),
+);
+
 export default defineConfig({
 	site,
 	base,
+	redirects,
 	markdown: {
 		processor: unified({
 			remarkPlugins: [[remarkDocs, { base }]],

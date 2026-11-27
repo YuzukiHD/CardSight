@@ -44,10 +44,8 @@
 #define configSUPPORT_STATIC_ALLOCATION	 0
 #define configSUPPORT_DYNAMIC_ALLOCATION 1
 /*
- * The image runs from 8 MiB of PSRAM. Three MiB of heap left enough room for
- * lwext4 and the display, but a large USB proxy write needs more: the lazy view
- * keeps a bigger pending table and its staging metadata, and lwext4 still has
- * the rest of PSRAM after the image (about one MiB) for its block cache.
+ * The image runs from 8 MiB of PSRAM. The kernel heap takes 4 MiB; lwext4 and
+ * the display use the remaining PSRAM after the image.
  */
 #define configTOTAL_HEAP_SIZE		 ((size_t)(4U * 1024U * 1024U))
 #define configAPPLICATION_ALLOCATED_HEAP 0

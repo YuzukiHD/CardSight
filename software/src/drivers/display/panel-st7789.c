@@ -3,7 +3,7 @@
  * @file panel-st7789.c
  * @brief The panel of the board: an ST7789-compatible controller behind SPI1.
  *
- * Four-wire SPI at 60 MHz, data/command on PD4 and reset on PD5. The panel is write only: the
+ * Four-wire SPI at 75 MHz, data/command on PD4 and reset on PD5. The panel is write only: the
  * controller's receive path is not used.
  */
 

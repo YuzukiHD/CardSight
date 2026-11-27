@@ -1,3 +1,10 @@
+Noto Sans SC (32 px capacity digits in fonts/digits_32.c)
+
+Copyright 2010-2012 Google Corporation.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license text below applies to this font as well.
+
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.

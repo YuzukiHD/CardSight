@@ -1,0 +1,44 @@
+---
+title: Live simulator
+description: "Run the real CardSight UI in the browser, with the firmware's LVGL pages and a fixed card model."
+---
+
+import Simulator from '../../../components/Simulator.astro';
+
+The simulator on this page is the real UI compiled to WebAssembly: the same LVGL version, the same
+five pages, the same widgets, fonts and glass material as `software/apps/cardsight/ui/`. It is not
+a separate web mock-up.
+
+<Simulator />
+
+## What it runs
+
+- The firmware UI sources, compiled with Emscripten by `software/tests/wasm/`.
+- A fixed card model: SK32G, 32 GB, three 10 GB partitions formatted as FAT32, exFAT and a
+  read-only ext4.
+- A request emulator that answers the worker messages the pages send: scanning, listing,
+  starting and stopping USB, formatting and layout changes.
+- A memory framebuffer, pointer input and a small scripted-scene layer for states that normally
+  need a card insertion or a hardware fault.
+
+## Controls
+
+- Use the pointer or a finger on the screen: tap the tab bar, drag a list, tap a partition or an
+  action button.
+- The page buttons switch the same five tabs as the firmware.
+- The scene buttons insert or eject the card, connect or stop USB, show the identifying overlay,
+  open the error sheet, the format dialog, the layout editor or a file listing, and reset the demo.
+
+## Limits
+
+The simulator cannot:
+
+- access a real card or a USB host;
+- reproduce MMC timing, tuning, DMA or throughput;
+- measure performance or match the panel's RGB666 data path exactly (the browser framebuffer is
+  RGB565);
+- persist changes between reloads.
+
+The UI behaviour, layout, labels and state transitions are the real ones. Use the
+[on-screen UI](ui.md) page for a description of each page, and
+[Build](../development/build.md) for the simulator build steps.

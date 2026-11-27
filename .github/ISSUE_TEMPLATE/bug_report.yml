@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a reproducible firmware, UI, tooling or documentation problem.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security vulnerabilities here; use SECURITY.md.
+        Include a serial log where possible, and remove card contents and private data first.
+  - type: input
+    id: board
+    attributes:
+      label: Board and SoC
+      description: Board revision and SoC variant.
+      placeholder: "Yuzuki CardSight rev A, Allwinner V861"
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: CardSight commit or release
+      description: Output of `git rev-parse --short HEAD` or the release name.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Boot / FEL
+        - TF card / MMC
+        - Filesystems / VFS
+        - Storage proxy
+        - USB mass storage
+        - On-screen UI
+        - Shell
+        - Build system
+        - Documentation site
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands or touch actions, in order.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Toolchain version, build preset, host OS, card model and filesystem.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Serial log, screenshot or other evidence
+      description: Paste the log or attach a file. Remove private data.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and read the FAQ.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

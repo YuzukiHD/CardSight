@@ -20,6 +20,9 @@ tmp=$(mktemp -d)
 mkdir -p "$tmp/$name"
 tar -C "$root" \
 	--exclude=./build --exclude=./software/build --exclude=./dist --exclude=./.git \
+	--exclude=./docs/node_modules --exclude=./docs/dist --exclude=./docs/.astro \
+	--exclude=./docs/public/api --exclude=./docs/public/ui \
+	--exclude=./docs/public/mermaid.min.js \
 	--exclude='*.a' --exclude='*.o' --exclude='*.d' \
 	-cf - . | tar -C "$tmp/$name" -xf -
 # the submodule's git link is not useful inside a tarball; name where it came from

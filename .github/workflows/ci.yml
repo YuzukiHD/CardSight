@@ -15,7 +15,7 @@ jobs:
       run:
         working-directory: software
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: false
           fetch-depth: 1
@@ -34,7 +34,7 @@ jobs:
     if: github.ref != 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: false
           fetch-depth: 1
@@ -49,12 +49,17 @@ jobs:
         with:
           version: 7.0.1
           actions-cache-folder: emsdk-cache
+      - name: Install Doxygen
+        run: sudo apt-get update && sudo apt-get install -y doxygen
       - name: Install docs dependencies
         working-directory: docs
         run: npm ci
-      - name: Build the docs site and the WebAssembly UI
+      - name: Build the site, WebAssembly UI and C API
         working-directory: docs
         run: npm run build
+      - name: Check links and generated API
+        working-directory: docs
+        run: npm run check
       - name: Upload the site
         uses: actions/upload-artifact@v4
         with:
