@@ -17,7 +17,7 @@ ST7789 panel; a serial shell covers diagnostics and recovery.
 git clone --recurse-submodules https://github.com/YuzukiHD/CardSight.git
 export XUANTIE_TOOLCHAIN=/path/to/Xuantie-900-gcc-elf-newlib-x86_64-V3.2.0
 cd CardSight/software && cmake --preset riscv && cmake --build build/riscv
-# then load the three images through FEL; see the flashing guide
+# then load the three images through FEL; see the boot guide
 ```
 
 No prebuilt images are published. The build produces `cardsight.bin`, `init_psram_efex.bin` and

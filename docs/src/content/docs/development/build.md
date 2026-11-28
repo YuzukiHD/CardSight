@@ -34,7 +34,7 @@ images, and writes:
 | `init_psram_efex.bin` | E907 PSRAM initialiser |
 | `c907_boot_efex.bin` | E907 C907-release stub |
 
-The images are in `software/build/riscv/images/`. Flashing is in
+The images are in `software/build/riscv/images/`. Loading into RAM and writing SPI NOR are in
 [Flashing and boot](../getting-started/flashing.md).
 
 Build options are in [Configuration](../reference/configuration.md). `CARDSIGHT_WITH_APP` gates the

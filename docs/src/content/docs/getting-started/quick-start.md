@@ -3,16 +3,16 @@ title: Quick start
 description: "Build the firmware, load it through FEL, and reach the first boot prompt."
 ---
 
-This page is the shortest path from a checkout to a running board. The build and flashing pages
-hold the details; the simulator on the [overview page](../index.md) is available if you do not have
-the board yet.
+This page is the shortest path from a checkout to a running board. The build and boot pages hold the
+details; the simulator on the [overview page](../index.md) is available if you do not have the board
+yet.
 
 ## Prerequisites
 
 - A Yuzuki CardSight board and a USB cable for its OTG port.
 - A TF card for testing.
 - A USB-UART adapter on UART0: PH13/PH14, 115200 8N1.
-- [`xfel`](https://github.com/xboot/xfel) for the FEL download.
+- [`xfel`](https://github.com/xboot/xfel) for FEL loads and SPI NOR writes.
 - The XuanTie-900 GCC elf newlib toolchain, exposed through `XUANTIE_TOOLCHAIN`.
 - Git, CMake 3.20 or newer, and a C compiler for the host tests.
 - For the documentation site only: Node.js, Emscripten and Doxygen.
@@ -39,7 +39,7 @@ The images are written to `software/build/riscv/images/`:
 No prebuilt images are published. If you only want to inspect the UI, use the
 [simulator on the overview page](../index.md) instead.
 
-## Flash
+## Load into RAM
 
 With the board in FEL mode:
 
@@ -51,8 +51,16 @@ xfel write 0x00100000 software/build/riscv/images/c907_boot_efex.bin
 xfel exec  0x00100000
 ```
 
-The addresses, the eFEX split and the memory map are explained in
-[Flashing and boot](flashing.md).
+`xfel write` copies the files into SRAM and PSRAM. It does not program the SPI NOR, and the image is
+lost on power-off.
+
+## Flash SPI NOR
+
+To keep firmware across power cycles, write a boot image to the SPI NOR with
+`xfel spinor write <address> <image>`. Back up the existing flash with `xfel spinor read` first, and
+read the written range back to verify it. The address and image must match the board's boot layout;
+the RAM images above are not a NOR boot image. The complete commands, the eFEX split and the memory
+map are in [Flashing and boot](flashing.md#flash-spi-nor).
 
 ## First boot
 
