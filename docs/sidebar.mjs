@@ -15,7 +15,6 @@ export const sidebar = [
 			{ label: 'On-screen UI', slug: 'guide/ui' },
 			{ label: 'Card and files', slug: 'guide/card-files' },
 			{ label: 'USB export', slug: 'guide/usb-export' },
-			{ label: 'Live simulator', slug: 'guide/simulator' },
 		],
 	},
 	{

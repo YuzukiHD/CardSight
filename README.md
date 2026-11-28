@@ -31,13 +31,14 @@ No prebuilt images are published. The build produces `cardsight.bin`, `init_psra
 | --- | --- |
 | Getting started | [Overview](https://yuzukihd.github.io/CardSight/), [Quick start](https://yuzukihd.github.io/CardSight/getting-started/quick-start/), [Flashing and boot](https://yuzukihd.github.io/CardSight/getting-started/flashing/) |
 | Using CardSight | [On-screen UI](https://yuzukihd.github.io/CardSight/guide/ui/), [Card and files](https://yuzukihd.github.io/CardSight/guide/card-files/), [USB export](https://yuzukihd.github.io/CardSight/guide/usb-export/) |
-| Live demo | [WebAssembly UI simulator](https://yuzukihd.github.io/CardSight/guide/simulator/) |
+| Live demo | [WebAssembly UI simulator](https://yuzukihd.github.io/CardSight/#try-it) |
 | Reference | [Shell commands](https://yuzukihd.github.io/CardSight/reference/cli/), [Configuration](https://yuzukihd.github.io/CardSight/reference/configuration/), [Hardware](https://yuzukihd.github.io/CardSight/reference/hardware/), [C API](https://yuzukihd.github.io/CardSight/reference/api/) |
 | Development | [Build](https://yuzukihd.github.io/CardSight/development/build/), [Testing](https://yuzukihd.github.io/CardSight/development/testing/), [Architecture](https://yuzukihd.github.io/CardSight/development/architecture/), [Porting](https://yuzukihd.github.io/CardSight/development/porting/) |
 | Project | [FAQ](https://yuzukihd.github.io/CardSight/project/faq/), [Changelog](CHANGELOG.md), [Security](SECURITY.md), [License](https://yuzukihd.github.io/CardSight/project/license/) |
 
-The documentation sources are in [`docs/`](docs/). The site is built with Astro/Starlight, and its
-[UI simulator](docs/README.md) is the real LVGL UI compiled to WebAssembly.
+The documentation sources are in [`docs/`](docs/). The site is built with Astro/Starlight, and the
+[simulator on its overview page](https://yuzukihd.github.io/CardSight/#try-it) is the real LVGL UI
+compiled to WebAssembly.
 
 ## Supported hardware
 

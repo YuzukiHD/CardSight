@@ -22,6 +22,7 @@ const redirects = Object.fromEntries(
 		['/porting', '/development/porting'],
 		['/licensing', '/project/license'],
 		['/hardware', '/reference/hardware'],
+		['/guide/simulator', ''],
 	].map(([from, to]) => [from, `${base}${to}/`]),
 );
 

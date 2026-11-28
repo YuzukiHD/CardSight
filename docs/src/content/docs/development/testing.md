@@ -57,8 +57,8 @@ It is a development tool for checking layout and state changes without the board
 ## WebAssembly simulator
 
 `software/tests/wasm/` compiles the same UI sources with Emscripten. The docs build runs it and the
-site mounts it on the [live simulator](../guide/simulator.md) page. It has no RTOS, card driver or
-USB host; it supplies a fixed card fixture and a request emulator.
+site mounts it on the [overview page](../index.md). It has no RTOS, card driver or USB host; it
+supplies a fixed card fixture and a request emulator.
 
 ## CI
 

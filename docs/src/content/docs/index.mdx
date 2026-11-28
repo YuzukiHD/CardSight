@@ -3,8 +3,7 @@ title: Overview
 description: "CardSight is a TF card proxy system for the Yuzuki CardSight board, with a touch UI, filesystem tools and USB export."
 ---
 
-import { Image } from 'astro:assets';
-import screenshot from '../../assets/cardsight-ui.png';
+import Simulator from '../../components/Simulator.astro';
 
 <div class="cs-hero">
 	<span class="cs-hero__tag">Allwinner V861/V881 · XuanTie C907 · RV32 · GPL-2.0-or-later</span>
@@ -12,11 +11,13 @@ import screenshot from '../../assets/cardsight-ui.png';
 	<p>CardSight reads a TF card, manages its partitions and filesystems, and exports the card or a synthesized exFAT view over USB. The five-page touch UI runs on a 240×284 ST7789 panel, and a serial shell covers diagnostics and recovery.</p>
 </div>
 
-<a class="cs-shot" href="guide/simulator/">
-	<Image src={screenshot} alt="CardSight Direct page: capacity, card status, read and write rates, and the Connect USB button" width={480} height={568} />
-</a>
+## Try it
 
-<p class="cs-shot__caption">The real UI, rendered from the firmware sources. <a href="guide/simulator/">Open the live simulator</a> to use it in the browser.</p>
+<Simulator />
+
+The demo is the real LVGL UI compiled to WebAssembly, running a fixed 32 GB card model with three
+10 GB partitions formatted as FAT32, exFAT and a read-only ext4. It cannot access a real card or USB
+host, measure throughput, or keep changes after a reload.
 
 ## Start here
 
@@ -27,7 +28,7 @@ import screenshot from '../../assets/cardsight-ui.png';
 | Learn the five touch pages | [On-screen UI](guide/ui.md) |
 | Format a card or browse files | [Card and files](guide/card-files.md) |
 | Export the card over USB | [USB export](guide/usb-export.md) |
-| Try the UI without a board | [Live simulator](guide/simulator.md) |
+| Try the UI without a board | [Simulator on this page](#try-it) |
 | Look up a command or setting | [Shell commands](reference/cli.md), [Configuration](reference/configuration.md) |
 | Work on the firmware | [Build](development/build.md), [Architecture](development/architecture.md), [Porting](development/porting.md) |
 

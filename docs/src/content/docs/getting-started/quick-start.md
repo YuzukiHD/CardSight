@@ -4,7 +4,8 @@ description: "Build the firmware, load it through FEL, and reach the first boot 
 ---
 
 This page is the shortest path from a checkout to a running board. The build and flashing pages
-hold the details; the live simulator is available if you do not have the board yet.
+hold the details; the simulator on the [overview page](../index.md) is available if you do not have
+the board yet.
 
 ## Prerequisites
 
@@ -36,7 +37,7 @@ The images are written to `software/build/riscv/images/`:
 | `c907_boot_efex.bin` | Releases the C907 at entry `0x12000000` |
 
 No prebuilt images are published. If you only want to inspect the UI, use the
-[live simulator](../guide/simulator.md) instead.
+[simulator on the overview page](../index.md) instead.
 
 ## Flash
 
