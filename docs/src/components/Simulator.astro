@@ -8,40 +8,54 @@
 		<div class="cs-sim__bezel">
 			<canvas width="240" height="284" aria-label="CardSight UI WebAssembly simulator"></canvas>
 		</div>
-		<p class="cs-sim__caption">Real UI compiled to WebAssembly · 240 × 284 · touch or drag</p>
+		<p class="cs-sim__caption">Real firmware UI compiled to WebAssembly · 240 × 284 · tap and drag</p>
 	</div>
 	<div class="cs-sim__controls">
-		<div class="cs-sim__group" role="group" aria-label="Switch page">
-			<button type="button" class="cs-sim__button is-active" data-cs-page="0" aria-pressed="true">Direct</button>
-			<button type="button" class="cs-sim__button" data-cs-page="1" aria-pressed="false">Proxy</button>
-			<button type="button" class="cs-sim__button" data-cs-page="2" aria-pressed="false">Disk</button>
-			<button type="button" class="cs-sim__button" data-cs-page="3" aria-pressed="false">Files</button>
-			<button type="button" class="cs-sim__button" data-cs-page="4" aria-pressed="false">Info</button>
+		<p class="cs-sim__guide">
+			<strong>This screen is live.</strong> Tap the tab bar at the bottom to switch pages, drag a
+			list to scroll, and tap a partition, row or button to act on it. The page buttons below mirror
+			the five tabs; the scene buttons recreate card, USB and error states.
+		</p>
+		<div class="cs-sim__group" role="group" aria-label="Screen page">
+			<p class="cs-sim__label">Screen page</p>
+			<div class="cs-sim__grid cs-sim__grid--pages">
+				<button type="button" class="cs-sim__button is-active" data-cs-page="0" aria-pressed="true">Direct</button>
+				<button type="button" class="cs-sim__button" data-cs-page="1" aria-pressed="false">Proxy</button>
+				<button type="button" class="cs-sim__button" data-cs-page="2" aria-pressed="false">Disk</button>
+				<button type="button" class="cs-sim__button" data-cs-page="3" aria-pressed="false">Files</button>
+				<button type="button" class="cs-sim__button" data-cs-page="4" aria-pressed="false">Info</button>
+			</div>
 		</div>
-		<div class="cs-sim__group" role="group" aria-label="USB and card">
-			<button type="button" class="cs-sim__button" data-cs-action="3"
-				data-cs-hint="USB link is up; the active page can now be stopped safely.">Connect USB</button>
-			<button type="button" class="cs-sim__button" data-cs-action="4"
-				data-cs-hint="USB and the storage proxy are stopped.">Stop safely</button>
-			<button type="button" class="cs-sim__button" data-cs-action="1"
-				data-cs-hint="The 32 GB SK32G card is inserted.">Insert card</button>
-			<button type="button" class="cs-sim__button" data-cs-action="2"
-				data-cs-hint="Card removed; the UI returns to the empty state.">Eject card</button>
+		<div class="cs-sim__group" role="group" aria-label="Card and USB">
+			<p class="cs-sim__label">Card and USB</p>
+			<div class="cs-sim__grid">
+				<button type="button" class="cs-sim__button" data-cs-action="3"
+					data-cs-hint="USB link is up; the active page can now be stopped safely.">Connect USB</button>
+				<button type="button" class="cs-sim__button" data-cs-action="4"
+					data-cs-hint="USB and the storage proxy are stopped.">Stop safely</button>
+				<button type="button" class="cs-sim__button" data-cs-action="1"
+					data-cs-hint="The 32 GB SK32G card is inserted.">Insert card</button>
+				<button type="button" class="cs-sim__button" data-cs-action="2"
+					data-cs-hint="Card removed; the UI returns to the empty state.">Eject card</button>
+			</div>
 		</div>
-		<div class="cs-sim__group" role="group" aria-label="UI states">
-			<button type="button" class="cs-sim__button" data-cs-action="5"
-				data-cs-hint="Identifying the card: it is inserted after 2.4 seconds.">Detecting</button>
-			<button type="button" class="cs-sim__button" data-cs-action="6"
-				data-cs-hint="Error sheet for a failed read; tap Back on the screen to close it.">Read error</button>
-			<button type="button" class="cs-sim__button" data-cs-action="7"
-				data-cs-hint="Format confirmation: choose quick format or full format.">Format dialog</button>
-			<button type="button" class="cs-sim__button" data-cs-action="8"
-				data-cs-hint="Whole-card layout editor; the destructive action is a long press.">Layout editor</button>
-			<button type="button" class="cs-sim__button" data-cs-action="9"
-				data-cs-hint="File browser at the root of the exFAT partition.">File list</button>
-			<button type="button" class="cs-sim__button" data-cs-action="0"
-				data-cs-hint="Demo reset.">Reset</button>
+		<div class="cs-sim__group" role="group" aria-label="Demo states">
+			<p class="cs-sim__label">Demo states</p>
+			<div class="cs-sim__grid">
+				<button type="button" class="cs-sim__button" data-cs-action="5"
+					data-cs-hint="Identifying the card: it is inserted after 2.4 seconds.">Detecting</button>
+				<button type="button" class="cs-sim__button" data-cs-action="6"
+					data-cs-hint="Error sheet for a failed read; tap Back on the screen to close it.">Read error</button>
+				<button type="button" class="cs-sim__button" data-cs-action="7"
+					data-cs-hint="Format confirmation: choose quick format or full format.">Format dialog</button>
+				<button type="button" class="cs-sim__button" data-cs-action="8"
+					data-cs-hint="Whole-card layout editor; the destructive action is a long press.">Layout editor</button>
+				<button type="button" class="cs-sim__button" data-cs-action="9"
+					data-cs-hint="File browser at the root of the exFAT partition.">File list</button>
+				<button type="button" class="cs-sim__button" data-cs-action="0"
+					data-cs-hint="Demo reset.">Reset</button>
+			</div>
 		</div>
-		<p class="cs-sim__status" data-cs-status>Loading WebAssembly…</p>
+		<p class="cs-sim__status" data-cs-status role="status" aria-live="polite">Loading WebAssembly…</p>
 	</div>
 </div>
